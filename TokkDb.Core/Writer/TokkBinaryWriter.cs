@@ -22,8 +22,9 @@ public class TokkBinaryWriter {
   }
   
   public void WriteBytes(byte[] values) {
-    foreach (var value in values) {
-      Buffer.WriteByte(value, Position);
+    for (var i = 0; i < values.Length; i++) {
+      var value = values[i];
+      Buffer.WriteByte(value, Position + i);
     }
     MovePosition(values.Length);
   }

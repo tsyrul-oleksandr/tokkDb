@@ -20,7 +20,7 @@ public class BasePageHeader {
     Buffer = buffer;
   }
   
-  public void Read() {
+  /*public void Read() {
     Id = Buffer.ReadUInt(IdField.Index);
     Type = Buffer.ReadByte(TypeField.Index);
     PreviousPageId = Buffer.ReadUInt(PreviousPageIdField.Index);
@@ -29,8 +29,8 @@ public class BasePageHeader {
   
   public void Write() {
     Buffer.Write(Id, IdField.Index);
-    Buffer.Write(Type, TypeField.Index);
+    Buffer.WriteByte(Type, TypeField.Index);
     Buffer.Write(PreviousPageId, PreviousPageIdField.Index);
     Buffer.Write(NextPageId, NextPageIdField.Index);
-  }
+  }*/
 }

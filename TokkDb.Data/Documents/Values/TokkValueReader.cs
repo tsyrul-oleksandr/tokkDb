@@ -19,6 +19,7 @@ public class TokkValueReader : TokkBinaryReader {
       ValueType.Int => new IntValue(),
       ValueType.String => new StringValue(),
       ValueType.Object => new ObjectValue(),
+      ValueType.Array => new ArrayValue(),
       _ => throw new NotImplementedException()
     };
   }

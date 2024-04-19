@@ -13,13 +13,5 @@ public class BasePage<THeader> where THeader : BasePageHeader, new() {
       Buffer = buffer
     };
   }
-
-  public void Initialize() {
-    Header.Read();
-  }
-  
-  public void Save() {
-    Header.Write();
-  }
   
 }

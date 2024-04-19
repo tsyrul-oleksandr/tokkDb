@@ -29,7 +29,7 @@ public class TokkBinaryReader {
   public byte[] ReadBytes(int count) {
     var bytes = new byte[count];
     for (var i = 0; i < count; i++) {
-      bytes[0] = Buffer.ReadByte(Position + i);
+      bytes[i] = Buffer.ReadByte(Position + i);
     }
     MovePosition(count);
     return bytes;
@@ -38,7 +38,6 @@ public class TokkBinaryReader {
   public string ReadString() {
     var length = ReadInt();
     var bytes = ReadBytes(length);
-    MovePosition(bytes.Length);
     return Encoding.UTF8.GetString(bytes);
   }
 
