@@ -18,7 +18,8 @@ var document = s.Serialize(new User {
   Name = "Test",
   Age = 18,
   Email = "test@qq.com",
-  Password = null
+  Password = null,
+  Tags = ["tag1", "tag2"],
 });
 
 var writer = new TokkValueWriter(new TokkBuffer(buffer));
@@ -33,4 +34,6 @@ stream.Read(readBuffer, 0, bufferSize);
 var readDocument = new TokkDocument();
 var reader = new TokkValueReader(new TokkBuffer(readBuffer));
 readDocument.Read(reader);
-Console.WriteLine(readDocument.Value);
+var readUser = s.Deserialize<User>(readDocument);
+Console.WriteLine(readUser.Email);
+Console.WriteLine(string.Join(", ", readUser.Tags));

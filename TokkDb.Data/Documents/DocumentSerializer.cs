@@ -19,6 +19,57 @@ public class DocumentSerializer {
     };
   }
 
+  public T Deserialize<T>(TokkDocument document) where T : class, new() {
+    var type = typeof(T);
+    if (!type.IsClass) {
+      throw new ArgumentException("Type must be class", nameof(document));
+    }
+    var value = document.Value;
+    return (T)DeserializeValue(value, type);
+  }
+
+  protected virtual object DeserializeValue(BaseValue value, Type type) {
+    if (value is NullValue) {
+      return null;
+    }
+    if (value is IntValue intValue) {
+      return intValue.Value;
+    }
+    if (value is StringValue stringValue) {
+      return stringValue.Value;
+    }
+    if (value is ArrayValue arrayValue) {
+      return DeserializeArrayValue(type, arrayValue);
+    }
+    if (value is ObjectValue objectValue) {
+      return DeserializeObjectValue(type, objectValue);
+    }
+    throw new NotImplementedException();
+  }
+
+  protected virtual object DeserializeObjectValue(Type type, ObjectValue objectValue) {
+    var obj = Activator.CreateInstance(type);
+    foreach (var (key, value) in objectValue.Values) {
+      var property = GetProperty(type, key);
+      if (property == null) {
+        continue;
+      }
+      property.SetValue(obj, DeserializeValue(value, property.PropertyType));
+    }
+    return obj;
+  }
+  
+  protected virtual object DeserializeArrayValue(Type type, ArrayValue arrayValue) {
+    var elementType = type.GetElementType();
+    var array = Array.CreateInstance(elementType, arrayValue.Values.Length);
+    for (var i = 0; i < arrayValue.Values.Length; i++) {
+      var value = arrayValue.Values[i];
+      var arrayItem = DeserializeValue(value, elementType);
+      array.SetValue(arrayItem, i);
+    }
+    return array;
+  }
+
   protected virtual BaseValue SerializeBaseValue(object value, Type type) {
     var keyProperty = GetProperties(type).FirstOrDefault(info => info.GetCustomAttribute<KeyAttribute>() != null);
     if (keyProperty == null) {
@@ -54,5 +105,9 @@ public class DocumentSerializer {
   
   protected virtual PropertyInfo[] GetProperties(Type type) {
     return type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+  }
+  
+  protected virtual PropertyInfo GetProperty(Type type, string key) {
+    return type.GetProperty(key, BindingFlags.Public | BindingFlags.Instance);
   }
 }

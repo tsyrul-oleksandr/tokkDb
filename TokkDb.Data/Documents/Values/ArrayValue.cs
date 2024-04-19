@@ -10,11 +10,18 @@ public class ArrayValue : BaseValue {
   }
   
   public override void WriteValue(TokkValueWriter writer) {
-    throw new NotImplementedException();
+    writer.WriteInt(Values.Length);
+    foreach (var value in Values) {
+      writer.Write(value);
+    }
   }
 
   public override void ReadValue(TokkValueReader reader) {
-    throw new NotImplementedException();
+    var count = reader.ReadInt();
+    Values = new BaseValue[count];
+    for (var i = 0; i < count; i++) {
+      Values[i] = reader.Read();
+    }
   }
 
 }
