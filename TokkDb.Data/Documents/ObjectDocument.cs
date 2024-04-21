@@ -1,3 +1,4 @@
+using TokkDb.Data.Documents.Buffer;
 using TokkDb.Data.Documents.Values;
 
 namespace TokkDb.Data.Documents;
@@ -28,6 +29,6 @@ public class ObjectDocument {
         or DocumentValueType.Long or DocumentValueType.ULong or DocumentValueType.Guid or DocumentValueType.Ulid)) {
       throw new ArgumentException("Value must be an identifier value", nameof(value));
     }
-    Value = value;
+    IdentifierValue = value;
   }
 }

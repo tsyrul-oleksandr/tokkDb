@@ -1,21 +1,27 @@
+using System.Buffers;
 using System.Text;
 
 namespace TokkDb.Core.Buffer;
 
-public class BufferSlice {
-  protected IBufferAddress Address { get; }
-  protected Memory<byte> Memory { get; set; }
+public class BufferSlice : IMemoryOwner<byte>{
+  public Memory<byte> Memory { get; set; }
 
   public BufferSlice(byte[] bytes) {
     Memory = bytes.AsMemory();
   }
   public BufferSlice(Memory<byte> memory, IBufferAddress address) {
-    Address = address;
     Memory = memory.Slice(address.Position, address.Length);
+  }
+  public BufferSlice(Memory<byte> memory, int position, int length) {
+    Memory = memory.Slice(position, length);
   }
 
   public BufferSlice Slice(IBufferAddress address) {
     return new BufferSlice(Memory, address);
+  }
+  
+  public BufferSlice Slice(int position, int length) {
+    return new BufferSlice(Memory, position, length);
   }
   
   public virtual byte ReadByte(int index) {
@@ -31,6 +37,19 @@ public class BufferSlice {
   public virtual uint ReadUInt(int index, out int readBytes) {
     var value = BitConverter.ToUInt32(Memory.Span[index..(index + TypesConstants.UIntByteSize)]);
     readBytes = TypesConstants.UIntByteSize;
+    return value;
+  }
+  
+  public long ReadLong(int index, out int readBytes) {
+    var value = BitConverter.ToUInt32(Memory.Span[index..(index + TypesConstants.LongByteSize)]);
+    readBytes = TypesConstants.LongByteSize;
+    return value;
+  }
+  
+  public DateTime ReadDateTime(int index, out int readBytes) {
+    var ticks = BitConverter.ToInt64(Memory.Span[index..(index + TypesConstants.LongByteSize)]);
+    readBytes = TypesConstants.DateTimeByteSize;
+    var value = DateTime.FromBinary(ticks);
     return value;
   }
   
@@ -64,6 +83,16 @@ public class BufferSlice {
     WriteBytes(bytes, index, out writeBytes);
   }
   
+  public virtual void WriteLong(long value, int index, out int writeBytes) {
+    var bytes = BitConverter.GetBytes(value);
+    WriteBytes(bytes, index, out writeBytes);
+  }
+  
+  public virtual void WriteDateTime(DateTime value, int index, out int writeBytes) {
+    var ticks = value.ToBinary();
+    WriteLong(ticks, index, out writeBytes);
+  }
+  
   public virtual void WriteBytes(byte[] values, int index, out int writeBytes) {
     for (var i = 0; i < values.Length; i++) {
       var value = values[i];
@@ -81,5 +110,10 @@ public class BufferSlice {
   
   public virtual byte[] ToArray() {
     return Memory.ToArray();
+  }
+
+  public void Dispose() {
+    Memory = null;
+    // TODO release managed resources here
   }
 }

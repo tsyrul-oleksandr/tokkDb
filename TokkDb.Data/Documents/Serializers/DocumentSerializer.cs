@@ -3,10 +3,10 @@ using System.ComponentModel.DataAnnotations;
 using System.Reflection;
 using TokkDb.Data.Documents.Values;
 
-namespace TokkDb.Data.Documents;
+namespace TokkDb.Data.Documents.Serializers;
 
-public class DocumentSerializer {
-  public ObjectDocument Serialize<T>(T obj, IDocumentValue keyValue = null) where T : class {
+public class DocumentSerializer<T> where T : class, new() {
+  public ObjectDocument Serialize(T obj, IDocumentValue keyValue = null) {
     var type = typeof(T);
     if (!type.IsClass) {
       throw new ArgumentException("Type must be class", nameof(obj));
@@ -17,7 +17,7 @@ public class DocumentSerializer {
     return doc;
   }
 
-  public T Deserialize<T>(ObjectDocument document) where T : class, new() {
+  public T Deserialize(ObjectDocument document) {
     var type = typeof(T);
     if (!type.IsClass) {
       throw new ArgumentException("Type must be class", nameof(document));

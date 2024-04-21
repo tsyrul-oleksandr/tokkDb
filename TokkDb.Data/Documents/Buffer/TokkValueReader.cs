@@ -2,7 +2,7 @@ using TokkDb.Core.Buffer;
 using TokkDb.Core.Reader;
 using TokkDb.Data.Documents.Values;
 
-namespace TokkDb.Data.Documents;
+namespace TokkDb.Data.Documents.Buffer;
 
 public class TokkValueReader : TokkBinaryReader {
   public TokkValueReader(BufferSlice buffer) : base(buffer) { }

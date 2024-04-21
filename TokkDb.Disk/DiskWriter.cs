@@ -6,8 +6,10 @@ using TokkDb.Disk.Streams;
 namespace TokkDb.Disk;
 
 public class DiskWriter {
+  private Stream _stream = Stream.Null;
   public IStreamFactory Factory { get; }
   public PageMemoryCache Cache { get; }
+  public Stream Stream => (_stream != Stream.Null) ? _stream : _stream = Factory.Get(false);
 
   public DiskWriter(IStreamFactory factory, PageMemoryCache cache) {
     Factory = factory;
@@ -15,7 +17,7 @@ public class DiskWriter {
   }
   
   public virtual void WritePages(IEnumerable<PageBuffer> pages) {
-    var stream = Factory.Get(false);
+    var stream = Stream;
     foreach (var page in pages) {
       stream.Position = page.GetPosition();
       var buffer = page.ToArray();
@@ -23,7 +25,6 @@ public class DiskWriter {
       Cache.Set(page.Index, page);
     }
     SaveStream(stream);
-    
   }
 
   protected virtual void SaveStream(Stream stream) {

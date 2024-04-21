@@ -11,6 +11,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\TokkDb.Core\TokkDb.Core.csproj" />
+      <ProjectReference Include="..\TokkDb.Disk\TokkDb.Disk.csproj" />
     </ItemGroup>
 
 </Project>

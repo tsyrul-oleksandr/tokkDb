@@ -22,6 +22,11 @@ public class DiskReader {
     _ = stream.Read(bytes, 0, bytes.Length);
     return new PageBuffer(bytes);
   }
+  
+  public bool IsBlank() {
+    var stream = GetStream();
+    return stream.Length < TokkConstants.PageSize;
+  }
 
   protected virtual long GetPosition(uint index) {
     return PageUtilities.GetPosition(index);
@@ -30,4 +35,6 @@ public class DiskReader {
   protected virtual Stream GetStream() {
     return Factory.Get(true);
   }
+
+  
 }

@@ -2,10 +2,9 @@ using TokkDb.Core.Buffer;
 using TokkDb.Core.Writer;
 using TokkDb.Data.Documents.Values;
 
-namespace TokkDb.Data.Documents;
+namespace TokkDb.Data.Documents.Buffer;
 
 public class TokkValueWriter : TokkBinaryWriter {
-  protected const byte TypeBytesCount = 1;
   
   public TokkValueWriter(BufferSlice buffer) : base(buffer) { }
   

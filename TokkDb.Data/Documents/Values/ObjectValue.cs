@@ -1,3 +1,5 @@
+using TokkDb.Data.Documents.Buffer;
+
 namespace TokkDb.Data.Documents.Values;
 
 public class ObjectValue : BaseDocumentValue {
@@ -9,6 +11,8 @@ public class ObjectValue : BaseDocumentValue {
     Values = values;
   }
   
+  public IDocumentValue this[string key] => Values[key];
+
   public override void WriteValue(TokkValueWriter writer) {
     writer.WriteInt(Values.Count);
     foreach (var value in Values) {

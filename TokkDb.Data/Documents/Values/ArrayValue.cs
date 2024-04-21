@@ -1,3 +1,5 @@
+using TokkDb.Data.Documents.Buffer;
+
 namespace TokkDb.Data.Documents.Values;
 
 public class ArrayValue : BaseDocumentValue {

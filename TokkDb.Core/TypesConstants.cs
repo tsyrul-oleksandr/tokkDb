@@ -16,6 +16,6 @@ public class TypesConstants {
   public const byte DecimalByteSize = 24;
   public const byte GuidByteSize = 36;
   public const byte UlidByteSize = 16;
-  public const byte DateTimeByteSize = 8;
+  public const byte DateTimeByteSize = LongByteSize;
   public const byte TimeSpanByteSize = 8;
 }

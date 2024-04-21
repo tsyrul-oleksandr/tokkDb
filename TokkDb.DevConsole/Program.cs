@@ -1,42 +1,26 @@
-﻿using TokkDb.Core.Buffer;
-using TokkDb.Data.Documents;
-using TokkDb.Data.Documents.Values;
+﻿using Microsoft.Extensions.DependencyInjection;
+using TokkDb;
 using TokkDb.DevConsole.Model;
+using TokkDb.Extensions;
+using TokkDb.Options;
 
 var filePath = "/Users/ts/Student/db/temp/tokkdb.db";
-/*using var db = new TokkDatabase(filePath);
-db.Open();*/
-var bufferSize = 1024;
 
-using var stream = new FileStream(filePath, FileMode.OpenOrCreate, FileAccess.ReadWrite);
-var buffer = new byte[bufferSize];
-//
-
-var s = new DocumentSerializer();
-var document = s.Serialize(new User {
+var user = new User {
   Id = 1,
   Name = "Test",
   Age = 18,
   Email = "test@qq.com",
   Password = null,
   Tags = ["tag1", "tag2"],
+};
+
+var services = new ServiceCollection();
+services.AddTokkDb(new TokkDatabaseOptions {
+  FilePath = filePath
 });
-
-var writer = new TokkValueWriter(new TokkBuffer(buffer));
-document.Write(writer);
-
-stream.Write(buffer, 0, bufferSize);
-stream.Flush();
-stream.Position = 0;
-
-
-
-var readBuffer = new byte[bufferSize];
-stream.Read(readBuffer, 0, bufferSize);
-
-var readDocument = new ObjectDocument();
-var reader = new TokkValueReader(new TokkBuffer(readBuffer));
-readDocument.Read(reader);
-var readUser = s.Deserialize<User>(readDocument);
-Console.WriteLine(readUser.Email);
-Console.WriteLine(string.Join(", ", readUser.Tags));
+var provider = services.BuildServiceProvider();
+var db = provider.GetService<TokkDatabase>();
+db.Open();
+var collection = db.GetCollection<User>("user_collection");
+collection.Insert(user);
