@@ -10,7 +10,9 @@
     </ItemGroup>
 
     <ItemGroup>
+      <Folder Include="Address\" />
       <Folder Include="Cache\" />
+      <Folder Include="Disk\" />
     </ItemGroup>
 
 </Project>

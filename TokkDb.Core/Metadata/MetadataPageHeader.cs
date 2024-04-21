@@ -3,7 +3,7 @@ using TokkDb.Core.Pages.Headers;
 
 namespace TokkDb.Core.Metadata;
 
-public class MetadataPageHeader : BasePageHeader {
+public class MetadataPageHeader : PageHeader {
   public MetadataPageHeader() { }
-  public MetadataPageHeader(TokkBuffer buffer) : base(buffer) { }
+  public MetadataPageHeader(BufferSlice buffer) : base(buffer) { }
 }

@@ -6,20 +6,18 @@ using TokkDb.Data.Documents.Values;
 namespace TokkDb.Data.Documents;
 
 public class DocumentSerializer {
-  public TokkDocument Serialize<T>(T obj, BaseValue keyValue = null) where T : class {
+  public ObjectDocument Serialize<T>(T obj, IDocumentValue keyValue = null) where T : class {
     var type = typeof(T);
     if (!type.IsClass) {
       throw new ArgumentException("Type must be class", nameof(obj));
     }
-    var value = SerializeValue(obj, type);
-    keyValue ??= SerializeBaseValue(obj, type);
-    return new TokkDocument {
-      Value = value,
-      IdentifierValue = keyValue
-    };
+    var doc = new ObjectDocument();
+    doc.SetValue(SerializeValue(obj, type));
+    doc.SetIdentifierValue(keyValue ?? SerializeIdentifierValue(obj, type));
+    return doc;
   }
 
-  public T Deserialize<T>(TokkDocument document) where T : class, new() {
+  public T Deserialize<T>(ObjectDocument document) where T : class, new() {
     var type = typeof(T);
     if (!type.IsClass) {
       throw new ArgumentException("Type must be class", nameof(document));
@@ -28,7 +26,7 @@ public class DocumentSerializer {
     return (T)DeserializeValue(value, type);
   }
 
-  protected virtual object DeserializeValue(BaseValue value, Type type) {
+  protected virtual object DeserializeValue(IDocumentValue value, Type type) {
     if (value is NullValue) {
       return null;
     }
@@ -70,7 +68,7 @@ public class DocumentSerializer {
     return array;
   }
 
-  protected virtual BaseValue SerializeBaseValue(object value, Type type) {
+  protected virtual IDocumentValue SerializeIdentifierValue(object value, Type type) {
     var keyProperty = GetProperties(type).FirstOrDefault(info => info.GetCustomAttribute<KeyAttribute>() != null);
     if (keyProperty == null) {
       throw new ArgumentException("Type must have a key property", nameof(value));
@@ -79,7 +77,7 @@ public class DocumentSerializer {
     return SerializeValue(key, keyProperty.PropertyType);
   }
   
-  protected virtual BaseValue SerializeValue(object value, Type type) {
+  protected virtual IDocumentValue SerializeValue(object value, Type type) {
     if (value is null) {
       return new NullValue();
     }

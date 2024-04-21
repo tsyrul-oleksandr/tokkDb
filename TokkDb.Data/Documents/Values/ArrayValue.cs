@@ -1,11 +1,11 @@
 namespace TokkDb.Data.Documents.Values;
 
-public class ArrayValue : BaseValue {
-  public override ValueType Type => ValueType.Array;
-  public BaseValue[] Values { get; set; }
+public class ArrayValue : BaseDocumentValue {
+  public override DocumentValueType Type => DocumentValueType.Array;
+  public IDocumentValue[] Values { get; set; }
 
   public ArrayValue() { }
-  public ArrayValue(BaseValue[] values) {
+  public ArrayValue(IDocumentValue[] values) {
     Values = values;
   }
   
@@ -18,7 +18,7 @@ public class ArrayValue : BaseValue {
 
   public override void ReadValue(TokkValueReader reader) {
     var count = reader.ReadInt();
-    Values = new BaseValue[count];
+    Values = new IDocumentValue[count];
     for (var i = 0; i < count; i++) {
       Values[i] = reader.Read();
     }

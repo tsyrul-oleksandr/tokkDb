@@ -1,7 +1,7 @@
 namespace TokkDb.Data.Documents.Values;
 
-public class IntValue : BaseValue {
-  public override ValueType Type => ValueType.Int;
+public class IntValue : BaseDocumentValue {
+  public override DocumentValueType Type => DocumentValueType.Int;
   public int Value { get; set; }
 
   public IntValue() { }

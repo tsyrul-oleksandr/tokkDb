@@ -1,51 +1,53 @@
+using TokkDb.Core;
+
 namespace TokkDb.Data.Documents.Values;
 
 public static class ValueUtilities {
-  public static int GetPrimitiveValueBytes(this ValueType valueType) {
+  public static int GetPrimitiveValueBytes(this DocumentValueType valueType) {
     return valueType switch {
-      ValueType.Null => ValueConstants.NullByteSite,
-      ValueType.Byte => ValueConstants.ByteByteSite,
-      ValueType.SByte => ValueConstants.SByteByteSite,
-      ValueType.Short => ValueConstants.ShortByteSite,
-      ValueType.UShort => ValueConstants.UShortByteSite,
-      ValueType.Int => ValueConstants.IntByteSite,
-      ValueType.UInt => ValueConstants.UIntByteSite,
-      ValueType.Long => ValueConstants.LongByteSite,
-      ValueType.ULong => ValueConstants.ULongByteSite,
-      ValueType.Float => ValueConstants.FloatByteSite,
-      ValueType.Double => ValueConstants.DoubleByteSite,
-      ValueType.Decimal => ValueConstants.DecimalByteSite,
-      ValueType.Boolean => ValueConstants.BooleanByteSite,
-      ValueType.DateTime => ValueConstants.DateTimeByteSite,
-      ValueType.TimeSpan => ValueConstants.TimeSpanByteSite,
-      ValueType.Guid => ValueConstants.GuidByteSite,
-      ValueType.Ulid => ValueConstants.UlidByteSite,
+      DocumentValueType.Null => TypesConstants.NullByteSize,
+      DocumentValueType.Byte => TypesConstants.ByteByteSize,
+      DocumentValueType.SByte => TypesConstants.SByteByteSize,
+      DocumentValueType.Short => TypesConstants.ShortByteSize,
+      DocumentValueType.UShort => TypesConstants.UShortByteSize,
+      DocumentValueType.Int => TypesConstants.IntByteSize,
+      DocumentValueType.UInt => TypesConstants.UIntByteSize,
+      DocumentValueType.Long => TypesConstants.LongByteSize,
+      DocumentValueType.ULong => TypesConstants.ULongByteSize,
+      DocumentValueType.Float => TypesConstants.FloatByteSize,
+      DocumentValueType.Double => TypesConstants.DoubleByteSize,
+      DocumentValueType.Decimal => TypesConstants.DecimalByteSize,
+      DocumentValueType.Boolean => TypesConstants.BooleanByteSize,
+      DocumentValueType.DateTime => TypesConstants.DateTimeByteSize,
+      DocumentValueType.TimeSpan => TypesConstants.TimeSpanByteSize,
+      DocumentValueType.Guid => TypesConstants.GuidByteSize,
+      DocumentValueType.Ulid => TypesConstants.UlidByteSize,
       _ => throw new ArgumentOutOfRangeException(nameof(valueType), valueType, null)
     };
   }
   
-  public static IDocumentItem GetValue(this ValueType valueType) {
+  public static IDocumentValue GetValue(this DocumentValueType valueType) {
     return valueType switch {
-      ValueType.Null => new NullValue(),
-      ValueType.Byte => throw new NotImplementedException(),
-      ValueType.SByte => throw new NotImplementedException(),
-      ValueType.Short => throw new NotImplementedException(),
-      ValueType.UShort => throw new NotImplementedException(),
-      ValueType.Int => new IntValue(),
-      ValueType.UInt => throw new NotImplementedException(),
-      ValueType.Long => throw new NotImplementedException(),
-      ValueType.ULong => throw new NotImplementedException(),
-      ValueType.Float => throw new NotImplementedException(),
-      ValueType.Double => throw new NotImplementedException(),
-      ValueType.Decimal =>null,
-      ValueType.Boolean => throw new NotImplementedException(),
-      ValueType.DateTime => throw new NotImplementedException(),
-      ValueType.TimeSpan => throw new NotImplementedException(),
-      ValueType.Guid => throw new NotImplementedException(),
-      ValueType.Ulid => throw new NotImplementedException(),
-      ValueType.String => new StringValue(),
-      ValueType.Object => new ObjectValue(),
-      ValueType.Array => new ArrayValue(),
+      DocumentValueType.Null => new NullValue(),
+      DocumentValueType.Byte => throw new NotImplementedException(),
+      DocumentValueType.SByte => throw new NotImplementedException(),
+      DocumentValueType.Short => throw new NotImplementedException(),
+      DocumentValueType.UShort => throw new NotImplementedException(),
+      DocumentValueType.Int => new IntValue(),
+      DocumentValueType.UInt => throw new NotImplementedException(),
+      DocumentValueType.Long => throw new NotImplementedException(),
+      DocumentValueType.ULong => throw new NotImplementedException(),
+      DocumentValueType.Float => throw new NotImplementedException(),
+      DocumentValueType.Double => throw new NotImplementedException(),
+      DocumentValueType.Decimal =>null,
+      DocumentValueType.Boolean => throw new NotImplementedException(),
+      DocumentValueType.DateTime => throw new NotImplementedException(),
+      DocumentValueType.TimeSpan => throw new NotImplementedException(),
+      DocumentValueType.Guid => throw new NotImplementedException(),
+      DocumentValueType.Ulid => throw new NotImplementedException(),
+      DocumentValueType.String => new StringValue(),
+      DocumentValueType.Object => new ObjectValue(),
+      DocumentValueType.Array => new ArrayValue(),
       _ => throw new ArgumentOutOfRangeException(nameof(valueType), valueType, null)
     };
   }

@@ -1,22 +1,18 @@
-using TokkDb.Core.Buffer;
-
 namespace TokkDb.Core.Pages.Headers;
 
-public class BasePageHeader {
-  protected static int ByteSize = 1;
-  protected static int UIntSize = 4;
-  protected static HeaderField IdField = new(0, UIntSize);
-  protected static HeaderField TypeField = new(IdField.NextPosition, ByteSize);
-  protected static HeaderField PreviousPageIdField = new(TypeField.NextPosition, UIntSize);
-  protected static HeaderField NextPageIdField = new(PreviousPageIdField.NextPosition, UIntSize);
-  public TokkBuffer Buffer { get; set; }
-  public uint Id { get; set; }
+public class PageHeader {
+  public static HeaderField IndexField = new(0, TypesConstants.UIntByteSize);
+  public static HeaderField TypeField = new(IndexField.NextPosition, TypesConstants.ByteByteSize);
+  public static HeaderField PreviousPageIdField = new(TypeField.NextPosition, TypesConstants.UIntByteSize);
+  public static HeaderField NextPageIdField = new(PreviousPageIdField.NextPosition, TypesConstants.UIntByteSize);
+  public PageBuffer Buffer { get; set; }
+  public uint Index { get; set; }
   public byte Type { get; set; }
   public uint PreviousPageId { get; set; }
   public uint NextPageId { get; set; }
 
-  public BasePageHeader() { }
-  public BasePageHeader(TokkBuffer buffer) {
+  public PageHeader() { }
+  public PageHeader(PageBuffer buffer) {
     Buffer = buffer;
   }
   

@@ -1,11 +1,11 @@
-using ValueType = TokkDb.Data.Documents.Values.ValueType;
+using TokkDb.Data.Documents.Values;
 
 namespace TokkDb.Data.Documents;
 
 public enum DocumentIdentifierType {
-  UInt = ValueType.UInt,
-  ULong = ValueType.ULong,
-  String = ValueType.String,
-  Guid = ValueType.Guid,
-  Ulid = ValueType.Ulid,
+  UInt = DocumentValueType.UInt,
+  ULong = DocumentValueType.ULong,
+  String = DocumentValueType.String,
+  Guid = DocumentValueType.Guid,
+  Ulid = DocumentValueType.Ulid,
 }

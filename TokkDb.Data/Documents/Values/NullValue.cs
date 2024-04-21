@@ -1,7 +1,7 @@
 namespace TokkDb.Data.Documents.Values;
 
-public class NullValue : BaseValue {
-  public override ValueType Type => ValueType.Null;
+public class NullValue : BaseDocumentValue {
+  public override DocumentValueType Type => DocumentValueType.Null;
   
   public override void WriteValue(TokkValueWriter writer) {
     

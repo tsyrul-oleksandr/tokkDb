@@ -1,7 +1,7 @@
 namespace TokkDb.Data.Documents.Values;
 
-public class StringValue : BaseValue {
-  public override ValueType Type => ValueType.String;
+public class StringValue : BaseDocumentValue {
+  public override DocumentValueType Type => DocumentValueType.String;
   public string Value { get; set; }
 
   public StringValue() { }

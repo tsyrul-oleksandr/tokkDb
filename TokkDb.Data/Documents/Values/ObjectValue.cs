@@ -1,11 +1,11 @@
 namespace TokkDb.Data.Documents.Values;
 
-public class ObjectValue : BaseValue {
-  public override ValueType Type => ValueType.Object;
-  public Dictionary<string, BaseValue> Values { get; set; }
+public class ObjectValue : BaseDocumentValue {
+  public override DocumentValueType Type => DocumentValueType.Object;
+  public Dictionary<string, IDocumentValue> Values { get; set; }
 
   public ObjectValue() { }
-  public ObjectValue(Dictionary<string, BaseValue> values) {
+  public ObjectValue(Dictionary<string, IDocumentValue> values) {
     Values = values;
   }
   
@@ -18,7 +18,7 @@ public class ObjectValue : BaseValue {
   }
 
   public override void ReadValue(TokkValueReader reader) {
-    Values = new Dictionary<string, BaseValue>();
+    Values = new Dictionary<string, IDocumentValue>();
     var count = reader.ReadInt();
     if (count == 0) {
       return;

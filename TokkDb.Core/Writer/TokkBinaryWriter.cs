@@ -4,10 +4,10 @@ using TokkDb.Core.Buffer;
 namespace TokkDb.Core.Writer;
 
 public class TokkBinaryWriter {
-  public TokkBuffer Buffer { get; }
+  public BufferSlice Buffer { get; }
   public int Position { get; set; }
 
-  public TokkBinaryWriter(TokkBuffer buffer) {
+  public TokkBinaryWriter(BufferSlice buffer) {
     Buffer = buffer;
   }
   
@@ -17,22 +17,18 @@ public class TokkBinaryWriter {
   }
   
   public void WriteInt(int value) {
-    var bytes = BitConverter.GetBytes(value);
-    WriteBytes(bytes);
+    Buffer.WriteInt(value, Position, out var writeBytes);
+    MovePosition(writeBytes);
   }
   
   public void WriteBytes(byte[] values) {
-    for (var i = 0; i < values.Length; i++) {
-      var value = values[i];
-      Buffer.WriteByte(value, Position + i);
-    }
-    MovePosition(values.Length);
+    Buffer.WriteBytes(values, Position, out var writeBytes);
+    MovePosition(writeBytes);
   }
   
   public void WriteString(string value) {
-    var bytes = Encoding.UTF8.GetBytes(value);
-    WriteInt(bytes.Length);
-    WriteBytes(bytes);
+    Buffer.WriteString(value, Position, out var writeBytes);
+    MovePosition(writeBytes);
   }
   
   protected virtual void MovePosition(int count) {
