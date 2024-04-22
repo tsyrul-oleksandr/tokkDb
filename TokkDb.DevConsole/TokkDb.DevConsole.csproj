@@ -9,6 +9,7 @@
     <ItemGroup>
       <ProjectReference Include="..\TokkDb.Core\TokkDb.Core.csproj" />
       <ProjectReference Include="..\TokkDb.Data\TokkDb.Data.csproj" />
+      <ProjectReference Include="..\TokkDb.Query\TokkDb.Query.csproj" />
       <ProjectReference Include="..\TokkDb\TokkDb.csproj" />
     </ItemGroup>
 

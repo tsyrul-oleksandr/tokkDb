@@ -3,8 +3,12 @@ using TokkDb;
 using TokkDb.DevConsole.Model;
 using TokkDb.Extensions;
 using TokkDb.Options;
+using TokkDb.Query.Tokenizers;
 
 var filePath = "/Users/ts/Student/db/temp/tokkdb.db";
+
+var tok = new QueryTokenizer("$.name");
+tok.NextToken();
 
 var user = new User {
   Id = 1,
