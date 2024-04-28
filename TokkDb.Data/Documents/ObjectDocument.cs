@@ -1,5 +1,6 @@
 using TokkDb.Data.Documents.Buffer;
 using TokkDb.Data.Documents.Values;
+using TokkDb.Values;
 
 namespace TokkDb.Data.Documents;
 
@@ -12,21 +13,21 @@ public class ObjectDocument {
     writer.Write(Value);
   }
   
-  public virtual void Read(TokkValueReader reader) {
+  public virtual void Read(TokkDocumentValueReader reader) {
     IdentifierValue = reader.Read();
     Value = reader.Read();
   }
   
   public virtual void SetValue(IDocumentValue value) {
-    if (value.Type != DocumentValueType.Object) {
+    if (value.Type != ValueTypeEnum.Object) {
       throw new ArgumentException("Value must be object", nameof(value));
     }
     Value = value;
   }
   
   public virtual void SetIdentifierValue(IDocumentValue value) {
-    if (value.Type is not (DocumentValueType.Int or DocumentValueType.String or DocumentValueType.UInt 
-        or DocumentValueType.Long or DocumentValueType.ULong or DocumentValueType.Guid or DocumentValueType.Ulid)) {
+    if (value.Type is not (ValueTypeEnum.Int or ValueTypeEnum.String or ValueTypeEnum.UInt 
+        or ValueTypeEnum.Long or ValueTypeEnum.ULong or ValueTypeEnum.Guid or ValueTypeEnum.Ulid)) {
       throw new ArgumentException("Value must be an identifier value", nameof(value));
     }
     IdentifierValue = value;

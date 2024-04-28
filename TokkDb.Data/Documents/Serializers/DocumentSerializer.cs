@@ -2,17 +2,18 @@ using System.Collections;
 using System.ComponentModel.DataAnnotations;
 using System.Reflection;
 using TokkDb.Data.Documents.Values;
+using TokkDb.Values;
 
 namespace TokkDb.Data.Documents.Serializers;
 
-public class DocumentSerializer<T> where T : class, new() {
+public class DocumentSerializer<T> {
   public ObjectDocument Serialize(T obj, IDocumentValue keyValue = null) {
     var type = typeof(T);
     if (!type.IsClass) {
       throw new ArgumentException("Type must be class", nameof(obj));
     }
     var doc = new ObjectDocument();
-    doc.SetValue(SerializeValue(obj, type));
+    doc.SetValue(Serialize(obj, type));
     doc.SetIdentifierValue(keyValue ?? SerializeIdentifierValue(obj, type));
     return doc;
   }
@@ -23,84 +24,134 @@ public class DocumentSerializer<T> where T : class, new() {
       throw new ArgumentException("Type must be class", nameof(document));
     }
     var value = document.Value;
-    return (T)DeserializeValue(value, type);
-  }
-
-  protected virtual object DeserializeValue(IDocumentValue value, Type type) {
-    if (value is NullValue) {
-      return null;
-    }
-    if (value is IntValue intValue) {
-      return intValue.Value;
-    }
-    if (value is StringValue stringValue) {
-      return stringValue.Value;
-    }
-    if (value is ArrayValue arrayValue) {
-      return DeserializeArrayValue(type, arrayValue);
-    }
-    if (value is ObjectValue objectValue) {
-      return DeserializeObjectValue(type, objectValue);
-    }
-    throw new NotImplementedException();
-  }
-
-  protected virtual object DeserializeObjectValue(Type type, ObjectValue objectValue) {
-    var obj = Activator.CreateInstance(type);
-    foreach (var (key, value) in objectValue.Values) {
-      var property = GetProperty(type, key);
-      if (property == null) {
-        continue;
-      }
-      property.SetValue(obj, DeserializeValue(value, property.PropertyType));
-    }
-    return obj;
+    return (T)Deserialize(value, type);
   }
   
-  protected virtual object DeserializeArrayValue(Type type, ArrayValue arrayValue) {
-    var elementType = type.GetElementType();
-    var array = Array.CreateInstance(elementType, arrayValue.Values.Length);
-    for (var i = 0; i < arrayValue.Values.Length; i++) {
-      var value = arrayValue.Values[i];
-      var arrayItem = DeserializeValue(value, elementType);
-      array.SetValue(arrayItem, i);
-    }
-    return array;
-  }
-
   protected virtual IDocumentValue SerializeIdentifierValue(object value, Type type) {
     var keyProperty = GetProperties(type).FirstOrDefault(info => info.GetCustomAttribute<KeyAttribute>() != null);
     if (keyProperty == null) {
       throw new ArgumentException("Type must have a key property", nameof(value));
     }
     var key = keyProperty.GetValue(value);
-    return SerializeValue(key, keyProperty.PropertyType);
+    return Serialize(key, keyProperty.PropertyType);
   }
   
-  protected virtual IDocumentValue SerializeValue(object value, Type type) {
-    if (value is null) {
-      return new NullValue();
+  protected virtual object Deserialize(IDocumentValue value, Type type) {
+    if (value.Type == ValueTypeEnum.Null) {
+      return DeserializeNullValue(value, type);
     }
-    if (value is int intValue) {
-      return new IntValue(intValue);
+    if (value.Type == ValueTypeEnum.Int) {
+      return DeserializeIntValue(value, type);
     }
-    if (value is string stringValue) {
-      return new StringValue(stringValue);
+    if (value.Type == ValueTypeEnum.String) {
+      return DeserializeStringValue(value, type);
     }
-    if (type.IsArray && value is IEnumerable enumerable) {
-      var items = enumerable.Cast<object>().Select(item => SerializeValue(item, type.GetElementType())).ToArray();
-      return new ArrayValue(items);
+    if (value.Type == ValueTypeEnum.Array) {
+      return DeserializeArrayValue(value, type);
     }
-    if (type.IsClass) {
-      var properties = GetProperties(type);
-      return new ObjectValue {
-        Values = properties.ToDictionary(property => property.Name, 
-          property => SerializeValue(property.GetValue(value), property.PropertyType))
-      };
+    if (value.Type == ValueTypeEnum.Object) {
+      return DeserializeObjectValue(value, type);
     }
     throw new NotImplementedException();
   }
+
+  protected virtual object DeserializeIntValue(IDocumentValue value, Type type) {
+    var intValue = (IntDocumentValue)value;
+    return intValue.Value;
+  }
+
+  protected virtual object DeserializeStringValue(IDocumentValue value, Type type) {
+    var stringValue = (StringDocumentValue)value;
+    return stringValue.Value;
+  }
+
+  protected virtual object DeserializeNullValue(IDocumentValue value, Type type) {
+    return null;
+  }
   
+  protected virtual object DeserializeObjectValue(IDocumentValue value, Type type) {
+    var objectValue = (ObjectDocumentValue)value;
+    return DeserializeObjectValue(objectValue.Values, type);
+  }
+
+  protected virtual object DeserializeObjectValue(Dictionary<string, IDocumentValue> values, Type type) {
+    var obj = Activator.CreateInstance(type);
+    foreach (var (key, value) in values) {
+      var property = GetProperty(type, key);
+      if (property == null) {
+        continue;
+      }
+      property.SetValue(obj, Deserialize(value, property.PropertyType));
+    }
+    return obj;
+  }
+  
+  protected virtual object DeserializeArrayValue(IDocumentValue value, Type type) {
+    var arrayValue = (ArrayDocumentValue)value;
+    return DeserializeArrayValue(arrayValue.Values, type);
+  }
+  
+  protected virtual Array DeserializeArrayValue(IDocumentValue[] values, Type type) {
+    var elementType = type.GetElementType();
+    var array = Array.CreateInstance(elementType, values.Length);
+    for (var i = 0; i < values.Length; i++) {
+      var value = values[i];
+      var arrayItem = Deserialize(value, elementType);
+      array.SetValue(arrayItem, i);
+    }
+    return array;
+  }
+  
+  protected virtual IDocumentValue Serialize(object value, Type type) {
+    if (value is null) {
+      return SerializeNullValue();
+    }
+    if (value is int intValue) {
+      return SerializeIntValue(intValue);
+    }
+    if (value is string stringValue) {
+      return SerializeStringValue(stringValue);
+    }
+    if (type.IsArray && value is IEnumerable enumerable) {
+      return SerializeArrayValue(type, enumerable);
+    }
+    if (type.IsClass) {
+      return SerializeObjectValue(value, type);
+    }
+    throw new NotImplementedException();
+  }
+
+  protected virtual IDocumentValue SerializeObjectValue(object value, Type type) {
+    var properties = GetProperties(type)
+      .ToDictionary(property => property.Name, property => Serialize(property.GetValue(value), property.PropertyType));
+    return SerializeObjectValue(properties);
+  }
+
+  protected virtual IDocumentValue SerializeArrayValue(Type type, IEnumerable enumerable) {
+    var items = enumerable.Cast<object>().Select(item => Serialize(item, type.GetElementType())).ToArray();
+    return SerializeArrayValue(items);
+  }
+
+  protected virtual IDocumentValue SerializeObjectValue(Dictionary<string, IDocumentValue> properties) {
+    return new ObjectDocumentValue { Values = properties };
+  }
+
+  protected virtual IDocumentValue SerializeArrayValue(IDocumentValue[] items) {
+    return new ArrayDocumentValue { Values = items };
+  }
+
+  protected virtual IDocumentValue SerializeStringValue(string stringValue) {
+    return new StringDocumentValue { Value = stringValue };
+  }
+
+  protected virtual IDocumentValue SerializeIntValue(int intValue) {
+    return new IntDocumentValue { Value = intValue };
+  }
+
+  protected virtual IDocumentValue SerializeNullValue() {
+    return new NullDocumentValue();
+  }
+
   protected virtual PropertyInfo[] GetProperties(Type type) {
     return type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
   }

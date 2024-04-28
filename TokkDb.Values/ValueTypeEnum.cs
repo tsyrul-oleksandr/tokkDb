@@ -1,6 +1,6 @@
-namespace TokkDb.Data.Documents.Values;
+namespace TokkDb.Values;
 
-public enum DocumentValueType {
+public enum ValueTypeEnum {
   Null = 1,
   String,
   Byte,

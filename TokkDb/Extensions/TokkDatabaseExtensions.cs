@@ -6,6 +6,7 @@ using TokkDb.Disk.Cache;
 using TokkDb.Disk.Streams;
 using TokkDb.Options;
 using TokkDb.Pages;
+using TokkDb.Values.Serializers;
 
 namespace TokkDb.Extensions;
 

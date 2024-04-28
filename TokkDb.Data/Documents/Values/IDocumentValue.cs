@@ -1,11 +1,11 @@
 using TokkDb.Data.Documents.Buffer;
+using TokkDb.Values;
 
 namespace TokkDb.Data.Documents.Values {
 
-  public interface IDocumentValue {
-    DocumentValueType Type { get; }
+  public interface IDocumentValue : IValue {
     void WriteValue(TokkValueWriter writer);
-    void ReadValue(TokkValueReader reader);
+    void ReadValue(TokkDocumentValueReader reader);
   }
 
 }

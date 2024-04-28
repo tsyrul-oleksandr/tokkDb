@@ -1,26 +1,27 @@
 using TokkDb.Core.Buffer;
 using TokkDb.Core.Reader;
 using TokkDb.Data.Documents.Values;
+using TokkDb.Values;
 
 namespace TokkDb.Data.Documents.Buffer;
 
-public class TokkValueReader : TokkBinaryReader {
-  public TokkValueReader(BufferSlice buffer) : base(buffer) { }
+public class TokkDocumentValueReader : TokkBinaryReader {
+  public TokkDocumentValueReader(BufferSlice buffer) : base(buffer) { }
 
   public IDocumentValue Read() {
-    var type = (DocumentValueType)ReadByte();
+    var type = (ValueType)ReadByte();
     var value = CreateValueType(type);
     value.ReadValue(this);
     return value;
   }
 
-  protected virtual IDocumentValue CreateValueType(DocumentValueType type) {
+  protected virtual IDocumentValue CreateValueType(ValueType type) {
     return type switch {
-      DocumentValueType.Null => new NullValue(),
-      DocumentValueType.Int => new IntValue(),
-      DocumentValueType.String => new StringValue(),
-      DocumentValueType.Object => new ObjectValue(),
-      DocumentValueType.Array => new ArrayValue(),
+      ValueTypeEnum.Null => new NullDocumentValue(),
+      ValueTypeEnum.Int => new IntDocumentValue(),
+      ValueTypeEnum.String => new StringDocumentValue(),
+      ValueTypeEnum.Object => new ObjectDocumentValue(),
+      ValueTypeEnum.Array => new ArrayDocumentValue(),
       _ => throw new NotImplementedException()
     };
   }

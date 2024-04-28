@@ -26,19 +26,11 @@ public abstract class BasePage {
   }
 
   protected virtual void LoadFields() {
-    var position = HeaderStartPosition;
-    foreach (var field in Fields) {
-      field.Read(Buffer, position);
-      position += field.Size;
-    }
+    Fields.LoadFields(Buffer, HeaderStartPosition);
   }
   
   protected virtual void SaveFields() {
-    var position = HeaderStartPosition;
-    foreach (var field in Fields) {
-      field.Write(Buffer, position);
-      position += field.Size;
-    }
+    Fields.SaveFields(Buffer, HeaderStartPosition);
   }
   
   protected virtual IEnumerable<IPageField> GetFields() {

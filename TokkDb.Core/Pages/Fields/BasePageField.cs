@@ -1,9 +1,10 @@
 namespace TokkDb.Core.Pages.Fields;
 
 public abstract class BasePageField<T> : IPageField {
-  public int Size { get; }
-  public T Value { get; set; }
-  
+  public virtual int Size { get; }
+  public virtual T Value { get; set; }
+
+  public BasePageField() { }
   public BasePageField(int size) {
     Size = size;
   }

@@ -1,19 +1,11 @@
 using TokkDb.Data.Documents.Buffer;
+using TokkDb.Values;
 
 namespace TokkDb.Data.Documents.Values;
 
-public class ObjectValue : BaseDocumentValue {
-  public override DocumentValueType Type => DocumentValueType.Object;
-  public Dictionary<string, IDocumentValue> Values { get; set; }
+public class ObjectDocumentValue : ObjectValue<IDocumentValue>, IDocumentValue {
 
-  public ObjectValue() { }
-  public ObjectValue(Dictionary<string, IDocumentValue> values) {
-    Values = values;
-  }
-  
-  public IDocumentValue this[string key] => Values[key];
-
-  public override void WriteValue(TokkValueWriter writer) {
+  public virtual void WriteValue(TokkValueWriter writer) {
     writer.WriteInt(Values.Count);
     foreach (var value in Values) {
       writer.WriteString(value.Key);
@@ -21,7 +13,7 @@ public class ObjectValue : BaseDocumentValue {
     }
   }
 
-  public override void ReadValue(TokkValueReader reader) {
+  public virtual void ReadValue(TokkDocumentValueReader reader) {
     Values = new Dictionary<string, IDocumentValue>();
     var count = reader.ReadInt();
     if (count == 0) {

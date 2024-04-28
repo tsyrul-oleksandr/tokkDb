@@ -12,6 +12,11 @@
     <ItemGroup>
       <ProjectReference Include="..\TokkDb.Core\TokkDb.Core.csproj" />
       <ProjectReference Include="..\TokkDb.Disk\TokkDb.Disk.csproj" />
+      <ProjectReference Include="..\TokkDb.Values\TokkDb.Values.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Folder Include="Indexex\" />
     </ItemGroup>
 
 </Project>
