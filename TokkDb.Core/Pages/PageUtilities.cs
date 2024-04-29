@@ -11,19 +11,21 @@ public static class PageUtilities {
     return GetPosition(buffer.Index);
   }
   
-  public static void LoadFields(this IEnumerable<IPageField> fields, PageBuffer buffer, int startPosition) {
+  public static int LoadFields(this IEnumerable<IPageField> fields, PageBuffer buffer, int startPosition) {
     var position = startPosition;
     foreach (var field in fields) {
-      field.Read(buffer, position);
-      position += field.Size;
+      var size = field.Read(buffer, position);
+      position += size;
     }
+    return position;
   }
   
-  public static void SaveFields(this IEnumerable<IPageField> fields, PageBuffer buffer, int startPosition) {
+  public static int SaveFields(this IEnumerable<IPageField> fields, PageBuffer buffer, int startPosition) {
     var position = startPosition;
     foreach (var field in fields) {
-      field.Write(buffer, position);
-      position += field.Size;
+      var size = field.Write(buffer, position);
+      position += size;
     }
+    return position;
   }
 }

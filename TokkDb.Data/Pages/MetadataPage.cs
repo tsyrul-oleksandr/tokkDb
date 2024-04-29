@@ -33,9 +33,9 @@ public class MetadataPage : BasePage {
     Body[name] = index;
   }
 
-  protected override void SaveFields() {
+  protected override int SaveFields() {
     CollectionCount.Value = (byte)Body.Count;
-    base.SaveFields();
+    return base.SaveFields();
   }
 
   protected virtual void LoadBody() {

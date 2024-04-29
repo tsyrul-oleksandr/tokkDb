@@ -5,7 +5,7 @@ namespace TokkDb.Core.Pages;
 public abstract class BasePage {
   private IEnumerable<IPageField> _fields;
   public const int HeaderStartPosition = 0;
-  protected virtual int BodyStartPosition => Fields.Sum(field => field.Size) + 1;
+  protected virtual int BodyStartPosition { get;  set; }
   public PageBuffer Buffer { get; set; }
   public IServiceProvider ServiceProvider { get; set; }
   public UIntPageField IndexField { get; set; } = new();
@@ -18,19 +18,20 @@ public abstract class BasePage {
   }
 
   public virtual void Initialize() {
-    LoadFields();
+    var position = LoadFields();
+    BodyStartPosition = position;
   }
 
   public virtual void Save() {
     SaveFields();
   }
 
-  protected virtual void LoadFields() {
-    Fields.LoadFields(Buffer, HeaderStartPosition);
+  protected virtual int LoadFields() {
+    return Fields.LoadFields(Buffer, HeaderStartPosition);
   }
   
-  protected virtual void SaveFields() {
-    Fields.SaveFields(Buffer, HeaderStartPosition);
+  protected virtual int SaveFields() {
+    return Fields.SaveFields(Buffer, HeaderStartPosition);
   }
   
   protected virtual IEnumerable<IPageField> GetFields() {

@@ -5,9 +5,4 @@
         <ImplicitUsings>enable</ImplicitUsings>
     </PropertyGroup>
 
-    <ItemGroup>
-      <Folder Include="Resolver\" />
-      <Folder Include="Serializers\" />
-    </ItemGroup>
-
 </Project>

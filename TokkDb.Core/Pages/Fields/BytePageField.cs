@@ -1,13 +1,13 @@
 namespace TokkDb.Core.Pages.Fields;
 
 public class BytePageField : BasePageField<byte> {
-
-  public BytePageField() : base(TypesConstants.ByteByteSize) { }
-  public override void Read(PageBuffer buffer, int position) {
+  public override int Read(PageBuffer buffer, int position) {
     buffer.WriteByte(Value, position);
+    return TypesConstants.ByteByteSize;
   }
 
-  public override void Write(PageBuffer buffer, int position) {
+  public override int Write(PageBuffer buffer, int position) {
     Value = buffer.ReadByte(position);
+    return TypesConstants.ByteByteSize;
   }
 }

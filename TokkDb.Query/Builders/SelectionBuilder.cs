@@ -3,17 +3,21 @@ using TokkDb.Query.Tokenizers.Tokens;
 
 namespace TokkDb.Query.Builders;
 
+// $.name
 public class SelectionBuilder {
   public void Build(string value) {
     var reader = new QueryTokenizer(value);
-    var token = reader.NextToken();
-    if (token.Type != TokenType.Root) {
-      throw new Exception("Root token not found");
-    }
-    while ((token = reader.NextToken()) != null) {
+    while (reader.NextToken() is { } token) {
       if (token.Type == TokenType.Dot) {
         
       }
+      if (token.Type == TokenType.StartRoundBracket) {
+        
+      }
     }
+  }
+
+  protected virtual void BuildGroup(QueryTokenizer tokenizer) {
+    
   }
 }
