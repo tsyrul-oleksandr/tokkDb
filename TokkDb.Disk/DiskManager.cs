@@ -1,5 +1,4 @@
-using TokkDb.Core;
-using TokkDb.Core.Pages;
+using TokkDb.Buffer;
 
 namespace TokkDb.Disk;
 
@@ -7,15 +6,9 @@ public class DiskManager {
   public DiskReader Reader { get; set; }
   public DiskWriter Writer { get; set; }
   
-  public DiskManager(DiskReader reader, DiskWriter writer) {
-    Reader = reader;
-    Writer = writer;
-  }
-  
-  public PageBuffer CreateNewPage(uint index) {
-    return new PageBuffer(new byte[TokkConstants.PageSize]) {
-      Index = index
-    };
+  public DiskManager(string filePath) {
+    Reader = new DiskReader(filePath);
+    Writer = new DiskWriter(filePath);
   }
 
   public bool IsBlank() {
@@ -26,7 +19,7 @@ public class DiskManager {
     return Reader.ReadPage(index);
   }
 
-  public void WritePages(params PageBuffer[] pages) {
-    Writer.WritePages(pages);
+  public void WritePage(PageBuffer page) {
+    Writer.WritePage(page);
   }
 }

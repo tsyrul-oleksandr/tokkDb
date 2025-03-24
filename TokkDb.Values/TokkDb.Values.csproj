@@ -5,9 +5,4 @@
         <ImplicitUsings>enable</ImplicitUsings>
     </PropertyGroup>
 
-    <ItemGroup>
-      <ProjectReference Include="..\TokkDb.Documents\TokkDb.Documents.csproj" />
-      <ProjectReference Include="..\TokkDb.Pages\TokkDb.Pages.csproj" />
-    </ItemGroup>
-
 </Project>
