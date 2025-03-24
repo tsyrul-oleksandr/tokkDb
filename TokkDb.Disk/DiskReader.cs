@@ -1,40 +1,30 @@
-using TokkDb.Core;
-using TokkDb.Core.Pages;
-using TokkDb.Disk.Cache;
-using TokkDb.Disk.Streams;
+using TokkDb.Buffer;
+using TokkDb.Configuration;
 
 namespace TokkDb.Disk;
 
 public class DiskReader {
-  public IStreamFactory Factory { get; }
-  public PageMemoryCache Cache { get; }
+  private readonly string _filePath;
 
-  public DiskReader(IStreamFactory factory, PageMemoryCache cache) {
-    Factory = factory;
-    Cache = cache;
+  public DiskReader(string filePath) {
+    _filePath = filePath;
   }
-
+  
+  public bool IsBlank() {
+    var stream = GetStream(TokkConstants.PageSize);
+    return stream.Length < TokkConstants.PageSize;
+  }
+  
   public PageBuffer ReadPage(uint index) {
-    var stream = GetStream();
-    var position = GetPosition(index);
+    var stream = GetStream(TokkConstants.PageSize);
+    var position = index * TokkConstants.PageSize;
     stream.Position = position;
     var bytes = new byte[TokkConstants.PageSize];
     _ = stream.Read(bytes, 0, bytes.Length);
     return new PageBuffer(bytes);
   }
   
-  public bool IsBlank() {
-    var stream = GetStream();
-    return stream.Length < TokkConstants.PageSize;
+  private Stream GetStream(int bufferSize) {
+    return new FileStream(_filePath, FileMode.OpenOrCreate, FileAccess.Read, FileShare.Read, bufferSize);
   }
-
-  protected virtual long GetPosition(uint index) {
-    return PageUtilities.GetPosition(index);
-  }
-
-  protected virtual Stream GetStream() {
-    return Factory.Get(true);
-  }
-
-  
 }

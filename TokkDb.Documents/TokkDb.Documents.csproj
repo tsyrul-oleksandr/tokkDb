@@ -8,6 +8,7 @@
     <ItemGroup>
       <ProjectReference Include="..\TokkDb.Buffer\TokkDb.Buffer.csproj" />
       <ProjectReference Include="..\TokkDb.Configuration\TokkDb.Configuration.csproj" />
+      <ProjectReference Include="..\TokkDb.Values\TokkDb.Values.csproj" />
     </ItemGroup>
 
 </Project>
