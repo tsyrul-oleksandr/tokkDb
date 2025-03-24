@@ -27,7 +27,7 @@ public class ObjectDocument {
   
   public virtual void SetIdentifierValue(IDocumentValue value) {
     if (value.Type is not (ValueTypeEnum.Int or ValueTypeEnum.String or ValueTypeEnum.UInt 
-        or ValueTypeEnum.Long or ValueTypeEnum.ULong or ValueTypeEnum.Guid or ValueTypeEnum.Ulid)) {
+        or ValueTypeEnum.Long or ValueTypeEnum.ULong or ValueTypeEnum.Guid)) {
       throw new ArgumentException("Value must be an identifier value", nameof(value));
     }
     IdentifierValue = value;

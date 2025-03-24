@@ -5,6 +5,5 @@
   <Project Path="TokkDb.Documents\TokkDb.Documents.csproj" Type="Classic C#" />
   <Project Path="TokkDb.Example.Console\TokkDb.Example.Console.csproj" Type="Classic C#" />
   <Project Path="TokkDb.Pages\TokkDb.Pages.csproj" Type="Classic C#" />
-  <Project Path="TokkDb.Values\TokkDb.Values.csproj" Type="Classic C#" />
   <Project Path="TokkDb\TokkDb.csproj" Type="Classic C#" />
 </Solution>
