@@ -24,6 +24,7 @@ public static class ValueUtilities {
       ValueTypeEnum.String => new StringDocumentValue(),
       ValueTypeEnum.Object => new ObjectDocumentValue(),
       ValueTypeEnum.Array => new ArrayDocumentValue(),
+      ValueTypeEnum.Ulid => new UlidDocumentValue(),
       _ => throw new NotImplementedException()
     };
   }

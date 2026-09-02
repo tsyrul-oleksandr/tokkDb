@@ -18,6 +18,7 @@ public enum ValueTypeEnum {
   DateTime,
   TimeSpan,
   Guid,
+  Ulid,
   Object,
   Array
 }

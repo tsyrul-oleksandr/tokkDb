@@ -8,14 +8,14 @@ namespace TokkDb.Documents.Serializers;
 
 public class DocumentSerializer<T> {
 
-  public ObjectDocument Serialize(T obj, IDocumentValue keyValue = null) {
+  public ObjectDocument Create(T obj, Ulid keyValue) {
     var type = typeof(T);
     if (!type.IsClass) {
       throw new ArgumentException("Type must be class", nameof(obj));
     }
     var doc = new ObjectDocument();
     doc.SetValue(Serialize(obj, type));
-    doc.SetIdentifierValue(keyValue ?? SerializeIdentifierValue(obj, type));
+    doc.SetIdentifierValue(new UlidDocumentValue(keyValue));
     return doc;
   }
 
@@ -26,15 +26,6 @@ public class DocumentSerializer<T> {
     }
     var value = document.Value;
     return (T)Deserialize(value, type);
-  }
-  
-  protected virtual IDocumentValue SerializeIdentifierValue(object value, Type type) {
-    var keyProperty = GetProperties(type).FirstOrDefault(info => info.GetCustomAttribute<KeyAttribute>() != null);
-    if (keyProperty == null) {
-      throw new ArgumentException("Type must have a key property", nameof(value));
-    }
-    var key = keyProperty.GetValue(value);
-    return Serialize(key, keyProperty.PropertyType);
   }
   
   protected virtual object Deserialize(IDocumentValue value, Type type) {

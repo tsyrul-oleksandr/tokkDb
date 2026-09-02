@@ -1,5 +1,7 @@
 using System.Collections;
 using TokkDb.Documents;
+using TokkDb.Documents.Path;
+using TokkDb.Documents.Path.Expressions;
 using TokkDb.Documents.Serializers;
 using TokkDb.Pages.Managers;
 using TokkDb.Transactions;
@@ -23,11 +25,17 @@ public class DbEntities<T> {
   public IEnumerable<T> GetAll() {
     return _dataPageManager.GetAll(_entityName).Select(ObjectDocumentUtilities.FromBuffer).Select(_serializer.Deserialize);
   }
+  
+  public IEnumerable<T> Get(string exp) {
+    var expression = DocumentPathParser.Parse(exp);
+    return _dataPageManager.GetAll(_entityName).Select(ObjectDocumentUtilities.FromBuffer)
+      .Where(doc => Filter(doc, expression)).Select(_serializer.Deserialize);
+  }
 
   public void Insert(T value) {
     var transaction = _transactionManager.CreateTransaction();
     try {
-      var document = _serializer.Serialize(value);
+      var document = _serializer.Create(value, Ulid.NewUlid());
       var size = ObjectDocumentUtilities.GetBytesLength(document);
       var buffer = _dataPageManager.Register(_entityName, size);
       ObjectDocumentUtilities.ToBuffer(document, buffer);
@@ -38,19 +46,21 @@ public class DbEntities<T> {
     }
   }
 
-  public void UpdateById(T value, object key) {
+  public void Update(T value, string condition) {
     var transaction = _transactionManager.CreateTransaction();
     try {
-      var document = _serializer.Serialize(value);
+      //var document = _serializer.Create(value);
+      //var size = ObjectDocumentUtilities.GetBytesLength(document);
       transaction.Commit();
     } catch {
       transaction.Rollback();
       throw;
     }
   }
-
-  public void Save() {
-    
+  
+  private bool Filter(ObjectDocument doc, IExpression expression) {
+    var result = expression.Execute(doc.Value, doc.Value);
+    return result != null;
   }
 
   public IEnumerable GetHistories() {
