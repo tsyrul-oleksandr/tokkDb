@@ -11,8 +11,8 @@ public class DiskWriter {
   }
   
   public void WritePage(PageBuffer pageBuffer) {
-    var stream = GetStream();
-    stream.Position = pageBuffer.Index * TokkConstants.PageSize;
+    using var stream = GetStream();
+    stream.Position = (long)pageBuffer.Index * TokkConstants.PageSize;
     var buffer = pageBuffer.ToArray();
     stream.Write(buffer, 0, TokkConstants.PageSize);
   }
