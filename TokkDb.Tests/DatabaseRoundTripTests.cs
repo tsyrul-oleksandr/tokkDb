@@ -4,6 +4,9 @@ using Xunit;
 namespace TokkDb.Tests;
 
 public class DatabaseRoundTripTests {
+  //Root page plus the collections catalogue page precede any data page.
+  private const int ReservedPages = 2;
+
   private static TokkDbConnection NewDatabase(TempDatabaseFile file) {
     var db = new TokkDbConnection(file.Path);
     db.CreateDatabase(config => config.CreateEntity<Person>());
@@ -13,7 +16,7 @@ public class DatabaseRoundTripTests {
   [Fact]
   public void ANewDatabaseIsEmptyAndReportsItself() {
     using var file = new TempDatabaseFile();
-    var db = new TokkDbConnection(file.Path);
+    using var db = new TokkDbConnection(file.Path);
     Assert.False(db.IsExists());
     db.CreateDatabase(config => config.CreateEntity<Person>());
     Assert.True(db.IsExists());
@@ -23,7 +26,8 @@ public class DatabaseRoundTripTests {
   [Fact]
   public void InsertedRecordsComeBackIntact() {
     using var file = new TempDatabaseFile();
-    var entities = NewDatabase(file).Entities<Person>();
+    using var db = NewDatabase(file);
+    var entities = db.Entities<Person>();
     entities.Insert(TestPeople.Ivan());
 
     var person = Assert.Single(entities.GetAll());
@@ -37,9 +41,11 @@ public class DatabaseRoundTripTests {
   [Fact]
   public void RecordsSurviveReopeningTheFile() {
     using var file = new TempDatabaseFile();
-    NewDatabase(file).Entities<Person>().Insert(TestPeople.Ivan());
+    using (var db = NewDatabase(file)) {
+      db.Entities<Person>().Insert(TestPeople.Ivan());
+    }
 
-    var reopened = new TokkDbConnection(file.Path);
+    using var reopened = new TokkDbConnection(file.Path);
     Assert.True(reopened.IsExists());
     reopened.Load();
 
@@ -54,7 +60,8 @@ public class DatabaseRoundTripTests {
   [InlineData(500)]
   public void RecordsSpanningManyPagesAllComeBack(int count) {
     using var file = new TempDatabaseFile();
-    var entities = NewDatabase(file).Entities<Person>();
+    using var db = NewDatabase(file);
+    var entities = db.Entities<Person>();
     for (var i = 0; i < count; i++) {
       entities.Insert(TestPeople.Numbered(i));
     }
@@ -72,14 +79,16 @@ public class DatabaseRoundTripTests {
   [Fact]
   public void TheDataPageChainIsFollowedAcrossReopens() {
     using var file = new TempDatabaseFile();
-    var entities = NewDatabase(file).Entities<Person>();
-    for (var i = 0; i < 500; i++) {
-      entities.Insert(TestPeople.Numbered(i));
+    using (var db = NewDatabase(file)) {
+      var entities = db.Entities<Person>();
+      for (var i = 0; i < 500; i++) {
+        entities.Insert(TestPeople.Numbered(i));
+      }
+      Assert.True(file.PageCount > ReservedPages + 1,
+        $"expected the data to span several pages, got {file.PageCount}");
     }
 
-    Assert.True(file.PageCount > 2, $"expected the data to span several pages, got {file.PageCount}");
-
-    var reopened = new TokkDbConnection(file.Path);
+    using var reopened = new TokkDbConnection(file.Path);
     reopened.Load();
     Assert.Equal(500, reopened.Entities<Person>().GetAll().Count());
   }
@@ -87,13 +96,14 @@ public class DatabaseRoundTripTests {
   [Fact]
   public void PagesFillUpBeforeANewOneIsAllocated() {
     using var file = new TempDatabaseFile();
-    var entities = NewDatabase(file).Entities<Person>();
+    using var db = NewDatabase(file);
+    var entities = db.Entities<Person>();
     for (var i = 0; i < 200; i++) {
       entities.Insert(TestPeople.Numbered(i));
     }
 
     // 200 records of ~130 bytes must not need more than one page each 8KB of payload.
-    var dataPages = file.PageCount - 1;
-    Assert.InRange(dataPages, 1, 200 * 200 / TokkConstants.PageSize + 2);
+    var dataPages = file.PageCount - ReservedPages;
+    Assert.InRange(dataPages, 1, 200 * 200 / TokkConstants.DefaultPageSize + 2);
   }
 }

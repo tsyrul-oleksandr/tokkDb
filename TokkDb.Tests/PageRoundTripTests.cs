@@ -1,3 +1,4 @@
+using TokkDb.Configuration;
 using TokkDb.Disk;
 using TokkDb.Pages;
 using Xunit;
@@ -8,7 +9,8 @@ public class PageRoundTripTests {
   [Fact]
   public void DataPageHeaderAndItemsSurviveASaveAndLoad() {
     using var file = new TempDatabaseFile();
-    var pageManager = new PageManager(new DiskManager(file.Path));
+    using var disk = new DiskManager(file.Path);
+    var pageManager = new PageManager(disk);
 
     var page = pageManager.CreateNewMemoryPage<DataPage>(PageType.Data, 1);
     page.NextPageIndex = 7;
@@ -28,25 +30,47 @@ public class PageRoundTripTests {
   }
 
   [Fact]
+  public void RootPageFieldsSurviveASaveAndLoad() {
+    using var file = new TempDatabaseFile();
+    using var disk = new DiskManager(file.Path);
+    var pageManager = new PageManager(disk);
+    var createdAt = new DateTime(2026, 9, 4, 18, 25, 0, DateTimeKind.Utc);
+
+    var page = pageManager.CreateNewMemoryPage<RootPage>(PageType.Root, TokkConstants.RootPageIndex);
+    page.CreatedAt = createdAt;
+    page.CollectionsFirstPageId = 1;
+    page.CollectionsPrimaryIndexRoot = 4;
+    page.LastAllocatedPageId = 9;
+    pageManager.SavePages(page);
+
+    var loaded = pageManager.LoadPage<RootPage>(TokkConstants.RootPageIndex);
+    Assert.Equal(PageType.Root, loaded.Type);
+    Assert.Equal(TokkConstants.RootPageIndex, loaded.Index);
+    Assert.Equal(RootPage.ExpectedMagicNumber, loaded.MagicNumber);
+    Assert.Equal(RootPage.CurrentFormatVersion, loaded.FormatVersion);
+    Assert.Equal(TokkConstants.DefaultPageSize, loaded.PageSize);
+    Assert.Equal(createdAt, loaded.CreatedAt);
+    Assert.Equal(1u, loaded.CollectionsFirstPageId);
+    Assert.Equal(4u, loaded.CollectionsPrimaryIndexRoot);
+    Assert.Equal(9u, loaded.LastAllocatedPageId);
+  }
+
+  [Fact]
   public void MetadataPageEntitiesSurviveASaveAndLoad() {
     using var file = new TempDatabaseFile();
-    var pageManager = new PageManager(new DiskManager(file.Path));
-    var createdAt = new DateTime(2025, 3, 24, 18, 25, 0, DateTimeKind.Utc);
+    using var disk = new DiskManager(file.Path);
+    var pageManager = new PageManager(disk);
 
-    var page = pageManager.CreateNewMemoryPage<MetadataPage>(PageType.Metadata, 0);
-    page.CreatedAt = createdAt;
-    page.LastPageId = 9;
-    page.Entities.Add("Person", new MetadataEntity(1, 4));
+    var page = pageManager.CreateNewMemoryPage<MetadataPage>(PageType.Metadata, 1);
+    page.Entities.Add("Person", new MetadataEntity(2, 4));
     page.Entities.Add("Tag", new MetadataEntity(5, 5));
     page.EntitiesCount = (byte)page.Entities.Count;
     pageManager.SavePages(page);
 
-    var loaded = pageManager.LoadPage<MetadataPage>(0);
+    var loaded = pageManager.LoadPage<MetadataPage>(1);
     Assert.Equal(PageType.Metadata, loaded.Type);
-    Assert.Equal(createdAt, loaded.CreatedAt);
-    Assert.Equal(9u, loaded.LastPageId);
     Assert.Equal(2, loaded.Entities.Count);
-    Assert.Equal(1u, loaded.Entities["Person"].DataFirstPageId);
+    Assert.Equal(2u, loaded.Entities["Person"].DataFirstPageId);
     Assert.Equal(4u, loaded.Entities["Person"].DataLastPageId);
     Assert.Equal(5u, loaded.Entities["Tag"].DataFirstPageId);
   }
@@ -54,7 +78,8 @@ public class PageRoundTripTests {
   [Fact]
   public void PagesAreWrittenToTheSlotMatchingTheirIndex() {
     using var file = new TempDatabaseFile();
-    var pageManager = new PageManager(new DiskManager(file.Path));
+    using var disk = new DiskManager(file.Path);
+    var pageManager = new PageManager(disk);
 
     var first = pageManager.CreateNewMemoryPage<DataPage>(PageType.Data, 1);
     var second = pageManager.CreateNewMemoryPage<DataPage>(PageType.Data, 2);

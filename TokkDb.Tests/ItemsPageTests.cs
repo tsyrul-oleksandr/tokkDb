@@ -7,13 +7,14 @@ namespace TokkDb.Tests;
 
 public class ItemsPageTests {
   private const ushort SlotSize = 4;
-  private const ushort UsableBytes = TokkConstants.PageSize - 32;
+  private const ushort UsableBytes = TokkConstants.DefaultPageSize - 32;
 
   private static DataPage NewPage(uint index = 1) {
     return new DataPage {
-      Buffer = new PageBuffer(new byte[TokkConstants.PageSize]),
+      Buffer = new PageBuffer(new byte[TokkConstants.DefaultPageSize]),
       Index = index,
-      Type = PageType.Data
+      Type = PageType.Data,
+      PageSize = TokkConstants.DefaultPageSize
     };
   }
 
@@ -54,7 +55,7 @@ public class ItemsPageTests {
     while (page.CanFit(itemSize)) {
       page.RegisterItem(itemSize);
     }
-    var slotDirectoryBottom = TokkConstants.PageSize - page.ItemsCount * SlotSize;
+    var slotDirectoryBottom = TokkConstants.DefaultPageSize - page.ItemsCount * SlotSize;
     Assert.True(page.NextFreePosition <= slotDirectoryBottom,
       $"content reached {page.NextFreePosition}, slot directory starts at {slotDirectoryBottom}");
   }

@@ -1,9 +1,9 @@
 namespace TokkDb.Pages;
 
+//The collections catalogue as it stands before D-4 turns it into documents. Creation time
+//and page allocation now belong to the root page.
 public class MetadataPage : BasePage {
   public override PageType Type { get; set; } = PageType.Metadata;
-  public uint LastPageId { get; set; }
-  public DateTime CreatedAt { get; set; }
   public byte EntitiesCount { get; set; }
   public Dictionary<string, MetadataEntity> Entities { get; set; } = [];
 
@@ -19,11 +19,7 @@ public class MetadataPage : BasePage {
 
   protected override int LoadHeader() {
     var position = base.LoadHeader();
-    LastPageId = Buffer.ReadUInt(position, out var readBytes);
-    position += readBytes;
-    CreatedAt = Buffer.ReadDateTime(position, out readBytes);
-    position += readBytes;
-    EntitiesCount = Buffer.ReadByte(position, out readBytes);
+    EntitiesCount = Buffer.ReadByte(position, out var readBytes);
     position += readBytes;
     return position;
   }
@@ -45,11 +41,7 @@ public class MetadataPage : BasePage {
 
   protected override int SaveHeader() {
     var position = base.SaveHeader();
-    Buffer.WriteUInt(LastPageId, position, out var writeBytes);
-    position += writeBytes;
-    Buffer.WriteDateTime(CreatedAt, position, out writeBytes);
-    position += writeBytes;
-    Buffer.WriteByte(EntitiesCount, position, out writeBytes);
+    Buffer.WriteByte(EntitiesCount, position, out var writeBytes);
     position += writeBytes;
     return position;
   }

@@ -10,7 +10,7 @@ namespace TokkDb.Tests;
 
 public class DocumentRoundTripTests {
   private static BufferSlice NewSlice() {
-    return new BufferSlice(new byte[TokkConstants.PageSize]);
+    return new BufferSlice(new byte[TokkConstants.DefaultPageSize]);
   }
 
   private static IDocumentValue RoundTrip(IDocumentValue value) {

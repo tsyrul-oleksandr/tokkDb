@@ -7,6 +7,8 @@ public abstract class BasePage {
   protected const ushort StartContentBufferPosition = 32;
   public abstract PageType Type { get; set; }
   public uint Index { get; set; }
+  //Set from the file the page belongs to; the root page reads it back out of its own buffer.
+  public ushort PageSize { get; set; }
   public PageBuffer Buffer { get; set; }
 
   public virtual void Load() {

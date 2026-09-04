@@ -1,6 +1,9 @@
 ﻿namespace TokkDb.Configuration;
 
 public class TokkConstants {
-  public const int MetadataPageIndex = 0;
-  public const ushort PageSize = 8192;
+  public const uint RootPageIndex = 0;
+
+  //The page size of an existing database is read from its root page. This value is only
+  //the size a brand new file is created with.
+  public const ushort DefaultPageSize = 8192;
 }

@@ -21,25 +21,6 @@ public sealed partial class MemoryStorage : IStorage
         _semanticTypeRegistry = semanticTypeRegistry;
         // Null logger keeps the parameterless construction used by tests working.
         _logger = logger ?? NullLogger<MemoryStorage>.Instance;
-        _logger.LogInformation("Memory storage initializing.");
-        CreateCollection(new CollectionDefinition("Customers", "Customer collection for storing customer information", [
-            new ColumnDefinition("Name", ColumnType.String, description: "Full name of a customer"),
-            new ColumnDefinition("Email", ColumnType.String, description: "Electronic mail address of a customer")
-        ]));
-        Create("Customers", new Dictionary<string, object?>
-        {
-            { "Name", "John Doe" },
-            { "Email", "john.doe@example.com" }
-        });
-        Create("Customers", new Dictionary<string, object?>
-        {
-            { "Name", "Jane Doe" },
-            { "Email", "jane.doe@example.com" }
-        });
-
-        _logger.LogInformation(
-            "Memory storage initialized. Collections: {CollectionCount}",
-            _collections.Count);
     }
 
     public void CreateCollection(CollectionDefinition definition)

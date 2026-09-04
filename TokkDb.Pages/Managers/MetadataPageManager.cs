@@ -1,23 +1,27 @@
-using TokkDb.Configuration;
 using TokkDb.Transactions;
 
 namespace TokkDb.Pages.Managers;
 
 public class MetadataPageManager {
   private readonly PageManager _pageManager;
+  private readonly RootPageManager _rootPageManager;
   private readonly TransactionManager _transactionManager;
   private MetadataPage _metadataPage;
   
-  public MetadataPageManager(PageManager pageManager, TransactionManager transactionManager) {
+  public MetadataPageManager(PageManager pageManager, RootPageManager rootPageManager,
+      TransactionManager transactionManager) {
     _pageManager = pageManager;
+    _rootPageManager = rootPageManager;
     _transactionManager = transactionManager;
   }
 
+  //The root page has to be initialized first: it says where the catalogue lives.
   public void Initialize() {
-    if (_pageManager.IsBlank()) {
+    if (_rootPageManager.CollectionsFirstPageId == default) {
       InitializeNewMetadataPage();
+      return;
     }
-    _metadataPage = _pageManager.LoadPage<MetadataPage>(TokkConstants.MetadataPageIndex);
+    _metadataPage = _pageManager.LoadPage<MetadataPage>(_rootPageManager.CollectionsFirstPageId);
   }
 
   public bool IsExist(string entityName) {
@@ -57,8 +61,7 @@ public class MetadataPageManager {
   }
   
   public uint GetNewPageIndex() {
-    _metadataPage.LastPageId++;
-    return _metadataPage.LastPageId;
+    return _rootPageManager.AllocatePageIndex();
   }
 
   protected virtual MetadataEntity GetEntity(string name) {
@@ -70,8 +73,9 @@ public class MetadataPageManager {
   }
   
   protected virtual void InitializeNewMetadataPage() {
-    var metadataPage = _pageManager.CreateNewMemoryPage<MetadataPage>(PageType.Metadata, TokkConstants.MetadataPageIndex);
-    metadataPage.CreatedAt = DateTime.UtcNow;
-    _pageManager.SavePages(metadataPage);
+    var pageIndex = _rootPageManager.AllocatePageIndex();
+    _metadataPage = _pageManager.CreateNewMemoryPage<MetadataPage>(PageType.Metadata, pageIndex);
+    _rootPageManager.SetCollectionsFirstPageId(pageIndex);
+    _transactionManager.Track(_metadataPage);
   }
 }
