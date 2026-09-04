@@ -8,7 +8,7 @@ public sealed class TempDatabaseFile : IDisposable {
   }
 
   public long Length => new FileInfo(Path).Length;
-  public long PageCount => Length / Configuration.TokkConstants.PageSize;
+  public long PageCount => Length / Configuration.TokkConstants.DefaultPageSize;
 
   public void Dispose() {
     if (File.Exists(Path)) {

@@ -6,7 +6,7 @@ namespace TokkDb.Tests;
 
 public class BufferRoundTripTests {
   private static BufferSlice NewSlice() {
-    return new BufferSlice(new byte[TokkConstants.PageSize]);
+    return new BufferSlice(new byte[TokkConstants.DefaultPageSize]);
   }
 
   [Theory]

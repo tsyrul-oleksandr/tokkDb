@@ -16,6 +16,8 @@ public class Transaction {
 
   public void Commit() {
     _pageManager.SavePages(Pages.ToArray());
+    //The one place the file is forced to disk.
+    _pageManager.Flush();
     OnTransactionFinish();
   }
 

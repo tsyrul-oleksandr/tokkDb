@@ -18,7 +18,7 @@ public class ObjectDocumentUtilities {
   
   public static ushort GetBytesLength(ObjectDocument document) {
     //todo fix
-    var buffer = new BufferSlice(new byte[TokkConstants.PageSize]);
+    var buffer = new BufferSlice(new byte[TokkConstants.DefaultPageSize]);
     var writer = new BufferWriter(buffer);
     document.Write(writer);
     return (ushort)writer.Position;

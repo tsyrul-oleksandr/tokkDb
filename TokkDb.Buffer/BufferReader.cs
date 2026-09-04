@@ -21,6 +21,12 @@ public class BufferReader {
     return value;
   }
   
+  public uint ReadUInt() {
+    var value = Buffer.ReadUInt(Position, out var readBytes);
+    MovePosition(readBytes);
+    return value;
+  }
+  
   public byte[] ReadBytes(int count) {
     var value = Buffer.ReadBytes(count, Position, out var readBytes);
     MovePosition(readBytes);

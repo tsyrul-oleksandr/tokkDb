@@ -21,6 +21,8 @@ public static class ValueUtilities {
     return type switch {
       ValueTypeEnum.Null => new NullDocumentValue(),
       ValueTypeEnum.Int => new IntDocumentValue(),
+      ValueTypeEnum.UInt => new UIntDocumentValue(),
+      ValueTypeEnum.Boolean => new BooleanDocumentValue(),
       ValueTypeEnum.String => new StringDocumentValue(),
       ValueTypeEnum.Object => new ObjectDocumentValue(),
       ValueTypeEnum.Array => new ArrayDocumentValue(),

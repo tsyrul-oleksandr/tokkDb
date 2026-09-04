@@ -1,11 +1,18 @@
 using TokkDb.Buffer;
-using TokkDb.Configuration;
 
 namespace TokkDb.Pages;
 
 public abstract class BaseItemsPage : BasePage {
   private const byte SlotSize = 4;
-  public ushort FreeBytes { get; set; } = TokkConstants.PageSize - StartContentBufferPosition;
+  private ushort? _freeBytes;
+
+  //A fresh page has its whole content area free, but the page size is known only once the
+  //page belongs to a file, so this cannot be a field initializer. The control area at the
+  //end of the page is not part of it.
+  public ushort FreeBytes {
+    get => _freeBytes ??= (ushort)(PageSize - StartContentBufferPosition - ControlAreaByteSize);
+    set => _freeBytes = value;
+  }
   public ushort NextFreePosition { get; protected set; } = StartContentBufferPosition;
   public ushort ItemsCount { get; protected set; }
   
@@ -72,8 +79,9 @@ public abstract class BaseItemsPage : BasePage {
     Buffer.WriteUShort(length, address.Length, out _);
   }
 
-  protected static (ushort Position, ushort Length) GetItemSlotAddress(ushort index) {
-    var slotLengthAddress = (ushort)(TokkConstants.PageSize - (index + 1) * SlotSize);
+  //The slot directory grows down from the control area, not from the end of the page.
+  protected virtual (ushort Position, ushort Length) GetItemSlotAddress(ushort index) {
+    var slotLengthAddress = (ushort)(PageSize - ControlAreaByteSize - (index + 1) * SlotSize);
     var slotPositionAddress = (ushort)(slotLengthAddress + 2);
     return (slotPositionAddress, slotLengthAddress);
   }

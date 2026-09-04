@@ -1,23 +1,26 @@
 using TokkDb.Buffer;
-using TokkDb.Configuration;
 
 namespace TokkDb.Disk;
 
 public class DiskWriter {
-  private readonly string _filePath;
+  private readonly FileStream _stream;
 
-  public DiskWriter(string filePath) {
-    _filePath = filePath;
+  public ushort PageSize { get; set; }
+
+  public DiskWriter(FileStream stream, ushort pageSize) {
+    _stream = stream;
+    PageSize = pageSize;
   }
-  
+
   public void WritePage(PageBuffer pageBuffer) {
-    using var stream = GetStream();
-    stream.Position = (long)pageBuffer.Index * TokkConstants.PageSize;
     var buffer = pageBuffer.ToArray();
-    stream.Write(buffer, 0, TokkConstants.PageSize);
+    _stream.Position = (long)pageBuffer.Index * PageSize;
+    _stream.Write(buffer, 0, PageSize);
   }
 
-  private Stream GetStream() {
-    return new FileStream(_filePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Write);
+  //Written pages are visible to readers immediately, but only this makes them survive a
+  //crash, so it belongs to the commit path and nowhere else.
+  public void Flush() {
+    _stream.Flush(flushToDisk: true);
   }
 }
