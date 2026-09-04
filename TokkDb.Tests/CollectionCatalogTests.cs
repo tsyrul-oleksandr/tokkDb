@@ -210,6 +210,94 @@ public class CollectionCatalogTests {
   }
 
   [Fact]
+  public void ADefinitionLookupCostsNoPageRead() {
+    using var file = new TempDatabaseFile();
+    CreateDatabase(file);
+
+    using var reopened = Reopen(file);
+    //Everything the catalogue holds was read at open; from here on it is memory only.
+    var readsAfterOpen = reopened.PageReadCount;
+
+    for (var i = 0; i < 100; i++) {
+      foreach (var name in SystemCollections.All) {
+        var collection = reopened.Collection(name);
+        _ = collection.DataFirstPage;
+        _ = collection.RecordCount;
+        _ = collection.Columns.Count;
+      }
+      _ = reopened.Collection("Person").OwningCollectionId;
+      _ = reopened.Collections.Count;
+    }
+
+    Assert.Equal(readsAfterOpen, reopened.PageReadCount);
+  }
+
+  [Fact]
+  public void TheWholeCatalogueIsInMemoryBeforeTheFirstLookup() {
+    using var file = new TempDatabaseFile();
+    using (var db = new TokkDbConnection(file.Path)) {
+      db.CreateDatabase(config => config.CreateEntity<Person>());
+      for (var i = 0; i < 60; i++) {
+        db.CreateCollection<Person>($"Collection{i}");
+      }
+    }
+
+    using var reopened = Reopen(file);
+    var readsAfterOpen = reopened.PageReadCount;
+    //A catalogue spanning several pages, every definition of it already in hand.
+    Assert.Equal(SystemCollections.All.Count + 61, reopened.Collections.Count);
+    Assert.All(reopened.Collections, collection => Assert.NotEqual(default, collection.Id));
+    Assert.Equal(readsAfterOpen, reopened.PageReadCount);
+  }
+
+  [Fact]
+  public void AWrittenDefinitionIsInTheCacheAndInTheCatalogueAtOnce() {
+    using var file = new TempDatabaseFile();
+    CreateDatabase(file);
+
+    using (var db = Reopen(file)) {
+      var created = db.CreateCollection<Tag>(description: "Tags");
+      //In the cache straight away, without going back to the pages.
+      var readsAfterCreate = db.PageReadCount;
+      Assert.Same(created, db.Collection("Tag"));
+      Assert.Equal("Tags", db.Collection("Tag").Description);
+      Assert.Equal(readsAfterCreate, db.PageReadCount);
+    }
+
+    //And in _collections, in the same operation that put it in the cache.
+    using var reopened = Reopen(file);
+    Assert.Equal("Tags", reopened.Collection("Tag").Description);
+  }
+
+  [Fact]
+  public void ADatabaseWithAThousandCollectionsOpensCorrectly() {
+    using var file = new TempDatabaseFile();
+    const int count = 1000;
+    using (var db = new TokkDbConnection(file.Path)) {
+      db.CreateDatabase(config => config.CreateEntity<Person>());
+      for (var i = 0; i < count; i++) {
+        db.CreateCollection<Person>($"Collection{i}");
+      }
+    }
+
+    using var reopened = Reopen(file);
+    //One pass over the pages the catalogue occupies, not one read per definition.
+    var readsAfterOpen = reopened.PageReadCount;
+    Assert.InRange(readsAfterOpen, 1, count / 4);
+
+    Assert.Equal(SystemCollections.All.Count + count + 1, reopened.Collections.Count);
+    for (var i = 0; i < count; i++) {
+      var collection = reopened.Collection($"Collection{i}");
+      Assert.Equal($"Collection{i}", collection.Name);
+      Assert.Equal(5, collection.Columns.Count);
+      Assert.NotEqual(default, collection.Id);
+    }
+    Assert.Equal(count + 1, reopened.Collections.Count(collection => !collection.IsSystem));
+    //A thousand lookups later the file has not been touched again.
+    Assert.Equal(readsAfterOpen, reopened.PageReadCount);
+  }
+
+  [Fact]
   public void AFieldTheWriterDidNotKnowAboutReadsAsItsDefault() {
     //DC-7: adding a metadata field must not need a reader change or a migration, so a
     //document written without a field has to load rather than fail.

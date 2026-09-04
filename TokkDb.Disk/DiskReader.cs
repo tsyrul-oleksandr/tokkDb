@@ -7,6 +7,10 @@ public class DiskReader {
 
   public ushort PageSize { get; set; }
 
+  //How many pages have been read off the device. Diagnostics: it is what shows whether a
+  //lookup was served from memory or cost a physical read.
+  public long PageReadCount { get; private set; }
+
   public DiskReader(FileStream stream, ushort pageSize) {
     _stream = stream;
     PageSize = pageSize;
@@ -26,6 +30,7 @@ public class DiskReader {
   }
 
   public PageBuffer ReadPage(uint index) {
+    PageReadCount++;
     var bytes = new byte[PageSize];
     _stream.Position = (long)index * PageSize;
     _stream.ReadExactly(bytes, 0, bytes.Length);

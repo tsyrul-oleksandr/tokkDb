@@ -13,6 +13,7 @@ public class DiskManager : IDisposable {
   public DiskReader Reader { get; }
   public DiskWriter Writer { get; }
   public ushort PageSize { get; private set; }
+  public long PageReadCount => Reader.PageReadCount;
 
   public DiskManager(string filePath, ushort pageSize = TokkConstants.DefaultPageSize) {
     PageSize = pageSize;

@@ -11,6 +11,7 @@ public class PageManager {
   }
 
   public ushort PageSize => _diskManager.PageSize;
+  public long PageReadCount => _diskManager.PageReadCount;
 
   public virtual bool IsBlank() {
     return _diskManager.IsBlank();

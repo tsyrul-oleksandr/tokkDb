@@ -25,6 +25,9 @@ public class TokkDbConnection : IDisposable {
     _catalog.SetDataPageManager(_dataPageManager);
   }
 
+  //Physical page reads since the file was opened. A catalogue lookup must not move it.
+  public long PageReadCount => _diskManager.PageReadCount;
+
   public bool IsExists() {
     return !_diskManager.IsBlank();
   }
