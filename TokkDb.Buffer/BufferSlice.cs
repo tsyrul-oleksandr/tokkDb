@@ -13,6 +13,11 @@ public class BufferSlice {
     return new BufferSlice(_buffer.Slice(position, length));
   }
   
+  //A window over the bytes themselves, for readers that work on the whole run at once.
+  public ReadOnlySpan<byte> AsReadOnlySpan(int index, int count) {
+    return _buffer.Span.Slice(index, count);
+  }
+
   public virtual byte ReadByte(int index) {
     return _buffer.Span[index];
   }

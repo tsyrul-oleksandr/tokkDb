@@ -7,8 +7,8 @@ using Xunit;
 namespace TokkDb.Tests;
 
 public class FileFormatTests {
-  //Offsets inside page 0: the page index and page type of every page come first.
-  private const int MagicNumberPosition = 5;
+  //Offsets inside page 0: the index, type and owning collection of every page come first.
+  private const int MagicNumberPosition = BasePage.BaseHeaderByteSize;
   private const int FormatVersionPosition = MagicNumberPosition + RootPage.MagicNumberByteSize;
   private const int PageSizePosition = FormatVersionPosition + 2;
 

@@ -18,7 +18,6 @@ public class RootPage : BasePage {
   //which is why the prefix has to be smaller than the smallest legal page.
   public const int PrefixByteSize = 32;
 
-  private const int BaseHeaderByteSize = TypesConstants.UIntByteSize + TypesConstants.ByteByteSize;
   private const int MagicNumberPosition = BaseHeaderByteSize;
   private const int FormatVersionPosition = MagicNumberPosition + MagicNumberByteSize;
   private const int PageSizePosition = FormatVersionPosition + TypesConstants.UShortByteSize;

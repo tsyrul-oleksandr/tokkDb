@@ -7,7 +7,9 @@ namespace TokkDb.Tests;
 
 public class ItemsPageTests {
   private const ushort SlotSize = 4;
-  private const ushort UsableBytes = TokkConstants.DefaultPageSize - 32;
+  //Header at the front, control area at the back; items and their slots share what is left.
+  private const ushort UsableBytes =
+    TokkConstants.DefaultPageSize - BasePage.StartContentBufferPosition - BasePage.ControlAreaByteSize;
 
   private static DataPage NewPage(uint index = 1) {
     return new DataPage {
@@ -55,9 +57,32 @@ public class ItemsPageTests {
     while (page.CanFit(itemSize)) {
       page.RegisterItem(itemSize);
     }
-    var slotDirectoryBottom = TokkConstants.DefaultPageSize - page.ItemsCount * SlotSize;
+    var slotDirectoryBottom =
+      TokkConstants.DefaultPageSize - BasePage.ControlAreaByteSize - page.ItemsCount * SlotSize;
     Assert.True(page.NextFreePosition <= slotDirectoryBottom,
       $"content reached {page.NextFreePosition}, slot directory starts at {slotDirectoryBottom}");
+  }
+
+  [Fact]
+  public void TheSlotDirectoryNeverReachesIntoTheControlArea() {
+    var page = NewPage();
+    const ushort itemSize = 8;
+    while (page.CanFit(itemSize)) {
+      page.RegisterItem(itemSize);
+    }
+
+    var lastSlotEnd = TokkConstants.DefaultPageSize - page.ItemsCount * SlotSize;
+    Assert.True(lastSlotEnd <= TokkConstants.DefaultPageSize - BasePage.ControlAreaByteSize,
+      $"the slot directory reached {lastSlotEnd}, the control area starts at " +
+      $"{TokkConstants.DefaultPageSize - BasePage.ControlAreaByteSize}");
+  }
+
+  [Fact]
+  public void ItemsStartAfterTheHeader() {
+    var page = NewPage();
+    Assert.Equal(BasePage.StartContentBufferPosition, page.NextFreePosition);
+    page.RegisterItem(16);
+    Assert.Equal(BasePage.StartContentBufferPosition + 16, page.NextFreePosition);
   }
 
   [Fact]

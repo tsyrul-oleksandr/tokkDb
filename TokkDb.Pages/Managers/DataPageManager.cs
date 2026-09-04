@@ -50,6 +50,7 @@ public class DataPageManager {
   protected virtual DataPage CreateNewPage(string entityName) {
     var newPageIndex = _metadataPageManager.GetNewPageIndex();
     var newPage = _pageManager.CreateNewMemoryPage<DataPage>(PageType.Data, newPageIndex);
+    newPage.OwningCollectionId = _metadataPageManager.GetEntityId(entityName);
     var lastPageId = _metadataPageManager.GetLastPageIndex(entityName);
     if (lastPageId != default) {
       var previousLastPage = _pageManager.LoadPage<DataPage>(lastPageId);

@@ -30,9 +30,14 @@ public class MetadataPageManager {
   }
   
   public void CreateEntity(string name) {
-    _metadataPage.Entities.Add(name, new MetadataEntity(default, default));
+    _metadataPage.Entities.Add(name, new MetadataEntity(GetNewEntityId(), default, default));
     _metadataPage.EntitiesCount = (byte)_metadataPage.Entities.Count;
     _transactionManager.Track(_metadataPage);
+  }
+
+  //The identifier stamped into the header of every data page the collection owns.
+  public uint GetEntityId(string name) {
+    return GetEntity(name).Id;
   }
   
   public uint GetFirstPageIndex(string name) {
@@ -62,6 +67,12 @@ public class MetadataPageManager {
   
   public uint GetNewPageIndex() {
     return _rootPageManager.AllocatePageIndex();
+  }
+
+  //Identifiers are never reused, so a page left over from a dropped collection cannot be
+  //mistaken for a page of a new one.
+  protected virtual uint GetNewEntityId() {
+    return _metadataPage.Entities.Count == 0 ? 1 : _metadataPage.Entities.Values.Max(entity => entity.Id) + 1;
   }
 
   protected virtual MetadataEntity GetEntity(string name) {

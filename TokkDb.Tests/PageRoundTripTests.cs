@@ -14,6 +14,7 @@ public class PageRoundTripTests {
 
     var page = pageManager.CreateNewMemoryPage<DataPage>(PageType.Data, 1);
     page.NextPageIndex = 7;
+    page.OwningCollectionId = 3;
     foreach (var marker in new[] { 11, 22, 33 }) {
       page.RegisterItem(4).WriteInt(marker, 0, out _);
     }
@@ -24,6 +25,7 @@ public class PageRoundTripTests {
     Assert.Equal(1u, loaded.Index);
     Assert.Equal(PageType.Data, loaded.Type);
     Assert.Equal(7u, loaded.NextPageIndex);
+    Assert.Equal(3u, loaded.OwningCollectionId);
     Assert.Equal(3, loaded.ItemsCount);
     Assert.Equal(expectedFreeBytes, loaded.FreeBytes);
     Assert.Equal([11, 22, 33], loaded.GetItems().Select(item => item.ReadInt(0, out _)));
@@ -62,16 +64,19 @@ public class PageRoundTripTests {
     var pageManager = new PageManager(disk);
 
     var page = pageManager.CreateNewMemoryPage<MetadataPage>(PageType.Metadata, 1);
-    page.Entities.Add("Person", new MetadataEntity(2, 4));
-    page.Entities.Add("Tag", new MetadataEntity(5, 5));
+    page.Entities.Add("Person", new MetadataEntity(1, 2, 4));
+    page.Entities.Add("Tag", new MetadataEntity(2, 5, 5));
     page.EntitiesCount = (byte)page.Entities.Count;
     pageManager.SavePages(page);
 
     var loaded = pageManager.LoadPage<MetadataPage>(1);
     Assert.Equal(PageType.Metadata, loaded.Type);
+    Assert.Equal(0u, loaded.OwningCollectionId);
     Assert.Equal(2, loaded.Entities.Count);
+    Assert.Equal(1u, loaded.Entities["Person"].Id);
     Assert.Equal(2u, loaded.Entities["Person"].DataFirstPageId);
     Assert.Equal(4u, loaded.Entities["Person"].DataLastPageId);
+    Assert.Equal(2u, loaded.Entities["Tag"].Id);
     Assert.Equal(5u, loaded.Entities["Tag"].DataFirstPageId);
   }
 

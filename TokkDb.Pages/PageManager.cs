@@ -40,6 +40,9 @@ public class PageManager {
     var buffer = _diskManager.ReadPage(index);
     var newPage = new T {
       Buffer = buffer,
+      //The index that was asked for, so a damaged page is named by where it was read from
+      //rather than by whatever its own bytes claim. Load overwrites it once the page checks out.
+      Index = index,
       PageSize = _diskManager.PageSize
     };
     newPage.Load();

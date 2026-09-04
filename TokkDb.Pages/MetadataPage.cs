@@ -7,13 +7,11 @@ public class MetadataPage : BasePage {
   public byte EntitiesCount { get; set; }
   public Dictionary<string, MetadataEntity> Entities { get; set; } = [];
 
-  public override void Load() {
-    base.Load();
+  protected override void LoadContent() {
     LoadEntities();
   }
 
-  public override void Save() {
-    base.Save();
+  protected override void SaveContent() {
     SaveEntities();
   }
 
@@ -30,11 +28,13 @@ public class MetadataPage : BasePage {
     for (var i = 0; i < EntitiesCount; i++) {
       var key = Buffer.ReadString(position, out var readBytes);
       position += readBytes;
+      var id = Buffer.ReadUInt(position, out readBytes);
+      position += readBytes;
       var firstPageId = Buffer.ReadUInt(position, out readBytes);
       position += readBytes;
       var lastPageId = Buffer.ReadUInt(position, out readBytes);
       position += readBytes;
-      Entities.Add(key, new MetadataEntity(firstPageId, lastPageId));
+      Entities.Add(key, new MetadataEntity(id, firstPageId, lastPageId));
     }
     return position;
   }
@@ -50,6 +50,8 @@ public class MetadataPage : BasePage {
     int position = StartContentBufferPosition;
     foreach (var (key, value) in Entities) {
       Buffer.WriteString(key, position, out var writeBytes);
+      position += writeBytes;
+      Buffer.WriteUInt(value.Id, position, out writeBytes);
       position += writeBytes;
       Buffer.WriteUInt(value.DataFirstPageId, position, out writeBytes);
       position += writeBytes;
