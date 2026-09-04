@@ -3,7 +3,15 @@ using TokkDb.Values;
 
 namespace TokkDb.Documents.Values;
 
-public class ArrayDocumentValue : ArrayValue<IDocumentValue>, IDocumentValue {
+public class ArrayDocumentValue : IDocumentValue {
+  
+  public ValueTypeEnum Type => ValueTypeEnum.Array;
+  public IDocumentValue[] Values { get; set; }
+
+  public ArrayDocumentValue() : this([]) { }
+  public ArrayDocumentValue(IDocumentValue[] values) {
+    Values = values;
+  }
   
   public virtual void WriteValue(BufferWriter writer) {
     writer.WriteInt(Values.Length);

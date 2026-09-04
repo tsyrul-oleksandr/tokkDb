@@ -54,7 +54,7 @@ public class BufferSlice {
   }
   
   public long ReadLong(int index, out int readBytes) {
-    var value = BitConverter.ToUInt32(_buffer.Span[index..(index + TypesConstants.LongByteSize)]);
+    var value = BitConverter.ToInt64(_buffer.Span[index..(index + TypesConstants.LongByteSize)]);
     readBytes = TypesConstants.LongByteSize;
     return value;
   }

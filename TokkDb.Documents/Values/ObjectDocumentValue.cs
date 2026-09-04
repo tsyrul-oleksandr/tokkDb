@@ -3,8 +3,17 @@ using TokkDb.Values;
 
 namespace TokkDb.Documents.Values;
 
-public class ObjectDocumentValue : ObjectValue<IDocumentValue>, IDocumentValue {
+public class ObjectDocumentValue : IDocumentValue {
+  public ValueTypeEnum Type => ValueTypeEnum.Object;
+  public Dictionary<string, IDocumentValue> Values { get; set; }
 
+  public ObjectDocumentValue() : this(new Dictionary<string, IDocumentValue>()) { }
+  public ObjectDocumentValue(Dictionary<string, IDocumentValue> values) {
+    Values = values;
+  }
+  
+  public IDocumentValue this[string key] => Values[key];
+  
   public virtual void WriteValue(BufferWriter writer) {
     writer.WriteInt(Values.Count);
     foreach (var value in Values) {
@@ -12,7 +21,6 @@ public class ObjectDocumentValue : ObjectValue<IDocumentValue>, IDocumentValue {
       writer.Write(value.Value);
     }
   }
-
   public virtual void ReadValue(BufferReader reader) {
     Values = new Dictionary<string, IDocumentValue>();
     var count = reader.ReadInt();

@@ -7,11 +7,11 @@ public abstract class BaseItemsPage : BasePage {
   private const byte SlotSize = 4;
   public ushort FreeBytes { get; set; } = TokkConstants.PageSize - StartContentBufferPosition;
   public ushort NextFreePosition { get; protected set; } = StartContentBufferPosition;
-  public byte ItemsCount { get; protected set; }
+  public ushort ItemsCount { get; protected set; }
   
   protected override int LoadHeader() {
     var position = base.LoadHeader();
-    ItemsCount = Buffer.ReadByte(position, out var readBytes);
+    ItemsCount = Buffer.ReadUShort(position, out var readBytes);
     position += readBytes;
     FreeBytes = Buffer.ReadUShort(position, out readBytes);
     position += readBytes;
@@ -22,7 +22,7 @@ public abstract class BaseItemsPage : BasePage {
 
   protected override int SaveHeader() {
     var position = base.SaveHeader();
-    Buffer.WriteByte(ItemsCount, position, out var writeBytes);
+    Buffer.WriteUShort(ItemsCount, position, out var writeBytes);
     position += writeBytes;
     Buffer.WriteUShort(FreeBytes, position, out writeBytes);
     position += writeBytes;
@@ -31,39 +31,48 @@ public abstract class BaseItemsPage : BasePage {
     return position;
   }
   
-  public virtual BufferSlice GetItem(byte index) {
+  public virtual BufferSlice GetItem(ushort index) {
     var addressValue = GetItemSlotAddressValue(index);
     return Buffer.Slice(addressValue.Position, addressValue.Length);
   }
 
+  //An item costs its own bytes plus the slot it takes from the directory growing down from the page end.
+  public virtual bool CanFit(ushort bytesLength) {
+    return FreeBytes >= bytesLength + SlotSize;
+  }
+
   public virtual BufferSlice RegisterItem(ushort bytesLength) {
+    if (!CanFit(bytesLength)) {
+      throw new PageOverflowException(
+        $"Item of {bytesLength} bytes does not fit into page {Index} with {FreeBytes} free bytes.");
+    }
     var newItemIndex = ItemsCount;
     var startPosition = NextFreePosition;
     SetItemSlotAddressValue(newItemIndex, startPosition, bytesLength);
     NextFreePosition += bytesLength;
     ItemsCount++;
-    FreeBytes -= bytesLength;
+    FreeBytes -= (ushort)(bytesLength + SlotSize);
     return Buffer.Slice(startPosition, bytesLength);
   }
 
   public virtual IEnumerable<BufferSlice> GetItems() {
-    for (byte i = 0; i < ItemsCount; i++) {
+    for (ushort i = 0; i < ItemsCount; i++) {
       yield return GetItem(i);
     }
   }
   
-  protected virtual (ushort Position, ushort Length) GetItemSlotAddressValue(byte index) {
+  protected virtual (ushort Position, ushort Length) GetItemSlotAddressValue(ushort index) {
     var address = GetItemSlotAddress(index);
     return (Buffer.ReadUShort(address.Position), Buffer.ReadUShort(address.Length));
   }
   
-  protected virtual void SetItemSlotAddressValue(byte index, ushort position, ushort length) {
+  protected virtual void SetItemSlotAddressValue(ushort index, ushort position, ushort length) {
     var address = GetItemSlotAddress(index);
     Buffer.WriteUShort(position, address.Position, out _);
     Buffer.WriteUShort(length, address.Length, out _);
   }
 
-  protected static (ushort Position, ushort Length) GetItemSlotAddress(byte index) {
+  protected static (ushort Position, ushort Length) GetItemSlotAddress(ushort index) {
     var slotLengthAddress = (ushort)(TokkConstants.PageSize - (index + 1) * SlotSize);
     var slotPositionAddress = (ushort)(slotLengthAddress + 2);
     return (slotPositionAddress, slotLengthAddress);

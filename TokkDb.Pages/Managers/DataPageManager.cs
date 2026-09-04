@@ -23,7 +23,7 @@ public class DataPageManager {
 
   private DataPage GetAvailablePage(string entityName, ushort bytesLength) {
     foreach (var page in GetPages(entityName)) {
-      if (page.FreeBytes > bytesLength) {
+      if (page.CanFit(bytesLength)) {
         return page;
       }
     }
@@ -54,6 +54,7 @@ public class DataPageManager {
     if (lastPageId != default) {
       var previousLastPage = _pageManager.LoadPage<DataPage>(lastPageId);
       previousLastPage.NextPageIndex = newPageIndex;
+      _transactionManager.Track(previousLastPage);
     }
     _metadataPageManager.SetLastPageIndex(entityName, newPageIndex);
     _transactionManager.Track(newPage);

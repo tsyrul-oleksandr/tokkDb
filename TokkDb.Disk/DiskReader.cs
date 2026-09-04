@@ -11,16 +11,16 @@ public class DiskReader {
   }
   
   public bool IsBlank() {
-    var stream = GetStream(TokkConstants.PageSize);
+    using var stream = GetStream(TokkConstants.PageSize);
     return stream.Length < TokkConstants.PageSize;
   }
   
   public PageBuffer ReadPage(uint index) {
-    var stream = GetStream(TokkConstants.PageSize);
-    var position = index * TokkConstants.PageSize;
+    using var stream = GetStream(TokkConstants.PageSize);
+    var position = (long)index * TokkConstants.PageSize;
     stream.Position = position;
     var bytes = new byte[TokkConstants.PageSize];
-    _ = stream.Read(bytes, 0, bytes.Length);
+    stream.ReadExactly(bytes, 0, bytes.Length);
     return new PageBuffer(bytes);
   }
   
