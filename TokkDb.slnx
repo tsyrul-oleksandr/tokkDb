@@ -1,10 +1,16 @@
 ﻿<Solution>
-  <Project Path="TokkDb.Buffer\TokkDb.Buffer.csproj" Type="Classic C#" />
-  <Project Path="TokkDb.Configuration\TokkDb.Configuration.csproj" Type="Classic C#" />
-  <Project Path="TokkDb.Disk\TokkDb.Disk.csproj" Type="Classic C#" />
-  <Project Path="TokkDb.Documents\TokkDb.Documents.csproj" Type="Classic C#" />
-  <Project Path="TokkDb.Example.Console\TokkDb.Example.Console.csproj" Type="Classic C#" />
-  <Project Path="TokkDb.Pages\TokkDb.Pages.csproj" Type="Classic C#" />
-  <Project Path="TokkDb\TokkDb.csproj" Type="Classic C#" />
-  <Project Path="TokkDb.Tests\TokkDb.Tests.csproj" Type="Classic C#" />
+  <Folder Name="/LLM/">
+    <Project Path="TokkDb.LLM.Application/TokkDb.LLM.Application.csproj" />
+    <Project Path="TokkDb.LLM.Core/TokkDb.LLM.Core.csproj" />
+    <Project Path="TokkDb.LLM.Storage.Tests/TokkDb.LLM.Storage.Tests.csproj" />
+    <Project Path="TokkDb.LLM.Storage/TokkDb.LLM.Storage.csproj" />
+  </Folder>
+  <Project Path="TokkDb.Buffer\TokkDb.Buffer.csproj" Type="C#" />
+  <Project Path="TokkDb.Configuration\TokkDb.Configuration.csproj" Type="C#" />
+  <Project Path="TokkDb.Disk\TokkDb.Disk.csproj" Type="C#" />
+  <Project Path="TokkDb.Documents\TokkDb.Documents.csproj" Type="C#" />
+  <Project Path="TokkDb.Example.Console\TokkDb.Example.Console.csproj" Type="C#" />
+  <Project Path="TokkDb.Pages\TokkDb.Pages.csproj" Type="C#" />
+  <Project Path="TokkDb\TokkDb.csproj" Type="C#" />
+  <Project Path="TokkDb.Tests\TokkDb.Tests.csproj" Type="C#" />
 </Solution>

@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+
+<Shell
+    x:Class="TokkDb.LLM.Application.AppShell"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    FlyoutBehavior="Flyout"
+    FlyoutWidth="260"
+    Title="TokkDb">
+    <!-- Header of Flyout -->
+    <Shell.FlyoutHeader>
+
+        <Border
+            Padding="20,24"
+            BackgroundColor="{AppThemeBinding
+                Light=#FFFFFF,
+                Dark=#202023}"
+            StrokeThickness="0">
+
+            <VerticalStackLayout Spacing="4">
+
+                <Label
+                    Text="TokkDb"
+                    FontSize="24"
+                    FontAttributes="Bold" />
+
+                <Label
+                    Text="AI Database Workspace"
+                    FontSize="12"
+                    TextColor="{AppThemeBinding
+                        Light=#777777,
+                        Dark=#999999}" />
+
+            </VerticalStackLayout>
+
+        </Border>
+
+    </Shell.FlyoutHeader>
+
+
+    <!-- ========================= -->
+    <!-- CHAT                       -->
+    <!-- ========================= -->
+
+    <FlyoutItem
+        Title="Chat"
+        Route="chat">
+
+        <ShellContent
+            Title="Chat"
+            x:Name="ChatContent" />
+
+    </FlyoutItem>
+
+
+    <!-- ========================= -->
+    <!-- DATABASE                   -->
+    <!-- ========================= -->
+
+    <FlyoutItem
+        Title="Database"
+        Route="database">
+
+        <ShellContent
+            Title="Database"
+            x:Name="DatabaseContent" />
+
+    </FlyoutItem>
+
+    <!-- ========================= -->
+    <!-- SETTINGS                   -->
+    <!-- ========================= -->
+
+    <FlyoutItem
+        Title="Settings"
+        Route="settings">
+
+        <ShellContent
+            Title="Settings"
+            x:Name="SettingsContent" />
+
+    </FlyoutItem>
+
+    <!-- ========================= -->
+    <!-- DIAGNOSTICS               -->
+    <!-- ========================= -->
+
+    <FlyoutItem
+        Title="Diagnostics"
+        Route="diagnostics">
+
+        <ShellContent
+            Title="Diagnostics"
+            x:Name="DiagnosticsContent" />
+
+    </FlyoutItem>
+
+</Shell>

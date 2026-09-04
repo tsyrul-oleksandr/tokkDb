@@ -1,0 +1,521 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="TokkDb.LLM.Application.Diagnostics.DiagnosticsPage"
+             BackgroundColor="{AppThemeBinding Light=#F7F7F8, Dark=#18181B}">
+    <ContentPage.Content>
+        <Grid
+    Padding="20"
+    RowDefinitions="Auto,Auto,*"
+    RowSpacing="16">
+
+    <!-- ============================================= -->
+    <!-- HEADER                                        -->
+    <!-- ============================================= -->
+
+    <Grid
+        Grid.Row="0"
+        ColumnDefinitions="*,Auto"
+        ColumnSpacing="16">
+
+        <VerticalStackLayout Spacing="4">
+
+            <Label
+                Text="Diagnostics"
+                FontSize="28"
+                FontAttributes="Bold" />
+
+            <Label
+                Text="Monitor application status, agent activity and system events"
+                FontSize="13"
+                TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+        </VerticalStackLayout>
+
+
+        <HorizontalStackLayout
+            Grid.Column="1"
+            Spacing="10"
+            VerticalOptions="Center">
+
+            <Button
+                Text="Refresh"
+                Command="{Binding RefreshCommand}" />
+
+            <Button
+                Text="Clear Logs"
+                Command="{Binding ClearLogsCommand}" />
+
+        </HorizontalStackLayout>
+
+    </Grid>
+
+
+    <!-- ============================================= -->
+    <!-- STATUS CARDS                                  -->
+    <!-- ============================================= -->
+
+    <Grid
+        Grid.Row="1"
+        ColumnDefinitions="*,*,*,*"
+        ColumnSpacing="12">
+
+
+        <!-- Storage -->
+
+        <Border
+            Grid.Column="0"
+            Padding="16"
+            Stroke="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}"
+            StrokeThickness="1"
+            BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#202023}">
+
+            <VerticalStackLayout Spacing="6">
+
+                <Label
+                    Text="STORAGE"
+                    FontSize="11"
+                    FontAttributes="Bold"
+                    TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                <Label
+                    Text="{Binding StorageStatus}"
+                    FontSize="17"
+                    FontAttributes="Bold" />
+
+                <Label
+                    Text="{Binding StorageDetails}"
+                    FontSize="12"
+                    LineBreakMode="TailTruncation"
+                    TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+            </VerticalStackLayout>
+
+        </Border>
+
+
+        <!-- LLM -->
+
+        <Border
+            Grid.Column="1"
+            Padding="16"
+            Stroke="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}"
+            StrokeThickness="1"
+            BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#202023}">
+
+            <VerticalStackLayout Spacing="6">
+
+                <Label
+                    Text="LLM"
+                    FontSize="11"
+                    FontAttributes="Bold"
+                    TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                <Label
+                    Text="{Binding LlmStatus}"
+                    FontSize="17"
+                    FontAttributes="Bold" />
+
+                <Label
+                    Text="{Binding LlmDetails}"
+                    FontSize="12"
+                    LineBreakMode="TailTruncation"
+                    TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+            </VerticalStackLayout>
+
+        </Border>
+
+
+        <!-- Agent -->
+
+        <Border
+            Grid.Column="2"
+            Padding="16"
+            Stroke="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}"
+            StrokeThickness="1"
+            BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#202023}">
+
+            <VerticalStackLayout Spacing="6">
+
+                <Label
+                    Text="AGENT"
+                    FontSize="11"
+                    FontAttributes="Bold"
+                    TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                <Label
+                    Text="{Binding AgentStatus}"
+                    FontSize="17"
+                    FontAttributes="Bold" />
+
+                <Label
+                    Text="{Binding AgentDetails}"
+                    FontSize="12"
+                    LineBreakMode="TailTruncation"
+                    TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+            </VerticalStackLayout>
+
+        </Border>
+
+
+        <!-- Workflow -->
+
+        <Border
+            Grid.Column="3"
+            Padding="16"
+            Stroke="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}"
+            StrokeThickness="1"
+            BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#202023}">
+
+            <VerticalStackLayout Spacing="6">
+
+                <Label
+                    Text="WORKFLOW"
+                    FontSize="11"
+                    FontAttributes="Bold"
+                    TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                <Label
+                    Text="{Binding WorkflowStatus}"
+                    FontSize="17"
+                    FontAttributes="Bold" />
+
+                <Label
+                    Text="{Binding WorkflowDetails}"
+                    FontSize="12"
+                    LineBreakMode="TailTruncation"
+                    TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+            </VerticalStackLayout>
+
+        </Border>
+
+    </Grid>
+
+
+    <!-- ============================================= -->
+    <!-- MAIN CONTENT                                  -->
+    <!-- ============================================= -->
+
+    <Grid
+        Grid.Row="2"
+        ColumnDefinitions="420,*"
+        ColumnSpacing="16">
+
+
+        <!-- ========================================= -->
+        <!-- EVENTS                                    -->
+        <!-- ========================================= -->
+
+        <Border
+            Grid.Column="0"
+            Padding="16"
+            Stroke="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}"
+            StrokeThickness="1"
+            BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#202023}">
+
+            <Grid
+                RowDefinitions="Auto,Auto,*"
+                RowSpacing="12">
+
+
+                <!-- Header -->
+
+                <Grid ColumnDefinitions="*,Auto">
+
+                    <Label
+                        Text="EVENTS"
+                        FontSize="11"
+                        FontAttributes="Bold"
+                        TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                    <Label
+                        Grid.Column="1"
+                        Text="{Binding EventsCountText}"
+                        FontSize="11"
+                        TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                </Grid>
+
+
+                <!-- Filter -->
+
+                <Entry
+                    Grid.Row="1"
+                    Text="{Binding SearchText}"
+                    Placeholder="Search diagnostics..."
+                    ClearButtonVisibility="WhileEditing" />
+
+
+                <!-- Events -->
+
+                <CollectionView
+                    Grid.Row="2"
+                    ItemsSource="{Binding FilteredEvents}"
+                    SelectedItem="{Binding SelectedEvent}"
+                    SelectionMode="Single">
+
+                    <CollectionView.EmptyView>
+
+                        <VerticalStackLayout
+                            HorizontalOptions="Center"
+                            VerticalOptions="Center"
+                            Spacing="8">
+
+                            <Label
+                                Text="No diagnostic events"
+                                FontSize="15"
+                                FontAttributes="Bold"
+                                HorizontalOptions="Center" />
+
+                            <Label
+                                Text="System events will appear here."
+                                FontSize="12"
+                                HorizontalOptions="Center"
+                                TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                        </VerticalStackLayout>
+
+                    </CollectionView.EmptyView>
+
+
+                    <CollectionView.ItemTemplate>
+
+                        <DataTemplate>
+
+                            <Border
+                                Padding="12"
+                                Margin="0,3"
+                                Stroke="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}"
+                                StrokeThickness="1">
+
+                                <Grid
+                                    ColumnDefinitions="Auto,*,Auto"
+                                    ColumnSpacing="10">
+
+
+                                    <!-- Level icon -->
+
+                                    <Label
+                                        Text="{Binding Icon}"
+                                        FontSize="18"
+                                        VerticalOptions="Start" />
+
+
+                                    <!-- Event -->
+
+                                    <VerticalStackLayout
+                                        Grid.Column="1"
+                                        Spacing="3">
+
+                                        <Label
+                                            Text="{Binding Title}"
+                                            FontSize="13"
+                                            FontAttributes="Bold"
+                                            LineBreakMode="TailTruncation" />
+
+                                        <Label
+                                            Text="{Binding Summary}"
+                                            FontSize="11"
+                                            LineBreakMode="TailTruncation"
+                                            TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                                    </VerticalStackLayout>
+
+
+                                    <!-- Time -->
+
+                                    <Label
+                                        Grid.Column="2"
+                                        Text="{Binding TimeText}"
+                                        FontSize="10"
+                                        VerticalOptions="Start"
+                                        TextColor="{AppThemeBinding Light=#A1A1AA, Dark=#71717A}" />
+
+                                </Grid>
+
+                            </Border>
+
+                        </DataTemplate>
+
+                    </CollectionView.ItemTemplate>
+
+                </CollectionView>
+
+            </Grid>
+
+        </Border>
+
+
+        <!-- ========================================= -->
+        <!-- EVENT DETAILS                             -->
+        <!-- ========================================= -->
+
+        <Border
+            Grid.Column="1"
+            Padding="20"
+            Stroke="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}"
+            StrokeThickness="1"
+            BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#202023}">
+
+            <Grid RowDefinitions="Auto,*">
+
+
+                <!-- Empty state -->
+
+                <VerticalStackLayout
+                    IsVisible="{Binding IsNoEventSelected}"
+                    HorizontalOptions="Center"
+                    VerticalOptions="Center"
+                    Spacing="10">
+
+                    <Label
+                        Text="Select an event"
+                        FontSize="18"
+                        FontAttributes="Bold"
+                        HorizontalOptions="Center" />
+
+                    <Label
+                        Text="Select a diagnostic event to view details."
+                        FontSize="13"
+                        HorizontalOptions="Center"
+                        TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                </VerticalStackLayout>
+
+
+                <!-- Details -->
+
+                <ScrollView
+                    IsVisible="{Binding HasSelectedEvent}">
+
+                    <VerticalStackLayout Spacing="20">
+
+
+                        <!-- Title -->
+
+                        <VerticalStackLayout Spacing="6">
+
+                            <Label
+                                Text="{Binding SelectedEvent.Title}"
+                                FontSize="22"
+                                FontAttributes="Bold" />
+
+                            <Label
+                                Text="{Binding SelectedEvent.TimestampText}"
+                                FontSize="12"
+                                TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                        </VerticalStackLayout>
+
+
+                        <!-- Metadata -->
+
+                        <Grid
+                            ColumnDefinitions="150,*"
+                            RowDefinitions="Auto,Auto,Auto"
+                            RowSpacing="12">
+
+                            <Label
+                                Text="Level"
+                                FontSize="12"
+                                FontAttributes="Bold"
+                                TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                            <Label
+                                Grid.Column="1"
+                                Text="{Binding SelectedEvent.Level}" />
+
+
+                            <Label
+                                Grid.Row="1"
+                                Text="Source"
+                                FontSize="12"
+                                FontAttributes="Bold"
+                                TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                            <Label
+                                Grid.Row="1"
+                                Grid.Column="1"
+                                Text="{Binding SelectedEvent.Source}" />
+
+
+                            <Label
+                                Grid.Row="2"
+                                Text="Category"
+                                FontSize="12"
+                                FontAttributes="Bold"
+                                TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                            <Label
+                                Grid.Row="2"
+                                Grid.Column="1"
+                                Text="{Binding SelectedEvent.Category}" />
+
+                        </Grid>
+
+
+                        <!-- Divider -->
+
+                        <BoxView
+                            HeightRequest="1"
+                            Color="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}" />
+
+
+                        <!-- Details -->
+
+                        <VerticalStackLayout Spacing="8">
+
+                            <Label
+                                Text="DETAILS"
+                                FontSize="11"
+                                FontAttributes="Bold"
+                                TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                            <Editor
+                                Text="{Binding SelectedEvent.Details}"
+                                IsReadOnly="True"
+                                AutoSize="TextChanges"
+                                MinimumHeightRequest="150"
+                                BackgroundColor="Transparent" />
+
+                        </VerticalStackLayout>
+
+
+                        <!-- Exception -->
+
+                        <VerticalStackLayout
+                            IsVisible="{Binding SelectedEvent.HasException}"
+                            Spacing="8">
+
+                            <Label
+                                Text="EXCEPTION"
+                                FontSize="11"
+                                FontAttributes="Bold"
+                                TextColor="#DC2626" />
+
+                            <Editor
+                                Text="{Binding SelectedEvent.Exception}"
+                                IsReadOnly="True"
+                                AutoSize="TextChanges"
+                                MinimumHeightRequest="180"
+                                BackgroundColor="Transparent" />
+
+                        </VerticalStackLayout>
+
+                    </VerticalStackLayout>
+
+                </ScrollView>
+
+            </Grid>
+
+        </Border>
+
+    </Grid>
+
+</Grid>
+    </ContentPage.Content>
+</ContentPage>
