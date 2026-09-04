@@ -12,6 +12,7 @@ public class DiskManager : IDisposable {
 
   public DiskReader Reader { get; }
   public DiskWriter Writer { get; }
+  public Journal Journal { get; }
   public ushort PageSize { get; private set; }
   public long PageReadCount => Reader.PageReadCount;
 
@@ -22,7 +23,12 @@ public class DiskManager : IDisposable {
     _stream = new FileStream(filePath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read, bufferSize: 1);
     Reader = new DiskReader(_stream, pageSize);
     Writer = new DiskWriter(_stream, pageSize);
+    Journal = new Journal(filePath, pageSize);
   }
+
+  //How many whole pages the file holds. Recorded in the journal so that a transaction which
+  //grew the file can be undone by truncating it back.
+  public uint PageCount => (uint)(_stream.Length / PageSize);
 
   //The page size of an existing file is stored in its root page, so it is known only after
   //the first bytes of the file have been read.
@@ -30,6 +36,24 @@ public class DiskManager : IDisposable {
     PageSize = pageSize;
     Reader.PageSize = pageSize;
     Writer.PageSize = pageSize;
+    Journal.PageSize = pageSize;
+  }
+
+  //Step one of the commit protocol: what the pages about to be written looked like before,
+  //on the device, before the database file is touched at all.
+  public void WriteJournal(ulong transactionId, IReadOnlyCollection<uint> pageIndexes) {
+    var originalPageCount = PageCount;
+    Journal.Begin(transactionId, originalPageCount, pageIndexes.Count);
+    foreach (var pageIndex in pageIndexes) {
+      var beforeImage = pageIndex < originalPageCount ? Reader.ReadPage(pageIndex).ToArray() : null;
+      Journal.WriteBeforeImage(pageIndex, beforeImage);
+    }
+    Journal.Flush();
+  }
+
+  //The last step, once the database file itself is durable.
+  public void CommitJournal(ulong transactionId) {
+    Journal.MarkCommitted(transactionId);
   }
 
   public bool IsBlank() {
@@ -59,6 +83,7 @@ public class DiskManager : IDisposable {
       return;
     }
     _disposed = true;
+    Journal.Dispose();
     _stream.Dispose();
   }
 }

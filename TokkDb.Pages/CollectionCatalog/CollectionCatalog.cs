@@ -1,5 +1,6 @@
 using TokkDb.Documents;
 using TokkDb.Pages.Managers;
+using TokkDb.Transactions;
 
 namespace TokkDb.Pages;
 
@@ -8,16 +9,18 @@ namespace TokkDb.Pages;
 //memory from open so that reading a field costs nothing.
 public class CollectionCatalog {
   private readonly RootPageManager _rootPageManager;
+  private readonly TransactionManager _transactionManager;
   private readonly Dictionary<string, CollectionDescriptor> _descriptors = new(StringComparer.Ordinal);
 
   //The knot D-4 creates: the catalogue is a collection like any other, so it reads and
   //writes itself through the manager that asks it where the pages of a collection are.
   private DataPageManager _dataPageManager;
 
-  //Every page this catalogue changes is tracked by the manager that changes it, so the
-  //catalogue itself never talks to the transaction manager.
-  public CollectionCatalog(RootPageManager rootPageManager) {
+  //The transaction manager is here for DC-8: a catalogue change has to refuse before it
+  //touches anything, not fail somewhere downstream once the cache has already moved.
+  public CollectionCatalog(RootPageManager rootPageManager, TransactionManager transactionManager) {
     _rootPageManager = rootPageManager;
+    _transactionManager = transactionManager;
   }
 
   public IReadOnlyCollection<CollectionDescriptor> Descriptors => _descriptors.Values;
@@ -67,6 +70,7 @@ public class CollectionCatalog {
   }
 
   public void SetDataLastPage(string collectionName, uint pageIndex) {
+    _transactionManager.RequireTransaction();
     var descriptor = Get(collectionName);
     descriptor.DataLastPage = pageIndex;
     if (descriptor.DataFirstPage == default) {
@@ -80,6 +84,7 @@ public class CollectionCatalog {
   }
 
   public void IncrementRecordCount(string collectionName) {
+    _transactionManager.RequireTransaction();
     var descriptor = Get(collectionName);
     descriptor.RecordCount++;
     Save(descriptor);
@@ -122,6 +127,8 @@ public class CollectionCatalog {
 
   protected virtual CollectionDescriptor CreateCollectionCore(string name, IEnumerable<ColumnDescriptor> columns,
       string description) {
+    //DC-8: the descriptor document and the pages it points at commit together or not at all.
+    _transactionManager.RequireTransaction();
     if (Exists(name)) {
       throw new ArgumentException($"Collection {name} already exists", nameof(name));
     }
@@ -132,8 +139,15 @@ public class CollectionCatalog {
       Columns = columns?.ToList() ?? [],
       OwningCollectionId = GetNewOwningCollectionId()
     };
+    //_collections has to be findable while its own first document is being written, so the
+    //cache goes first and is wound back if the write does not happen.
     _descriptors[name] = descriptor;
-    Append(descriptor);
+    try {
+      Append(descriptor);
+    } catch {
+      _descriptors.Remove(name);
+      throw;
+    }
     return descriptor;
   }
 

@@ -11,8 +11,14 @@ public sealed class TempDatabaseFile : IDisposable {
   public long PageCount => Length / Configuration.TokkConstants.DefaultPageSize;
 
   public void Dispose() {
-    if (File.Exists(Path)) {
-      File.Delete(Path);
+    Delete(Path);
+    //The journal lives beside the database file and goes with it.
+    Delete(Disk.Journal.GetJournalPath(Path));
+  }
+
+  private static void Delete(string path) {
+    if (File.Exists(path)) {
+      File.Delete(path);
     }
   }
 }

@@ -20,7 +20,7 @@ public class TokkDbConnection : IDisposable {
     var pageManager = new PageManager(_diskManager);
     _transactionManager = new TransactionManager(pageManager);
     _rootPageManager = new RootPageManager(pageManager, _transactionManager);
-    _catalog = new CollectionCatalog(_rootPageManager);
+    _catalog = new CollectionCatalog(_rootPageManager, _transactionManager);
     _dataPageManager = new DataPageManager(pageManager, _catalog, _transactionManager);
     _catalog.SetDataPageManager(_dataPageManager);
   }

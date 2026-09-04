@@ -50,6 +50,35 @@ public class PageManager {
     return newPage;
   }
   
+  //The commit protocol of TX-2, in the order that makes it recoverable: the journal first
+  //and on the device, then the database file, then the commit record.
+  public virtual void CommitPages(ulong transactionId, BasePage[] pages) {
+    if (pages.Length == 0) {
+      return;
+    }
+    foreach (var page in pages) {
+      page.Save();
+    }
+    WriteJournal(transactionId, pages);
+    WritePages(pages);
+    MarkJournalCommitted(transactionId);
+  }
+
+  protected virtual void WriteJournal(ulong transactionId, BasePage[] pages) {
+    _diskManager.WriteJournal(transactionId, pages.Select(page => page.Index).ToArray());
+  }
+
+  protected virtual void WritePages(BasePage[] pages) {
+    foreach (var page in pages) {
+      _diskManager.WritePage(page.Buffer);
+    }
+    _diskManager.Flush();
+  }
+
+  protected virtual void MarkJournalCommitted(ulong transactionId) {
+    _diskManager.CommitJournal(transactionId);
+  }
+
   public void SavePages<T>(params T[] pages) where T : BasePage {
     foreach (var page in pages) {
       page.Save();
