@@ -1,0 +1,540 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="TokkDb.LLM.Application.Databases.DatabasePage"
+             Title="Database"
+             BackgroundColor="{AppThemeBinding Light=#F7F7F8, Dark=#18181B}">
+    <ContentPage.Content>
+        <Grid
+        Padding="20"
+        RowDefinitions="Auto,Auto,*"
+        RowSpacing="16">
+
+        <!-- ================================================= -->
+        <!-- HEADER                                             -->
+        <!-- ================================================= -->
+
+        <Grid
+            Grid.Row="0"
+            ColumnDefinitions="*,Auto"
+            ColumnSpacing="16">
+
+            <VerticalStackLayout Spacing="2">
+
+                <Label
+                    Text="Database"
+                    FontSize="26"
+                    FontAttributes="Bold" />
+
+                <Label
+                    Text="Browse collections, records and database structure"
+                    FontSize="13"
+                    TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+            </VerticalStackLayout>
+
+
+            <HorizontalStackLayout
+                Grid.Column="1"
+                Spacing="10"
+                VerticalOptions="Center">
+
+                <Button
+                    Text="Refresh"
+                    Command="{Binding RefreshCommand}" />
+
+                <Button
+                    Text="+ New Record"
+                    Command="{Binding NewRecordCommand}" />
+
+            </HorizontalStackLayout>
+
+        </Grid>
+
+
+        <!-- ================================================= -->
+        <!-- DATABASE SELECTORS                                 -->
+        <!-- ================================================= -->
+
+        <Border
+            Grid.Row="1"
+            Padding="16"
+            Stroke="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}"
+            StrokeThickness="1"
+            BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#202023}">
+
+            <Grid
+                ColumnDefinitions="*,*"
+                ColumnSpacing="20">
+
+                <!-- Backend -->
+
+                <VerticalStackLayout Grid.Column="0" Spacing="6">
+
+                    <Label
+                        Text="Storage Backend"
+                        FontSize="12"
+                        FontAttributes="Bold"
+                        TextColor="{AppThemeBinding Light=#52525B, Dark=#A1A1AA}" />
+
+                    <Picker
+                        ItemsSource="{Binding Backends}"
+                        SelectedItem="{Binding SelectedBackend}"
+                        Title="Select backend" />
+
+                </VerticalStackLayout>
+
+
+                <!-- Collection -->
+
+                <VerticalStackLayout Grid.Column="1" Spacing="6">
+
+                    <Label
+                        Text="Collection"
+                        FontSize="12"
+                        FontAttributes="Bold"
+                        TextColor="{AppThemeBinding Light=#52525B, Dark=#A1A1AA}" />
+
+                    <Picker
+                        ItemsSource="{Binding Collections}"
+                        SelectedItem="{Binding SelectedCollection}"
+                        ItemDisplayBinding="{Binding Name}"
+                        Title="Select collection" />
+
+                </VerticalStackLayout>
+
+            </Grid>
+
+        </Border>
+
+
+        <!-- ================================================= -->
+        <!-- MAIN WORKSPACE                                     -->
+        <!-- ================================================= -->
+
+        <Grid
+            Grid.Row="2"
+            ColumnDefinitions="260,*,320"
+            ColumnSpacing="16">
+
+
+            <!-- ============================================= -->
+            <!-- LEFT PANEL                                     -->
+            <!-- ============================================= -->
+
+            <Border
+                Grid.Column="0"
+                Padding="16"
+                Stroke="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}"
+                StrokeThickness="1"
+                BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#202023}">
+
+                <Grid RowDefinitions="Auto,Auto,Auto,*">
+
+                    <!-- Collection info -->
+
+                    <VerticalStackLayout Spacing="8">
+
+                        <Label
+                            Text="COLLECTION"
+                            FontSize="11"
+                            FontAttributes="Bold"
+                            TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                        <Label
+                            Text="{Binding SelectedCollection.Name}"
+                            FontSize="20"
+                            FontAttributes="Bold" />
+
+                        <Label
+                            Text="{Binding SelectedCollection.Description}"
+                            FontSize="12"
+                            LineBreakMode="WordWrap"
+                            TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                    </VerticalStackLayout>
+
+
+                    <!-- Divider -->
+
+                    <BoxView
+                        Grid.Row="1"
+                        HeightRequest="1"
+                        Margin="0,16"
+                        Color="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}" />
+
+
+                    <!-- Columns -->
+
+                    <VerticalStackLayout
+                        Grid.Row="2"
+                        Spacing="8">
+
+                        <Label
+                            Text="COLUMNS"
+                            FontSize="11"
+                            FontAttributes="Bold"
+                            TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                        <CollectionView
+                            ItemsSource="{Binding Columns}"
+                            HeightRequest="250">
+
+                            <CollectionView.ItemTemplate>
+
+                                <DataTemplate>
+
+                                    <Grid
+                                        Padding="0,6"
+                                        ColumnDefinitions="*,Auto">
+
+                                        <VerticalStackLayout
+                                            Grid.Column="0"
+                                            Spacing="2">
+
+                                            <Label
+                                                Text="{Binding Name}"
+                                                FontSize="13"
+                                                FontAttributes="Bold" />
+
+                                            <Label
+                                                Text="{Binding Description}"
+                                                FontSize="11"
+                                                TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}"
+                                                LineBreakMode="TailTruncation" />
+
+                                        </VerticalStackLayout>
+
+
+                                        <Label
+                                            Grid.Column="1"
+                                            Text="{Binding Type}"
+                                            FontSize="11"
+                                            VerticalOptions="Center"
+                                            TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                                    </Grid>
+
+                                </DataTemplate>
+
+                            </CollectionView.ItemTemplate>
+
+                        </CollectionView>
+
+                    </VerticalStackLayout>
+
+
+                    <!-- Relations -->
+
+                    <VerticalStackLayout
+                        Grid.Row="3"
+                        Spacing="8">
+
+                        <Label
+                            Text="RELATIONS"
+                            FontSize="11"
+                            FontAttributes="Bold"
+                            TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                        <CollectionView
+                            ItemsSource="{Binding Relations}">
+
+                            <CollectionView.EmptyView>
+
+                                <Label
+                                    Text="No relations"
+                                    FontSize="12"
+                                    TextColor="{AppThemeBinding Light=#A1A1AA, Dark=#71717A}" />
+
+                            </CollectionView.EmptyView>
+
+
+                            <CollectionView.ItemTemplate>
+
+                                <DataTemplate>
+
+                                    <Label
+                                        Text="{Binding}"
+                                        FontSize="12"
+                                        LineBreakMode="WordWrap"
+                                        Padding="0,4" />
+
+                                </DataTemplate>
+
+                            </CollectionView.ItemTemplate>
+
+                        </CollectionView>
+
+                    </VerticalStackLayout>
+
+                </Grid>
+
+            </Border>
+
+
+            <!-- ============================================= -->
+            <!-- RECORDS                                        -->
+            <!-- ============================================= -->
+
+            <Border
+                Grid.Column="1"
+                Padding="16"
+                Stroke="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}"
+                StrokeThickness="1"
+                BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#202023}">
+
+                <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
+
+
+                    <!-- Header -->
+
+                    <Grid ColumnDefinitions="*,Auto">
+
+                        <VerticalStackLayout Spacing="2">
+
+                            <Label
+                                Text="RECORDS"
+                                FontSize="11"
+                                FontAttributes="Bold"
+                                TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                            <Label
+                                Text="{Binding RecordsCountText}"
+                                FontSize="13"
+                                TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                        </VerticalStackLayout>
+
+
+                        <Button
+                            Grid.Column="1"
+                            Text="+ Add"
+                            Command="{Binding NewRecordCommand}" />
+
+                    </Grid>
+
+
+                    <!-- Search -->
+
+                    <Entry
+                        Grid.Row="1"
+                        Text="{Binding SearchText}"
+                        Placeholder="Search records..."
+                        ClearButtonVisibility="WhileEditing" />
+
+
+                    <!-- Records -->
+
+                    <CollectionView
+                        Grid.Row="2"
+                        ItemsSource="{Binding FilteredRecords}"
+                        SelectedItem="{Binding SelectedRecord}"
+                        SelectionMode="Single">
+
+                        <CollectionView.EmptyView>
+
+                            <VerticalStackLayout
+                                HorizontalOptions="Center"
+                                VerticalOptions="Center"
+                                Spacing="8">
+
+                                <Label
+                                    Text="No records found"
+                                    FontSize="16"
+                                    FontAttributes="Bold"
+                                    HorizontalOptions="Center" />
+
+                                <Label
+                                    Text="Create a new record to get started."
+                                    FontSize="12"
+                                    HorizontalOptions="Center"
+                                    TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                            </VerticalStackLayout>
+
+                        </CollectionView.EmptyView>
+
+
+                        <CollectionView.ItemTemplate>
+
+                            <DataTemplate>
+
+                                <Border
+                                    Padding="12"
+                                    Margin="0,3"
+                                    StrokeThickness="1"
+                                    Stroke="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}"
+                                    BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#202023}">
+
+                                    <Grid
+                                        ColumnDefinitions="*,Auto"
+                                        ColumnSpacing="10">
+
+                                        <Label
+                                            Text="{Binding Summary}"
+                                            FontSize="13"
+                                            LineBreakMode="TailTruncation"
+                                            VerticalOptions="Center" />
+
+                                        <Label
+                                            Grid.Column="1"
+                                            Text="›"
+                                            FontSize="20"
+                                            TextColor="{AppThemeBinding Light=#A1A1AA, Dark=#71717A}"
+                                            VerticalOptions="Center" />
+
+                                    </Grid>
+
+                                </Border>
+
+                            </DataTemplate>
+
+                        </CollectionView.ItemTemplate>
+
+                    </CollectionView>
+
+                </Grid>
+
+            </Border>
+
+
+            <!-- ============================================= -->
+            <!-- RECORD EDITOR                                  -->
+            <!-- ============================================= -->
+
+            <Border
+                Grid.Column="2"
+                Padding="16"
+                Stroke="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}"
+                StrokeThickness="1"
+                BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#202023}">
+
+                <Grid
+                    RowDefinitions="Auto,*,Auto"
+                    RowSpacing="16">
+
+
+                    <!-- Editor Header -->
+
+                    <Grid ColumnDefinitions="*,Auto">
+
+                        <VerticalStackLayout Spacing="2">
+
+                            <Label
+                                Text="RECORD EDITOR"
+                                FontSize="11"
+                                FontAttributes="Bold"
+                                TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                            <Label
+                                Text="{Binding EditorTitle}"
+                                FontSize="18"
+                                FontAttributes="Bold" />
+
+                        </VerticalStackLayout>
+
+
+                        <Label
+                            Grid.Column="1"
+                            Text="{Binding EditorModeText}"
+                            FontSize="11"
+                            VerticalOptions="Center"
+                            TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                    </Grid>
+
+
+                    <!-- Fields -->
+
+                    <ScrollView Grid.Row="1">
+
+                        <VerticalStackLayout
+                            BindableLayout.ItemsSource="{Binding EditorFields}"
+                            Spacing="14">
+
+                            <BindableLayout.ItemTemplate>
+
+                                <DataTemplate>
+
+                                    <VerticalStackLayout Spacing="5">
+
+                                        <Grid ColumnDefinitions="*,Auto">
+
+                                            <Label
+                                                Text="{Binding Name}"
+                                                FontSize="12"
+                                                FontAttributes="Bold" />
+
+                                            <Label
+                                                Grid.Column="1"
+                                                Text="{Binding Type}"
+                                                FontSize="11"
+                                                TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                                        </Grid>
+
+
+                                        <Entry
+                                            Text="{Binding Value}"
+                                            Placeholder="{Binding Description}"
+                                            IsEnabled="{Binding IsEditable}" />
+
+                                        <Label
+                                            Text="{Binding ValidationMessage}"
+                                            FontSize="11"
+                                            TextColor="#DC2626"
+                                            IsVisible="{Binding HasValidationError}" />
+
+                                    </VerticalStackLayout>
+
+                                </DataTemplate>
+
+                            </BindableLayout.ItemTemplate>
+
+                        </VerticalStackLayout>
+
+                    </ScrollView>
+
+
+                    <!-- Actions -->
+
+                    <VerticalStackLayout
+                        Grid.Row="2"
+                        Spacing="10">
+
+                        <Label
+                            Text="{Binding ValidationErrors}"
+                            FontSize="11"
+                            TextColor="#DC2626"
+                            IsVisible="{Binding HasValidationErrors}" />
+
+
+                        <Grid
+                            ColumnDefinitions="*,*"
+                            ColumnSpacing="10">
+
+                            <Button
+                                Grid.Column="0"
+                                Text="Delete"
+                                Command="{Binding DeleteRecordCommand}"
+                                IsEnabled="{Binding CanDeleteRecord}" />
+
+                            <Button
+                                Grid.Column="1"
+                                Text="Save"
+                                Command="{Binding SaveRecordCommand}" />
+
+                        </Grid>
+
+                    </VerticalStackLayout>
+
+                </Grid>
+
+            </Border>
+
+        </Grid>
+
+    </Grid>
+    </ContentPage.Content>
+</ContentPage>

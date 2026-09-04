@@ -1,0 +1,717 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="TokkDb.LLM.Application.Settings.SettingsPage"
+             Title="Settings"
+             BackgroundColor="{AppThemeBinding Light=#F7F7F8, Dark=#18181B}">
+    <ContentPage.Content>
+        <Grid
+        Padding="20"
+        RowDefinitions="Auto,*"
+        RowSpacing="20">
+
+        <!-- ================================================= -->
+        <!-- HEADER                                            -->
+        <!-- ================================================= -->
+
+        <VerticalStackLayout Grid.Row="0" Spacing="4">
+
+            <Label
+                Text="Settings"
+                FontSize="28"
+                FontAttributes="Bold" />
+
+            <Label
+                Text="Configure TokkDb application and integrations"
+                FontSize="13"
+                TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+        </VerticalStackLayout>
+
+
+        <!-- ================================================= -->
+        <!-- SETTINGS WORKSPACE                                -->
+        <!-- ================================================= -->
+
+        <Grid
+            Grid.Row="1"
+            ColumnDefinitions="220,*"
+            ColumnSpacing="16">
+
+            <!-- ============================================= -->
+            <!-- LEFT NAVIGATION                                -->
+            <!-- ============================================= -->
+
+            <Border
+                Grid.Column="0"
+                Padding="12"
+                Stroke="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}"
+                StrokeThickness="1"
+                BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#202023}">
+
+                <VerticalStackLayout Spacing="6">
+
+                    <Label
+                        Text="SETTINGS"
+                        Margin="8,6,8,10"
+                        FontSize="11"
+                        FontAttributes="Bold"
+                        TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+
+                    <!-- General -->
+
+                    <Button
+                        Text="General"
+                        HorizontalOptions="Fill"
+                        Command="{Binding SelectGeneralCommand}" />
+
+
+                    <!-- AI -->
+
+                    <Button
+                        Text="AI / LLM"
+                        HorizontalOptions="Fill"
+                        Command="{Binding SelectAiCommand}" />
+
+
+                    <!-- Storage -->
+
+                    <Button
+                        Text="Storage"
+                        HorizontalOptions="Fill"
+                        Command="{Binding SelectStorageCommand}" />
+
+
+                    <!-- Advanced -->
+
+                    <Button
+                        Text="Advanced"
+                        HorizontalOptions="Fill"
+                        Command="{Binding SelectAdvancedCommand}" />
+
+
+                    <BoxView
+                        HeightRequest="1"
+                        Margin="8,12"
+                        Color="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}" />
+
+
+                    <Label
+                        Text="TOKKDB"
+                        Margin="8,6"
+                        FontSize="11"
+                        FontAttributes="Bold"
+                        TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+
+                    <Label
+                        Text="{Binding ApplicationVersion}"
+                        Margin="8,0"
+                        FontSize="12"
+                        TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                </VerticalStackLayout>
+
+            </Border>
+
+
+            <!-- ============================================= -->
+            <!-- CONTENT                                        -->
+            <!-- ============================================= -->
+
+            <ScrollView Grid.Column="1">
+
+                <VerticalStackLayout
+                    MaximumWidthRequest="850"
+                    Spacing="20">
+
+
+                    <!-- ===================================== -->
+                    <!-- GENERAL                               -->
+                    <!-- ===================================== -->
+
+                    <VerticalStackLayout
+                        IsVisible="{Binding IsGeneralSelected}"
+                        Spacing="20">
+
+                        <VerticalStackLayout Spacing="4">
+
+                            <Label
+                                Text="General"
+                                FontSize="22"
+                                FontAttributes="Bold" />
+
+                            <Label
+                                Text="Basic application preferences"
+                                FontSize="13"
+                                TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                        </VerticalStackLayout>
+
+
+                        <Border
+                            Padding="20"
+                            Stroke="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}"
+                            StrokeThickness="1"
+                            BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#202023}">
+
+                            <VerticalStackLayout Spacing="16">
+
+                                <Label
+                                    Text="APPLICATION"
+                                    FontSize="11"
+                                    FontAttributes="Bold"
+                                    TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+
+                                <Grid
+                                    ColumnDefinitions="180,*"
+                                    RowDefinitions="Auto,Auto"
+                                    RowSpacing="16">
+
+                                    <Label
+                                        Text="Application name"
+                                        VerticalOptions="Center" />
+
+                                    <Entry
+                                        Grid.Column="1"
+                                        Text="{Binding ApplicationName}"
+                                        Placeholder="TokkDb" />
+
+
+                                    <Label
+                                        Grid.Row="1"
+                                        Text="Theme"
+                                        VerticalOptions="Center" />
+
+                                    <Picker
+                                        Grid.Row="1"
+                                        Grid.Column="1"
+                                        ItemsSource="{Binding Themes}"
+                                        SelectedItem="{Binding SelectedTheme}" />
+
+                                </Grid>
+
+                            </VerticalStackLayout>
+
+                        </Border>
+
+
+                        <Button
+                            Text="Save General Settings"
+                            Command="{Binding SaveGeneralCommand}"
+                            HorizontalOptions="End" />
+
+                    </VerticalStackLayout>
+
+
+                    <!-- ===================================== -->
+                    <!-- AI & LLM                              -->
+                    <!-- ===================================== -->
+
+                    <VerticalStackLayout
+                        IsVisible="{Binding IsAiSelected}"
+                        Spacing="20">
+
+                        <VerticalStackLayout Spacing="4">
+
+                            <Label
+                                Text="AI / LLM"
+                                FontSize="22"
+                                FontAttributes="Bold" />
+
+                            <Label
+                                Text="Configure the language model provider used by TokkDb"
+                                FontSize="13"
+                                TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                        </VerticalStackLayout>
+
+
+                        <!-- Provider -->
+
+                        <Border
+                            Padding="20"
+                            Stroke="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}"
+                            StrokeThickness="1"
+                            BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#202023}">
+
+                            <VerticalStackLayout Spacing="18">
+
+                                <Label
+                                    Text="PROVIDER"
+                                    FontSize="11"
+                                    FontAttributes="Bold"
+                                    TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+
+                                <Grid
+                                    ColumnDefinitions="180,*"
+                                    RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                                    RowSpacing="14">
+
+                                    <!-- Provider -->
+
+                                    <Label
+                                        Text="Provider"
+                                        VerticalOptions="Center" />
+
+                                    <Picker
+                                        Grid.Column="1"
+                                        ItemsSource="{Binding Providers}"
+                                        SelectedItem="{Binding SelectedProvider}" />
+
+
+                                    <!-- URL -->
+
+                                    <Label
+                                        Grid.Row="1"
+                                        Text="Provider URL"
+                                        VerticalOptions="Center" />
+
+                                    <Entry
+                                        Grid.Row="1"
+                                        Grid.Column="1"
+                                        Text="{Binding ProviderUrl}"
+                                        Placeholder="http://localhost:11434"
+                                        Keyboard="Url" />
+
+
+                                    <!-- Token -->
+
+                                    <Label
+                                        Grid.Row="2"
+                                        Text="Authentication token"
+                                        VerticalOptions="Center" />
+
+                                    <Entry
+                                        Grid.Row="2"
+                                        Grid.Column="1"
+                                        Text="{Binding AuthenticationToken}"
+                                        Placeholder="Optional"
+                                        IsPassword="True" />
+
+
+                                    <!-- Model -->
+
+                                    <Label
+                                        Grid.Row="3"
+                                        Text="Default model"
+                                        VerticalOptions="Center" />
+
+                                    <Grid
+                                        Grid.Row="3"
+                                        Grid.Column="1"
+                                        ColumnDefinitions="*,Auto"
+                                        ColumnSpacing="10">
+
+                                        <Entry
+                                            Text="{Binding Model}"
+                                            Placeholder="qwen3.5:9b" />
+
+                                        <Button
+                                            Grid.Column="1"
+                                            Text="Models"
+                                            Command="{Binding LoadModelsCommand}" />
+
+                                    </Grid>
+
+                                    <!-- Context size -->
+
+                                    <Label
+                                        Grid.Row="4"
+                                        Text="Context size"
+                                        VerticalOptions="Center" />
+
+                                    <Entry
+                                        Grid.Row="4"
+                                        Grid.Column="1"
+                                        Text="{Binding ContextSize}"
+                                        Placeholder="16384"
+                                        Keyboard="Numeric" />
+
+                                </Grid>
+
+                            </VerticalStackLayout>
+
+                        </Border>
+
+
+                        <!-- Per-operation overrides -->
+
+                        <Border
+                            Padding="20"
+                            Stroke="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}"
+                            StrokeThickness="1"
+                            BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#202023}">
+
+                            <VerticalStackLayout Spacing="18">
+
+                                <VerticalStackLayout Spacing="4">
+
+                                    <Label
+                                        Text="PER-OPERATION MODEL"
+                                        FontSize="11"
+                                        FontAttributes="Bold"
+                                        TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                                    <Label
+                                        Text="Override the provider, endpoint and model for a single operation type. Empty fields inherit the defaults above."
+                                        FontSize="12"
+                                        TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                                </VerticalStackLayout>
+
+                                <Grid
+                                    ColumnDefinitions="180,*"
+                                    RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+                                    RowSpacing="14">
+
+                                    <Label
+                                        Text="Operation"
+                                        VerticalOptions="Center" />
+
+                                    <Picker
+                                        Grid.Column="1"
+                                        ItemsSource="{Binding OperationTypes}"
+                                        SelectedItem="{Binding SelectedOperationType}" />
+
+                                    <Label
+                                        Grid.Row="1"
+                                        Text="Provider"
+                                        VerticalOptions="Center" />
+
+                                    <Picker
+                                        Grid.Row="1"
+                                        Grid.Column="1"
+                                        ItemsSource="{Binding OverrideProviders}"
+                                        SelectedItem="{Binding OverrideProvider}" />
+
+                                    <Label
+                                        Grid.Row="2"
+                                        Text="Provider URL"
+                                        VerticalOptions="Center" />
+
+                                    <Entry
+                                        Grid.Row="2"
+                                        Grid.Column="1"
+                                        Text="{Binding OverrideUrl}"
+                                        Placeholder="Inherit default"
+                                        Keyboard="Url" />
+
+                                    <Label
+                                        Grid.Row="3"
+                                        Text="Model"
+                                        VerticalOptions="Center" />
+
+                                    <Entry
+                                        Grid.Row="3"
+                                        Grid.Column="1"
+                                        Text="{Binding OverrideModel}"
+                                        Placeholder="Inherit default" />
+
+                                    <Label
+                                        Grid.Row="5"
+                                        Text="Context size"
+                                        VerticalOptions="Center" />
+
+                                    <Entry
+                                        Grid.Row="5"
+                                        Grid.Column="1"
+                                        Text="{Binding OverrideContextSize}"
+                                        Placeholder="Inherit default"
+                                        Keyboard="Numeric" />
+
+                                    <Label
+                                        Grid.Row="4"
+                                        Text="Authentication token"
+                                        VerticalOptions="Center" />
+
+                                    <Entry
+                                        Grid.Row="4"
+                                        Grid.Column="1"
+                                        Text="{Binding OverrideAuthenticationToken}"
+                                        Placeholder="Inherit default"
+                                        IsPassword="True" />
+
+                                </Grid>
+
+                                <Grid
+                                    ColumnDefinitions="Auto,Auto,*"
+                                    ColumnSpacing="10">
+
+                                    <Button
+                                        Text="Save Override"
+                                        Command="{Binding SaveOperationOverrideCommand}" />
+
+                                    <Button
+                                        Grid.Column="1"
+                                        Text="Use Default"
+                                        Command="{Binding ClearOperationOverrideCommand}" />
+
+                                    <Label
+                                        Grid.Column="2"
+                                        Text="{Binding OperationOverrideStatus}"
+                                        VerticalOptions="Center"
+                                        FontSize="12"
+                                        TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                                </Grid>
+
+                            </VerticalStackLayout>
+
+                        </Border>
+
+
+                        <!-- Connection -->
+
+                        <Border
+                            Padding="20"
+                            Stroke="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}"
+                            StrokeThickness="1"
+                            BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#202023}">
+
+                            <VerticalStackLayout Spacing="12">
+
+                                <Label
+                                    Text="CONNECTION"
+                                    FontSize="11"
+                                    FontAttributes="Bold"
+                                    TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                                <Grid
+                                    ColumnDefinitions="Auto,*"
+                                    ColumnSpacing="12">
+
+                                    <Button
+                                        Text="Test Connection"
+                                        Command="{Binding TestConnectionCommand}" />
+
+                                    <Label
+                                        Grid.Column="1"
+                                        Text="{Binding ConnectionStatus}"
+                                        VerticalOptions="Center"
+                                        FontSize="12"
+                                        TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                                </Grid>
+
+                            </VerticalStackLayout>
+
+                        </Border>
+
+
+                        <!-- Save -->
+
+                        <HorizontalStackLayout
+                            HorizontalOptions="End"
+                            Spacing="10">
+
+                            <Button
+                                Text="Reset"
+                                Command="{Binding ResetAiSettingsCommand}" />
+
+                            <Button
+                                Text="Save AI Settings"
+                                Command="{Binding SaveAiSettingsCommand}" />
+
+                        </HorizontalStackLayout>
+
+                    </VerticalStackLayout>
+
+
+                    <!-- ===================================== -->
+                    <!-- STORAGE                               -->
+                    <!-- ===================================== -->
+
+                    <VerticalStackLayout
+                        IsVisible="{Binding IsStorageSelected}"
+                        Spacing="20">
+
+                        <VerticalStackLayout Spacing="4">
+
+                            <Label
+                                Text="Storage"
+                                FontSize="22"
+                                FontAttributes="Bold" />
+
+                            <Label
+                                Text="Configure database storage and backend preferences"
+                                FontSize="13"
+                                TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                        </VerticalStackLayout>
+
+
+                        <Border
+                            Padding="20"
+                            Stroke="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}"
+                            StrokeThickness="1"
+                            BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#202023}">
+
+                            <VerticalStackLayout Spacing="18">
+
+                                <Label
+                                    Text="STORAGE BACKEND"
+                                    FontSize="11"
+                                    FontAttributes="Bold"
+                                    TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+
+                                <Grid
+                                    ColumnDefinitions="180,*"
+                                    RowDefinitions="Auto,Auto"
+                                    RowSpacing="16">
+
+                                    <Label
+                                        Text="Default backend"
+                                        VerticalOptions="Center" />
+
+                                    <Picker
+                                        Grid.Column="1"
+                                        ItemsSource="{Binding StorageBackends}"
+                                        SelectedItem="{Binding SelectedStorageBackend}" />
+
+
+                                    <Label
+                                        Grid.Row="1"
+                                        Text="Storage location"
+                                        VerticalOptions="Center" />
+
+                                    <Grid
+                                        Grid.Row="1"
+                                        Grid.Column="1"
+                                        ColumnDefinitions="*,Auto"
+                                        ColumnSpacing="10">
+
+                                        <Entry
+                                            Text="{Binding StoragePath}"
+                                            Placeholder="Storage path" />
+
+                                        <Button
+                                            Grid.Column="1"
+                                            Text="Browse"
+                                            Command="{Binding BrowseStorageCommand}" />
+
+                                    </Grid>
+
+                                </Grid>
+
+                            </VerticalStackLayout>
+
+                        </Border>
+
+
+                        <Button
+                            Text="Save Storage Settings"
+                            Command="{Binding SaveStorageCommand}"
+                            HorizontalOptions="End" />
+
+                    </VerticalStackLayout>
+
+
+                    <!-- ===================================== -->
+                    <!-- ADVANCED                              -->
+                    <!-- ===================================== -->
+
+                    <VerticalStackLayout
+                        IsVisible="{Binding IsAdvancedSelected}"
+                        Spacing="20">
+
+                        <VerticalStackLayout Spacing="4">
+
+                            <Label
+                                Text="Advanced"
+                                FontSize="22"
+                                FontAttributes="Bold" />
+
+                            <Label
+                                Text="Advanced application and diagnostic options"
+                                FontSize="13"
+                                TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                        </VerticalStackLayout>
+
+
+                        <Border
+                            Padding="20"
+                            Stroke="{AppThemeBinding Light=#E4E4E7, Dark=#3F3F46}"
+                            StrokeThickness="1"
+                            BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#202023}">
+
+                            <VerticalStackLayout Spacing="14">
+
+                                <Label
+                                    Text="DIAGNOSTICS"
+                                    FontSize="11"
+                                    FontAttributes="Bold"
+                                    TextColor="{AppThemeBinding Light=#71717A, Dark=#A1A1AA}" />
+
+                                <HorizontalStackLayout Spacing="12">
+
+                                    <Switch
+                                        IsToggled="{Binding EnableDiagnostics}" />
+
+                                    <Label
+                                        Text="Enable diagnostic logging"
+                                        VerticalOptions="Center" />
+
+                                </HorizontalStackLayout>
+
+
+                                <HorizontalStackLayout Spacing="12">
+
+                                    <Switch
+                                        IsToggled="{Binding EnableToolExecutionLogs}" />
+
+                                    <Label
+                                        Text="Log agent tool executions"
+                                        VerticalOptions="Center" />
+
+                                </HorizontalStackLayout>
+
+                            </VerticalStackLayout>
+
+                        </Border>
+
+
+                        <Border
+                            Padding="20"
+                            Stroke="#DC2626"
+                            StrokeThickness="1"
+                            BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#202023}">
+
+                            <VerticalStackLayout Spacing="12">
+
+                                <Label
+                                    Text="DANGER ZONE"
+                                    FontSize="11"
+                                    FontAttributes="Bold"
+                                    TextColor="#DC2626" />
+
+                                <Label
+                                    Text="Reset application settings to default values."
+                                    FontSize="13" />
+
+                                <Button
+                                    Text="Reset All Settings"
+                                    Command="{Binding ResetAllSettingsCommand}"
+                                    HorizontalOptions="Start" />
+
+                            </VerticalStackLayout>
+
+                        </Border>
+
+                    </VerticalStackLayout>
+
+                </VerticalStackLayout>
+
+            </ScrollView>
+
+        </Grid>
+
+    </Grid>
+    </ContentPage.Content>
+</ContentPage>
