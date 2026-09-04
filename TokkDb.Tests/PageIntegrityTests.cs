@@ -6,7 +6,8 @@ using Xunit;
 namespace TokkDb.Tests;
 
 public class PageIntegrityTests {
-  //Page 0 is the root, page 1 the collections catalogue, so user data starts here.
+  //Page 0 is the root, page 1 the first data page of _collections, so user data starts here.
+  private const uint CataloguePageIndex = 1;
   private const uint FirstDataPageIndex = 2;
 
   private static void CreateDatabaseWithPeople(TempDatabaseFile file, int count = 3) {
@@ -68,11 +69,11 @@ public class PageIntegrityTests {
   public void ADamagedCataloguePageIsReportedWhenTheDatabaseIsOpened() {
     using var file = new TempDatabaseFile();
     CreateDatabaseWithPeople(file);
-    FlipByte(file, 1, BasePage.StartContentBufferPosition + 2);
+    FlipByte(file, CataloguePageIndex, BasePage.StartContentBufferPosition + 2);
 
     using var reopened = new TokkDbConnection(file.Path);
     var exception = Assert.Throws<PageCorruptedException>(reopened.Load);
-    Assert.Equal(1u, exception.PageIndex);
+    Assert.Equal(CataloguePageIndex, exception.PageIndex);
   }
 
   [Fact]
@@ -98,21 +99,25 @@ public class PageIntegrityTests {
   }
 
   [Fact]
-  public void DataPagesCarryTheirCollectionAndSystemPagesCarryNone() {
+  public void EveryDataPageCarriesTheCollectionThatOwnsIt() {
     using var file = new TempDatabaseFile();
     CreateDatabaseWithPeople(file);
+
+    using var connection = new TokkDbConnection(file.Path);
+    connection.Load();
+    var catalogueId = connection.Collection(SystemCollections.Collections).OwningCollectionId;
+    var personId = connection.Collection("Person").OwningCollectionId;
 
     using var disk = new DiskManager(file.Path);
     var pageManager = new PageManager(disk);
     pageManager.SetPageSize(RootPage.ReadPrefix(pageManager.ReadPrefix(RootPage.PrefixByteSize)).PageSize);
 
+    //Only the root page belongs to no collection; the catalogue's own pages belong to _collections.
     Assert.Equal(0u, pageManager.LoadPage<RootPage>(TokkConstants.RootPageIndex).OwningCollectionId);
-    var catalogue = pageManager.LoadPage<MetadataPage>(1);
-    Assert.Equal(0u, catalogue.OwningCollectionId);
-
-    var collectionId = catalogue.Entities["Person"].Id;
-    Assert.NotEqual(0u, collectionId);
-    Assert.Equal(collectionId, pageManager.LoadPage<DataPage>(FirstDataPageIndex).OwningCollectionId);
+    Assert.NotEqual(0u, catalogueId);
+    Assert.NotEqual(catalogueId, personId);
+    Assert.Equal(catalogueId, pageManager.LoadPage<DataPage>(CataloguePageIndex).OwningCollectionId);
+    Assert.Equal(personId, pageManager.LoadPage<DataPage>(FirstDataPageIndex).OwningCollectionId);
   }
 
   [Fact]

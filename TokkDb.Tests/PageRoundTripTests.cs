@@ -58,29 +58,6 @@ public class PageRoundTripTests {
   }
 
   [Fact]
-  public void MetadataPageEntitiesSurviveASaveAndLoad() {
-    using var file = new TempDatabaseFile();
-    using var disk = new DiskManager(file.Path);
-    var pageManager = new PageManager(disk);
-
-    var page = pageManager.CreateNewMemoryPage<MetadataPage>(PageType.Metadata, 1);
-    page.Entities.Add("Person", new MetadataEntity(1, 2, 4));
-    page.Entities.Add("Tag", new MetadataEntity(2, 5, 5));
-    page.EntitiesCount = (byte)page.Entities.Count;
-    pageManager.SavePages(page);
-
-    var loaded = pageManager.LoadPage<MetadataPage>(1);
-    Assert.Equal(PageType.Metadata, loaded.Type);
-    Assert.Equal(0u, loaded.OwningCollectionId);
-    Assert.Equal(2, loaded.Entities.Count);
-    Assert.Equal(1u, loaded.Entities["Person"].Id);
-    Assert.Equal(2u, loaded.Entities["Person"].DataFirstPageId);
-    Assert.Equal(4u, loaded.Entities["Person"].DataLastPageId);
-    Assert.Equal(2u, loaded.Entities["Tag"].Id);
-    Assert.Equal(5u, loaded.Entities["Tag"].DataFirstPageId);
-  }
-
-  [Fact]
   public void PagesAreWrittenToTheSlotMatchingTheirIndex() {
     using var file = new TempDatabaseFile();
     using var disk = new DiskManager(file.Path);

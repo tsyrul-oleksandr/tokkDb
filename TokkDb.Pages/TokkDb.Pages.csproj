@@ -8,6 +8,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\TokkDb.Disk\TokkDb.Disk.csproj" />
+      <ProjectReference Include="..\TokkDb.Documents\TokkDb.Documents.csproj" />
     </ItemGroup>
 
 </Project>
