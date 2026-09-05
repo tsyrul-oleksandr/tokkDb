@@ -19,6 +19,7 @@ public class TokkDbConnection : IDisposable {
   private readonly TransactionManager _transactionManager;
   private readonly RootPageManager _rootPageManager;
   private readonly CollectionCatalog _catalog;
+  private readonly FreeSpaceManager _freeSpace;
 
   public TokkDbConnection(string filePath, TokkDbAccessMode accessMode = TokkDbAccessMode.ReadWrite,
       ILogger logger = null)
@@ -33,7 +34,8 @@ public class TokkDbConnection : IDisposable {
     _transactionManager = new TransactionManager(pageManager);
     _rootPageManager = new RootPageManager(pageManager, _transactionManager);
     _catalog = new CollectionCatalog(_rootPageManager, _transactionManager);
-    _dataPageManager = new DataPageManager(pageManager, _catalog, _transactionManager);
+    _freeSpace = new FreeSpaceManager(pageManager, _rootPageManager, _catalog, _transactionManager);
+    _dataPageManager = new DataPageManager(pageManager, _catalog, _freeSpace, _transactionManager);
     _catalog.SetDataPageManager(_dataPageManager);
   }
 
@@ -77,7 +79,7 @@ public class TokkDbConnection : IDisposable {
   public DbEntities<T> Entities<T>(string name = null) {
     name ??= typeof(T).Name;
     var serializer = new DocumentSerializer<T>();
-    return new DbEntities<T>(_dataPageManager, _transactionManager, serializer, name);
+    return new DbEntities<T>(_dataPageManager, _catalog, _transactionManager, serializer, name);
   }
 
   public void CreateDatabase(Action<TokkDbConfiguration> configure) {
@@ -100,6 +102,9 @@ public class TokkDbConnection : IDisposable {
   private void Initialize() {
     _rootPageManager.Initialize();
     _catalog.Initialize();
+    //The free-space structures hang off the catalogue, so they are stale the moment it is
+    //reloaded and are read again from their roots on first use.
+    _freeSpace.Reset();
   }
 
   private void InTransaction(Action action) {

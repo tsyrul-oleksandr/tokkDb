@@ -6,9 +6,16 @@ using Xunit;
 namespace TokkDb.Tests;
 
 public class PageIntegrityTests {
-  //Page 0 is the root, page 1 the first data page of _collections, so user data starts here.
+  //Page 0 is the root and page 1 the first data page of _collections. Where the user data
+  //starts depends on how many pages the catalogue and the free-space structures took, so it
+  //is read from the catalogue rather than assumed.
   private const uint CataloguePageIndex = 1;
-  private const uint FirstDataPageIndex = 2;
+
+  private static uint FirstDataPageIndex(TempDatabaseFile file) {
+    using var db = new TokkDbConnection(file.Path);
+    db.Load();
+    return db.Collection("Person").DataFirstPage;
+  }
 
   private static void CreateDatabaseWithPeople(TempDatabaseFile file, int count = 3) {
     using var db = new TokkDbConnection(file.Path);
@@ -29,40 +36,43 @@ public class PageIntegrityTests {
   public void FlippingAByteInADataPageIsReportedInsteadOfReturningWrongData() {
     using var file = new TempDatabaseFile();
     CreateDatabaseWithPeople(file);
+    var dataPage = FirstDataPageIndex(file);
     //A byte in the record area, which is exactly where a silent wrong answer would come from.
-    FlipByte(file, FirstDataPageIndex, BasePage.StartContentBufferPosition + 8);
+    FlipByte(file, dataPage, BasePage.StartContentBufferPosition + 8);
 
     using var reopened = new TokkDbConnection(file.Path);
     reopened.Load();
     var exception = Assert.Throws<PageCorruptedException>(() => reopened.Entities<Person>().GetAll().ToList());
 
-    Assert.Equal(FirstDataPageIndex, exception.PageIndex);
+    Assert.Equal(dataPage, exception.PageIndex);
     Assert.NotEqual(exception.StoredChecksum, exception.ComputedChecksum);
-    Assert.Contains($"Page {FirstDataPageIndex}", exception.Message);
+    Assert.Contains($"Page {dataPage}", exception.Message);
   }
 
   [Fact]
   public void FlippingAByteInTheSlotDirectoryIsReported() {
     using var file = new TempDatabaseFile();
     CreateDatabaseWithPeople(file);
-    FlipByte(file, FirstDataPageIndex, TokkConstants.DefaultPageSize - BasePage.ControlAreaByteSize - 1);
+    var dataPage = FirstDataPageIndex(file);
+    FlipByte(file, dataPage, TokkConstants.DefaultPageSize - BasePage.ControlAreaByteSize - 1);
 
     using var reopened = new TokkDbConnection(file.Path);
     reopened.Load();
     var exception = Assert.Throws<PageCorruptedException>(() => reopened.Entities<Person>().GetAll().ToList());
-    Assert.Equal(FirstDataPageIndex, exception.PageIndex);
+    Assert.Equal(dataPage, exception.PageIndex);
   }
 
   [Fact]
   public void FlippingAByteInTheControlAreaItselfIsReported() {
     using var file = new TempDatabaseFile();
     CreateDatabaseWithPeople(file);
-    FlipByte(file, FirstDataPageIndex, TokkConstants.DefaultPageSize - 1);
+    var dataPage = FirstDataPageIndex(file);
+    FlipByte(file, dataPage, TokkConstants.DefaultPageSize - 1);
 
     using var reopened = new TokkDbConnection(file.Path);
     reopened.Load();
     var exception = Assert.Throws<PageCorruptedException>(() => reopened.Entities<Person>().GetAll().ToList());
-    Assert.Equal(FirstDataPageIndex, exception.PageIndex);
+    Assert.Equal(dataPage, exception.PageIndex);
   }
 
   [Fact]
@@ -107,6 +117,7 @@ public class PageIntegrityTests {
     connection.Load();
     var catalogueId = connection.Collection(SystemCollections.Collections).OwningCollectionId;
     var personId = connection.Collection("Person").OwningCollectionId;
+    var personPage = connection.Collection("Person").DataFirstPage;
 
     //A reader alongside the open writer: TX-4 allows that, a second writer it would not.
     using var disk = new DiskManager(file.Path, accessMode: TokkDbAccessMode.ReadOnly);
@@ -118,7 +129,7 @@ public class PageIntegrityTests {
     Assert.NotEqual(0u, catalogueId);
     Assert.NotEqual(catalogueId, personId);
     Assert.Equal(catalogueId, pageManager.LoadPage<DataPage>(CataloguePageIndex).OwningCollectionId);
-    Assert.Equal(personId, pageManager.LoadPage<DataPage>(FirstDataPageIndex).OwningCollectionId);
+    Assert.Equal(personId, pageManager.LoadPage<DataPage>(personPage).OwningCollectionId);
   }
 
   [Fact]

@@ -3,6 +3,8 @@ using TokkDb.Configuration;
 using TokkDb.Documents;
 using TokkDb.Documents.Serializers;
 using TokkDb.Documents.Values;
+using TokkDb.Pages;
+using TokkDb.Pages.Managers;
 using TokkDb.Values;
 using Xunit;
 
@@ -117,6 +119,90 @@ public class DocumentRoundTripTests {
     document.Write(writer);
 
     Assert.Equal(writer.Position, length);
+  }
+
+  //VR-11: the header every stored record carries, from the first release.
+  [Fact]
+  public void TheRecordHeaderRoundTripsWithItsDocument() {
+    var serializer = new DocumentSerializer<Person>();
+    var recordId = Ulid.NewUlid();
+    var document = serializer.Create(TestPeople.Ivan(), recordId);
+    var header = RecordHeader.ForNewRecord(recordId, schemaVersion: 7);
+
+    var slice = NewSlice();
+    StoredRecordUtilities.ToBuffer(header, document, slice);
+    var read = StoredRecordUtilities.FromBuffer(slice);
+
+    Assert.Equal(recordId, read.Header.RecordId);
+    Assert.Equal(header.VersionId, read.Header.VersionId);
+    Assert.Equal(RecordFlags.Live, read.Header.Flags);
+    Assert.Equal(7, read.Header.SchemaVersion);
+    //Written as zero in this pass, but written, so that versioning is not a format break.
+    Assert.Equal(default, read.Header.PreviousVersion);
+
+    var person = serializer.Deserialize(read.Document);
+    Assert.Equal("Ivan", person.Name);
+    Assert.Equal(29, person.Age);
+    Assert.Equal("ST-111111", person.Passport.Code);
+    Assert.Equal(["tag1", "tag2"], person.Tags.Select(tag => tag.Name));
+  }
+
+  [Fact]
+  public void TheRecordIdentifierIsTheDocumentIdentifierAndIsStoredOnce() {
+    var recordId = Ulid.NewUlid();
+    var document = new DocumentSerializer<Person>().Create(TestPeople.Ivan(), recordId);
+    var header = RecordHeader.ForNewRecord(recordId);
+
+    var slice = NewSlice();
+    StoredRecordUtilities.ToBuffer(header, document, slice);
+    var read = StoredRecordUtilities.FromBuffer(slice);
+
+    //D-1: one identity for the whole system, carried by the header and handed back to the
+    //document rather than written a second time beside it.
+    Assert.Equal(recordId, Assert.IsType<UlidDocumentValue>(read.Document.IdentifierValue).Value);
+    Assert.NotEqual(read.Header.RecordId, read.Header.VersionId);
+
+    var bodyOnly = ObjectDocumentUtilities.GetBytesLength(document);
+    var withHeader = StoredRecordUtilities.GetBytesLength(header, document);
+    //The header costs 41 bytes and gives back the 17 the duplicated identifier took.
+    Assert.Equal(RecordHeader.ByteSize, 41);
+    Assert.Equal(bodyOnly + RecordHeader.ByteSize - (TypesConstants.UlidByteSize + 1), withHeader);
+  }
+
+  [Fact]
+  public void EveryPartOfTheHeaderSurvivesIndependently() {
+    var header = new RecordHeader {
+      RecordId = Ulid.NewUlid(),
+      VersionId = Ulid.NewUlid(),
+      PreviousVersion = new DocumentAddress(4242, 17),
+      Flags = RecordFlags.Superseded | RecordFlags.Deleted,
+      SchemaVersion = ushort.MaxValue
+    };
+    var document = new DocumentSerializer<Person>().Create(TestPeople.Ivan(), header.RecordId);
+
+    var slice = NewSlice();
+    StoredRecordUtilities.ToBuffer(header, document, slice);
+    var read = StoredRecordUtilities.FromBuffer(slice).Header;
+
+    //previousVersion is unread by the engine in this pass, but it has to survive a write and
+    //a read or the door it holds open would not be there when versioning arrives.
+    Assert.Equal(4242u, read.PreviousVersion.PageIndex);
+    Assert.Equal((ushort)17, read.PreviousVersion.SlotIndex);
+    Assert.Equal(header.VersionId, read.VersionId);
+    Assert.Equal(RecordFlags.Superseded | RecordFlags.Deleted, read.Flags);
+    Assert.Equal(ushort.MaxValue, read.SchemaVersion);
+    Assert.False(read.IsLive);
+  }
+
+  [Fact]
+  public void AFreshVersionIdentifierIsMintedOnEveryWrite() {
+    var recordId = Ulid.NewUlid();
+    var first = RecordHeader.ForNewRecord(recordId);
+    var second = RecordHeader.ForNewRecord(recordId);
+
+    Assert.Equal(first.RecordId, second.RecordId);
+    Assert.NotEqual(first.VersionId, second.VersionId);
+    Assert.Equal(RecordFlags.Live, first.Flags);
   }
 
   [Fact]

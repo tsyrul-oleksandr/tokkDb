@@ -198,11 +198,14 @@ public class CollectionCatalogTests {
 
     var cataloguePage = pageManager.LoadPage<DataPage>(rootPage.CollectionsFirstPageId);
     Assert.Equal(PageType.Data, cataloguePage.Type);
-    //Every descriptor is an ordinary document, readable with the ordinary document reader.
-    var documents = cataloguePage.GetItems().Select(ObjectDocumentUtilities.FromBuffer).ToList();
-    Assert.Equal(SystemCollections.All.Count + 1, documents.Count);
-    var names = documents
-      .Select(document => ((StringDocumentValue)((ObjectDocumentValue)document.Value)
+    //Every descriptor is an ordinary record: the VR-11 header, then a document body that the
+    //ordinary document reader understands.
+    var records = cataloguePage.GetItems().Select(StoredRecordUtilities.FromBuffer).ToList();
+    Assert.Equal(SystemCollections.All.Count + 1, records.Count);
+    Assert.All(records, record => Assert.True(record.Header.IsLive));
+    Assert.All(records, record => Assert.NotEqual(default, record.Header.RecordId));
+    var names = records
+      .Select(record => ((StringDocumentValue)((ObjectDocumentValue)record.Document.Value)
         [CollectionDescriptorDocument.NameField]).Value)
       .ToList();
     Assert.Contains(SystemCollections.Collections, names);

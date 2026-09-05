@@ -69,6 +69,14 @@ public class CollectionCatalog {
     return Get(collectionName).DataLastPage;
   }
 
+  //ST-1: where the collection's free-space structure begins.
+  public void SetFreeSpaceRoot(string collectionName, uint pageIndex) {
+    _transactionManager.RequireTransaction();
+    var descriptor = Get(collectionName);
+    descriptor.FreeSpaceRoot = pageIndex;
+    Save(descriptor);
+  }
+
   public void SetDataLastPage(string collectionName, uint pageIndex) {
     _transactionManager.RequireTransaction();
     var descriptor = Get(collectionName);
@@ -90,6 +98,15 @@ public class CollectionCatalog {
     Save(descriptor);
   }
 
+  public void DecrementRecordCount(string collectionName) {
+    _transactionManager.RequireTransaction();
+    var descriptor = Get(collectionName);
+    if (descriptor.RecordCount > 0) {
+      descriptor.RecordCount--;
+    }
+    Save(descriptor);
+  }
+
   public uint AllocatePageIndex() {
     return _rootPageManager.AllocatePageIndex();
   }
@@ -100,7 +117,11 @@ public class CollectionCatalog {
     _descriptors[SystemCollections.Collections] = CreateBootstrapDescriptor();
     var rows = _dataPageManager.GetAllRows(SystemCollections.Collections).ToList();
     foreach (var row in rows) {
-      var descriptor = CollectionDescriptorDocument.Read(ObjectDocumentUtilities.FromBuffer(row.Buffer));
+      var record = StoredRecordUtilities.FromBuffer(_dataPageManager.ReadRecordBuffer(row));
+      if (!record.Header.IsLive) {
+        continue;
+      }
+      var descriptor = CollectionDescriptorDocument.Read(record.Document);
       descriptor.Address = row.Address;
       //The stored _collections describes itself and replaces the bootstrap stub.
       _descriptors[descriptor.Name] = descriptor;
@@ -160,11 +181,28 @@ public class CollectionCatalog {
   //Writing the first descriptor is what allocates the catalogue's first page and points the
   //root page at it, so this runs before the descriptor has an address.
   protected virtual void Append(CollectionDescriptor descriptor) {
-    var length = ObjectDocumentUtilities.GetBytesLength(CollectionDescriptorDocument.Write(descriptor));
-    var row = _dataPageManager.RegisterRow(SystemCollections.Collections, length);
+    //The catalogue's records carry the VR-11 header like any other, and the descriptor's own
+    //identifier is the record identity (D-1) rather than a second one beside it.
+    var header = CreateHeader(descriptor);
+    //Written through the same path as any other record, so a descriptor that outgrew a page
+    //would take an overflow chain like anything else.
+    var row = _dataPageManager.WriteRecord(SystemCollections.Collections,
+      StoredRecordUtilities.ToBytes(header, CollectionDescriptorDocument.Write(descriptor)));
     //The record count moved while the row was being made; write what the descriptor says now.
-    ObjectDocumentUtilities.ToBuffer(CollectionDescriptorDocument.Write(descriptor), row.Buffer);
+    _dataPageManager.UpdateRow(row.Address, header, CollectionDescriptorDocument.Write(descriptor));
     descriptor.Address = row.Address;
+  }
+
+  //A fresh version identifier on every write, as VR-11 requires, even though nothing reads
+  //it until versioning exists.
+  protected virtual RecordHeader CreateHeader(CollectionDescriptor descriptor) {
+    return RecordHeader.ForNewRecord(descriptor.Id, GetCatalogSchemaVersion());
+  }
+
+  private ushort GetCatalogSchemaVersion() {
+    return _descriptors.TryGetValue(SystemCollections.Collections, out var catalogue)
+      ? catalogue.SchemaVersion
+      : (ushort)1;
   }
 
   protected virtual void Save(CollectionDescriptor descriptor) {
@@ -172,6 +210,7 @@ public class CollectionCatalog {
       //Not written yet: the append in progress will put the current values on the page.
       return;
     }
-    _dataPageManager.UpdateRow(descriptor.Address.Value, CollectionDescriptorDocument.Write(descriptor));
+    _dataPageManager.UpdateRow(descriptor.Address.Value, CreateHeader(descriptor),
+      CollectionDescriptorDocument.Write(descriptor));
   }
 }

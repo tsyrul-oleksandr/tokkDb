@@ -1,11 +1,19 @@
 using TokkDb.Configuration;
+using TokkDb.Disk;
+using TokkDb.Documents.Serializers;
+using TokkDb.Pages;
+using TokkDb.Pages.Managers;
+using TokkDb.Transactions;
 using Xunit;
 
 namespace TokkDb.Tests;
 
 public class DatabaseRoundTripTests {
-  //Root page plus the collections catalogue page precede any data page.
-  private const int ReservedPages = 2;
+  //The root page, the catalogue's own pages and the free-space structures all precede the
+  //first page of user data, so what counts as overhead is read rather than assumed.
+  private static long ReservedPages(TempDatabaseFile file, TokkDbConnection db) {
+    return db.Collection("Person").DataFirstPage;
+  }
 
   private static TokkDbConnection NewDatabase(TempDatabaseFile file) {
     var db = new TokkDbConnection(file.Path);
@@ -84,13 +92,54 @@ public class DatabaseRoundTripTests {
       for (var i = 0; i < 500; i++) {
         entities.Insert(TestPeople.Numbered(i));
       }
-      Assert.True(file.PageCount > ReservedPages + 1,
+      Assert.True(file.PageCount > ReservedPages(file, db) + 1,
         $"expected the data to span several pages, got {file.PageCount}");
     }
 
     using var reopened = new TokkDbConnection(file.Path);
     reopened.Load();
     Assert.Equal(500, reopened.Entities<Person>().GetAll().Count());
+  }
+
+  //VR-11 says the flags byte is read in this pass. Nothing marks an image dead yet, so the
+  //only way to show that a scan honours it is to write one by hand.
+  [Fact]
+  public void AnImageThatIsNotLiveIsSkippedByAScan() {
+    using var file = new TempDatabaseFile();
+    using (var db = new TokkDbConnection(file.Path)) {
+      db.CreateDatabase(config => config.CreateEntity<Person>());
+      db.Entities<Person>().Insert(TestPeople.Ivan());
+    }
+
+    AppendSupersededImage(file, TestPeople.Numbered(2));
+
+    using var reopened = new TokkDbConnection(file.Path);
+    reopened.Load();
+    //Both images are on the page; only the live one comes back.
+    Assert.Equal("Ivan", Assert.Single(reopened.Entities<Person>().GetAll()).Name);
+  }
+
+  private static void AppendSupersededImage(TempDatabaseFile file, Person person) {
+    using var disk = new DiskManager(file.Path);
+    disk.SetPageSize(RootPage.ReadPrefix(disk.ReadPrefix(RootPage.PrefixByteSize)).PageSize);
+    var pageManager = new PageManager(disk);
+    var transactions = new TransactionManager(pageManager);
+    var rootPageManager = new RootPageManager(pageManager, transactions);
+    var catalog = new CollectionCatalog(rootPageManager, transactions);
+    var freeSpace = new FreeSpaceManager(pageManager, rootPageManager, catalog, transactions);
+    var dataPageManager = new DataPageManager(pageManager, catalog, freeSpace, transactions);
+    catalog.SetDataPageManager(dataPageManager);
+
+    var transaction = transactions.CreateTransaction();
+    rootPageManager.Initialize();
+    catalog.Initialize();
+
+    var recordId = Ulid.NewUlid();
+    var document = new DocumentSerializer<Person>().Create(person, recordId);
+    var header = RecordHeader.ForNewRecord(recordId);
+    header.Flags = RecordFlags.Superseded;
+    dataPageManager.WriteRecord("Person", StoredRecordUtilities.ToBytes(header, document));
+    transaction.Commit();
   }
 
   [Fact]
@@ -103,7 +152,7 @@ public class DatabaseRoundTripTests {
     }
 
     // 200 records of ~130 bytes must not need more than one page each 8KB of payload.
-    var dataPages = file.PageCount - ReservedPages;
+    var dataPages = file.PageCount - ReservedPages(file, db);
     Assert.InRange(dataPages, 1, 200 * 200 / TokkConstants.DefaultPageSize + 2);
   }
 }
