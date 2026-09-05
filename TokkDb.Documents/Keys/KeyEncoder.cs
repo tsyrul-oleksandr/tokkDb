@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Globalization;
+using TokkDb.Documents.Values;
 using TokkDb.Values;
 
 namespace TokkDb.Documents.Keys;
@@ -26,6 +27,30 @@ public static class KeyEncoder {
   //shorter run of digits then sorts before any run that extends it: 0.15 before 0.151.
   private const byte DigitBias = 1;
   private const byte DigitTerminator = 0x00;
+
+  //A tag byte and the sixteen bytes of the identity.
+  public const int UlidKeyByteSize = 1 + 16;
+
+  //The document values an index actually meets. Four of the types ValueTypeEnum declares —
+  //Long, Decimal, DateTime and Guid — have no IDocumentValue implementing them, so a column
+  //of one of those cannot be indexed until the document format can hold it.
+  public static EncodedKey Encode(IDocumentValue value) {
+    return value switch {
+      null or NullDocumentValue => EncodeNull(),
+      BooleanDocumentValue boolean => Encode(boolean.Value),
+      IntDocumentValue number => Encode(number.Value),
+      UIntDocumentValue number => Encode(number.Value),
+      UlidDocumentValue identifier => Encode(identifier.Value),
+      StringDocumentValue text => Encode(text.Value),
+      _ => throw new NotSupportedException(
+        $"A value of type {value.Type} cannot be an index key. Index a scalar column instead.")
+    };
+  }
+
+  //The inverse of Encode(Ulid), for reading the identity back out of a composite key.
+  public static Ulid DecodeUlid(ReadOnlySpan<byte> key) {
+    return new Ulid(key[1..]);
+  }
 
   //The entry point an index uses: the column says which type it holds, and a null value of
   //any type encodes as the null key, which sorts before every value.

@@ -3,6 +3,7 @@ using TokkDb.Disk;
 using TokkDb.Documents.Serializers;
 using TokkDb.Pages;
 using TokkDb.Pages.Indexes;
+using TokkDb.Pages.Relations;
 using TokkDb.Pages.Managers;
 using TokkDb.Transactions;
 
@@ -21,6 +22,8 @@ public class TokkDbConnection : IDisposable {
   private readonly TransactionManager _transactionManager;
   private readonly RootPageManager _rootPageManager;
   private readonly CollectionCatalog _catalog;
+  private readonly IndexCatalog _indexCatalog;
+  private readonly RelationCatalog _relationCatalog;
   private readonly FreeSpaceManager _freeSpace;
 
   public TokkDbConnection(string filePath, TokkDbAccessMode accessMode = TokkDbAccessMode.ReadWrite,
@@ -38,7 +41,12 @@ public class TokkDbConnection : IDisposable {
     _catalog = new CollectionCatalog(_rootPageManager, _transactionManager);
     _freeSpace = new FreeSpaceManager(_pageManager, _rootPageManager, _catalog, _transactionManager);
     _dataPageManager = new DataPageManager(_pageManager, _catalog, _freeSpace, _transactionManager);
+    _indexCatalog = new IndexCatalog(_pageManager, _catalog, _freeSpace, _transactionManager);
+    _relationCatalog = new RelationCatalog(_catalog, _indexCatalog, _transactionManager);
     _catalog.SetDataPageManager(_dataPageManager);
+    _indexCatalog.SetDataPageManager(_dataPageManager);
+    _relationCatalog.SetDataPageManager(_dataPageManager);
+    _dataPageManager.SetCatalogs(_indexCatalog, _relationCatalog);
   }
 
   //Physical page reads since the file was opened. A catalogue lookup must not move it.
@@ -70,7 +78,10 @@ public class TokkDbConnection : IDisposable {
   public CollectionDescriptor CreateCollection(string name, IEnumerable<ColumnDescriptor> columns = null,
       string description = "") {
     CollectionDescriptor descriptor = null;
-    InTransaction(() => descriptor = _catalog.CreateCollection(name, columns, description));
+    InTransaction(() => {
+      descriptor = _catalog.CreateCollection(name, columns, description);
+      CreateUniqueIndexes(descriptor);
+    });
     return descriptor;
   }
 
@@ -88,6 +99,28 @@ public class TokkDbConnection : IDisposable {
   public DbEntities<T> Entities<T>(DocumentSerializer<T> serializer, string name = null) {
     name ??= typeof(T).Name;
     return new DbEntities<T>(_dataPageManager, _catalog, _transactionManager, serializer, name);
+  }
+
+  //DC-4: the secondary indexes and the referential constraints, as the catalogue holds them.
+  public IEnumerable<IndexDescriptor> Indexes => _indexCatalog.Descriptors;
+
+  public IEnumerable<RelationDescriptor> Relations => _relationCatalog.Descriptors;
+
+  //An index over one column. Building it reads the collection once; after that nothing does.
+  public IndexDescriptor CreateIndex(string collectionName, string columnName, bool unique = false) {
+    IndexDescriptor descriptor = null;
+    InTransaction(() => descriptor = _indexCatalog.Create(collectionName, columnName, unique).Descriptor);
+    return descriptor;
+  }
+
+  //DC-4: a relation cannot be checked without an index on the column it points at, so
+  //creating one creates that index if it is not already there.
+  public RelationDescriptor CreateRelation(string name, string sourceCollection, string sourceColumn,
+      string targetCollection, string targetColumn) {
+    RelationDescriptor descriptor = null;
+    InTransaction(() => descriptor =
+      _relationCatalog.Create(name, sourceCollection, sourceColumn, targetCollection, targetColumn));
+    return descriptor;
   }
 
   //DC-4: the collection's primary index. The tree reads its own root out of the catalogue
@@ -116,7 +149,8 @@ public class TokkDbConnection : IDisposable {
       var config = new TokkDbConfiguration();
       configure(config);
       foreach (var (name, entity) in config.Entities) {
-        _catalog.CreateCollection(name, EntityColumns.Describe(entity.EntityType), entity.Description);
+        CreateUniqueIndexes(
+          _catalog.CreateCollection(name, EntityColumns.Describe(entity.EntityType), entity.Description));
       }
     });
   }
@@ -125,11 +159,23 @@ public class TokkDbConnection : IDisposable {
     _diskManager.Dispose();
   }
 
+  //DC-4: a column declared unique is enforced by a unique index, and there is nowhere else
+  //the enforcement could live — the check is a lookup by value, which is what an index is.
+  private void CreateUniqueIndexes(CollectionDescriptor descriptor) {
+    foreach (var column in descriptor.Columns.Where(column => column.Unique)) {
+      _indexCatalog.Create(descriptor.Name, column.Name, unique: true);
+    }
+  }
+
   //Reading the root page first is what tells the rest of the engine the page size and where
   //the catalogue is; on a blank file it is what creates them.
   private void Initialize() {
     _rootPageManager.Initialize();
     _catalog.Initialize();
+    //After the collections, because an index descriptor names the collection it covers, and
+    //before anything is written, because a write maintains whatever is described here.
+    _indexCatalog.Initialize();
+    _relationCatalog.Initialize();
     //The free-space structures and the index trees hang off the catalogue, so they are stale
     //the moment it is reloaded and are read again from their roots on first use.
     _freeSpace.Reset();

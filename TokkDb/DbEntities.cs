@@ -3,6 +3,7 @@ using TokkDb.Documents;
 using TokkDb.Documents.Path;
 using TokkDb.Documents.Path.Expressions;
 using TokkDb.Documents.Serializers;
+using TokkDb.Documents.Values;
 using TokkDb.Pages;
 using TokkDb.Pages.Managers;
 using TokkDb.Pages.Records;
@@ -64,6 +65,15 @@ public class DbEntities<T> {
       transaction.Rollback();
       throw;
     }
+  }
+
+  //DC-4: the records carrying a value in an indexed column, read through that index. The
+  //column has to be indexed — an unindexed one would be the scan Get already is, and calling
+  //it a lookup would hide which of the two the caller got.
+  public IEnumerable<DbRecord<T>> GetBy(string columnName, object value) {
+    return _dataPageManager.FindRowsByValue(_entityName, columnName, DocumentValues.From(value))
+      .Select(row => StoredRecordUtilities.FromBuffer(_dataPageManager.ReadRecordBuffer(row)))
+      .Select(record => new DbRecord<T>(record.Header.RecordId, _serializer.Deserialize(record.Document)));
   }
 
   //The counterpart of Update and Delete, which already address a record by its identity.
@@ -134,8 +144,9 @@ public class DbEntities<T> {
     var document = _serializer.Create(value, recordId);
     var header = RecordHeader.ForNewRecord(recordId, _catalog.Get(_entityName).SchemaVersion);
     //A record larger than a page keeps its header on the page and its body in an overflow
-    //chain (ST-5); which of the two happens is the storage layer's decision.
-    _dataPageManager.WriteRecord(_entityName, StoredRecordUtilities.ToBytes(header, document));
+    //chain (ST-5); which of the two happens is the storage layer's decision. The document
+    //goes rather than its bytes, because the indexes of DC-4 are keyed by what is inside it.
+    _dataPageManager.WriteRecord(_entityName, header, document);
   }
   
   private bool Filter(ObjectDocument doc, IExpression expression) {

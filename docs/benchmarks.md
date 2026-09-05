@@ -13,6 +13,116 @@ Each run is appended below, newest first.
 
 <!-- runs -->
 
+## 2026-09-05 — Phase 5 — unique and secondary indexes
+
+> **DC-6's table, and the read/write trade-off of §2.3 in one place.** The four
+> configurations below are the same collection with 0, 1, 3 and 5 secondary indexes over it.
+>
+> | indexes | bulk insert | durable insert | file size | lookup by DOI |
+> |---|---|---|---|---|
+> | 0 | 18.101 µs | 14.478 ms | 6.266 MiB | 8.882 ms, 177 pages (a scan) |
+> | 1 | 24.101 µs | 15.253 ms | 8.273 MiB | **0.185 ms** |
+> | 3 | 31.403 µs | 15.813 ms | 12.594 MiB | 0.234 ms |
+> | 5 | 36.32 µs | 16.267 ms | 16.016 MiB | 0.215 ms |
+>
+> Each index costs about **3.6 µs of write and 1.95 MiB of file** per 20,200 records, and
+> buys a lookup **48 times faster** than the scan it replaces — 8.882 ms down to 0.185 ms,
+> which is the first time a lookup by a field that is not the record identity has met NFR-2.
+> That is the trade-off §2.3 asserts, with numbers on both sides of it.
+>
+> The two insert figures answer different questions and are both here because either alone
+> would mislead. One transaction per record is what a caller sees, and there the three fsyncs
+> of the commit protocol are so much larger than index maintenance that five indexes cost
+> only 12% — the trade-off looks nearly free, and it is not. A bulk load in one transaction
+> pays the fsyncs once, and what is left is the write itself: five indexes double it. Which
+> of the two a workload resembles is what decides whether an index is cheap.
+>
+> **Not comparable with the runs below on record size.** `Publication` gained `Institution`
+> and `DocumentType`, two of the fields DC-4 names, so that the table above had five scalar
+> columns to index rather than four. Bytes per record moves 262.793 → 327.68 and pages per
+> scanned lookup 138 → 177 for that reason alone; the primary-index rows are unaffected.
+
+| | |
+|---|---|
+| Records | 5,000 |
+| Collections | 500 |
+| Runtime | .NET 10.0.11 |
+| OS | macOS 26.5.2 (Arm64) |
+| Processors | 10 |
+| Commit | e5fad01 |
+
+| Benchmark | Metric | Measured | Target | Requirement | Verdict |
+|---|---|---|---|---|---|
+| Insert throughput | Insert of one record | 14.12 ms | < 5 ms | NFR-2 | **missed** |
+| Insert throughput | Throughput | 70.822 records/s | — | — | — |
+| Insert throughput | Total for the run | 70.599 s | — | — | — |
+| Lookup latency | Lookup by DOI | 8.882 ms | < 10 ms | NFR-2 | met |
+| Lookup latency | Pages read per lookup | 177 pages | — | — | — |
+| Primary index | Lookup by record id | 0.089 ms | < 10 ms | NFR-2 | met |
+| Primary index | Pages read per lookup | 3 pages | — | DC-4 | — |
+| Primary index | Index height | 2 levels | — | — | — |
+| Primary index | Leaf splits building the index | 15 splits | — | D-1 | — |
+| Primary index | Index pages | 17 pages | — | — | — |
+| Index maintenance | Bulk insert, 0 indexes | 18.101 µs | — | DC-6 | — |
+| Index maintenance | Durable insert, 0 indexes | 14.478 ms | < 5 ms | NFR-2 | **missed** |
+| Index maintenance | File size, 0 indexes | 6.266 MiB | — | — | — |
+| Index maintenance | Bulk insert, 1 index | 24.101 µs | — | DC-6 | — |
+| Index maintenance | Durable insert, 1 index | 15.253 ms | < 5 ms | NFR-2 | **missed** |
+| Index maintenance | File size, 1 index | 8.273 MiB | — | — | — |
+| Index maintenance | Lookup by DOI, 1 index | 0.185 ms | < 10 ms | NFR-2 | met |
+| Index maintenance | Bulk insert, 3 indexes | 31.403 µs | — | DC-6 | — |
+| Index maintenance | Durable insert, 3 indexes | 15.813 ms | < 5 ms | NFR-2 | **missed** |
+| Index maintenance | File size, 3 indexes | 12.594 MiB | — | — | — |
+| Index maintenance | Lookup by DOI, 3 indexes | 0.234 ms | < 10 ms | NFR-2 | met |
+| Index maintenance | Bulk insert, 5 indexes | 36.32 µs | — | DC-6 | — |
+| Index maintenance | Durable insert, 5 indexes | 16.267 ms | < 5 ms | NFR-2 | **missed** |
+| Index maintenance | File size, 5 indexes | 16.016 MiB | — | — | — |
+| Index maintenance | Lookup by DOI, 5 indexes | 0.215 ms | < 10 ms | NFR-2 | met |
+| Database open | Open with 5,000 records | 0.195 ms | < 500 ms | NFR-2 | met |
+| Database open | Open with 500 collections | 7.574 ms | < 500 ms | NFR-2 | met |
+| Database open | Definition lookup after open | 0 page reads | — | — | — |
+| File size growth | File size | 1.578 MiB | — | — | — |
+| File size growth | Bytes per record | 327.68 bytes | — | — | — |
+| File size growth | Overhead over payload | 3.973 x | — | — | — |
+
+### Notes
+
+- **Insert throughput** — One record per transaction through the full commit protocol.
+- **Lookup latency** — Lookup of one record by a non-key field, today a full scan.
+- **Primary index** — Lookup by record identity through the B+Tree, and what a time-ordered identity costs it.
+- **Index maintenance** — Insert throughput against the number of secondary indexes, and what those indexes buy back.
+- **Database open** — Open, recover the journal and load the catalogue.
+- **File size growth** — What a stored record costs on disk, and what the overhead is.
+- *Insert of one record:* One transaction per record: three fsyncs each (journal images, database file, commit record).
+- *Total for the run:* 5,000 records.
+- *Lookup by DOI:* Sequential scan of 5,000 records; DOI has no index of its own yet. 50 of 50 targets found.
+- *Pages read per lookup:* Every data page of the collection. Compare the primary index below, which reads a descent.
+- *Lookup by record id:* One descent of the tree, 200 of 200 targets found.
+- *Pages read per lookup:* A tree of height 2 over 5,000 records: 2 index pages and the one data page the entry addresses. O(log n), against the whole collection for a scan.
+- *Index height:* 16 leaves holding 312 entries each.
+- *Leaf splits building the index:* 20 for the same number of random identities — the comparison D-1 rests on. A monotonic identity appends, so only the rightmost leaf ever splits and the leaves behind it stay full.
+- *Index pages:* 22 for random identities, which is what a Guid identity would have cost.
+- *Bulk insert, 0 indexes:* 20,000 records in one transaction, so the three fsyncs of a commit are paid once and what is left is the work of the write itself.
+- *Durable insert, 0 indexes:* 300 records, one transaction each.
+- *File size, 0 indexes:* 20,500 records and their indexes.
+- *Bulk insert, 1 index:* 20,000 records in one transaction, so the three fsyncs of a commit are paid once and what is left is the work of the write itself.
+- *Durable insert, 1 index:* 300 records, one transaction each.
+- *File size, 1 index:* 20,500 records and their indexes.
+- *Lookup by DOI, 1 index:* Through the index on Doi. 200 of 200 targets found, 4 pages for one.
+- *Bulk insert, 3 indexes:* 20,000 records in one transaction, so the three fsyncs of a commit are paid once and what is left is the work of the write itself.
+- *Durable insert, 3 indexes:* 300 records, one transaction each.
+- *File size, 3 indexes:* 20,500 records and their indexes.
+- *Lookup by DOI, 3 indexes:* Through the index on Doi. 200 of 200 targets found, 4 pages for one.
+- *Bulk insert, 5 indexes:* 20,000 records in one transaction, so the three fsyncs of a commit are paid once and what is left is the work of the write itself.
+- *Durable insert, 5 indexes:* 300 records, one transaction each.
+- *File size, 5 indexes:* 20,500 records and their indexes.
+- *Lookup by DOI, 5 indexes:* Through the index on Doi. 200 of 200 targets found, 4 pages for one.
+- *Open with 5,000 records:* 2 pages read; the record count does not enter into it.
+- *Open with 500 collections:* 86 pages read: one pass over the catalogue's own pages.
+- *Definition lookup after open:* The catalogue is cached at open, so reading a definition costs no page read at all (DC-7).
+- *File size:* 5,050 records.
+- *Overhead over payload:* File size divided by the bytes of user data in it; slot directories, page headers, control areas and part-filled pages make up the difference.
+
 ## 2026-09-05 — Phase 5 — primary index
 
 > **The primary index of DC-4, measured at the scale NFR-2 states its targets against.**

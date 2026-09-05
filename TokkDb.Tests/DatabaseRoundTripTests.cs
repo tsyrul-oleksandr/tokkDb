@@ -138,7 +138,7 @@ public class DatabaseRoundTripTests {
     var document = new DocumentSerializer<Person>().Create(person, recordId);
     var header = RecordHeader.ForNewRecord(recordId);
     header.Flags = RecordFlags.Superseded;
-    dataPageManager.WriteRecord("Person", StoredRecordUtilities.ToBytes(header, document));
+    dataPageManager.WriteRecord("Person", header, document);
     transaction.Commit();
   }
 

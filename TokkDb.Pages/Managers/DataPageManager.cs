@@ -1,7 +1,9 @@
 using TokkDb.Buffer;
 using TokkDb.Documents;
+using TokkDb.Documents.Values;
 using TokkDb.Documents.Keys;
 using TokkDb.Pages.Indexes;
+using TokkDb.Pages.Relations;
 using TokkDb.Transactions;
 
 namespace TokkDb.Pages.Managers;
@@ -16,6 +18,9 @@ public class DataPageManager {
   //catalogue document every time (D-2) — so these are cached to keep the split counters and
   //not because rebuilding one would cost anything.
   private readonly Dictionary<string, BPlusTree> _primaryIndexes = new(StringComparer.Ordinal);
+
+  private IndexCatalog _indexes;
+  private RelationCatalog _relations;
 
   public DataPageManager(PageManager pageManager, CollectionCatalog catalog, FreeSpaceManager freeSpace,
       TransactionManager transactionManager) {
@@ -34,11 +39,19 @@ public class DataPageManager {
   //read the flags and the identifier without following the chain, and the pointer to it.
   public const int OverflowPrefixByteSize = TypesConstants.UIntByteSize + TypesConstants.IntByteSize;
 
+  //Set after construction, because the catalogues that describe the indexes are themselves
+  //read through this manager.
+  public void SetCatalogs(IndexCatalog indexes, RelationCatalog relations) {
+    _indexes = indexes;
+    _relations = relations;
+  }
+
   //DC-4: the collection's primary index, keyed by the record identity of D-1 and holding the
   //(pageId, slotId) of D-2.
   public BPlusTree PrimaryIndex(string collectionName) {
     if (!_primaryIndexes.TryGetValue(collectionName, out var tree)) {
-      tree = new BPlusTree(_pageManager, _catalog, _freeSpace, _transactionManager, collectionName);
+      tree = new BPlusTree(_pageManager, _catalog, _freeSpace, _transactionManager, collectionName,
+        new PrimaryIndexRoot(_catalog, collectionName));
       _primaryIndexes[collectionName] = tree;
     }
     return tree;
@@ -56,15 +69,28 @@ public class DataPageManager {
 
   //The write path for a whole record image. Records that fit go on a data page as they are;
   //records that do not keep their header on the page and put the body in an overflow chain.
-  public DataRow WriteRecord(string collectionName, byte[] recordBytes) {
+  //Takes the document rather than the bytes it serialises to, because the indexes of DC-4
+  //are keyed by the values inside it and recovering them from the bytes would mean parsing
+  //back what the caller has in its hand.
+  public DataRow WriteRecord(string collectionName, RecordHeader header, ObjectDocument document) {
     EnsurePrimaryIndex(collectionName);
+    //Before a byte is written, so a refused write leaves no page to take back and no index
+    //entry to remove — the transaction would undo it, but a constraint should not need one.
+    CheckUniqueConstraints(collectionName, header.RecordId, document);
+    CheckRelations(collectionName, document);
+
+    var recordBytes = StoredRecordUtilities.ToBytes(header, document);
     var row = recordBytes.Length <= MaxInPageRecordLength
       ? WriteInPageRecord(collectionName, recordBytes)
       : WriteOverflowRecord(collectionName, recordBytes);
     //Upsert rather than insert, because this is the write half of the copy on write of
     //VR-12 as well as the write of a new record: the entry either does not exist yet or has
     //to follow the record to where its new image went.
-    IndexRow(collectionName, StoredRecordUtilities.ReadHeaderFrom(recordBytes).RecordId, row.Address);
+    IndexRow(collectionName, header.RecordId, row.Address);
+    //The secondary entries were taken out by the retirement that precedes an update, so
+    //these are always new. A value that did not change still moves, because its entry
+    //carries the address and the address did.
+    AddSecondaryEntries(collectionName, header.RecordId, document, row.Address);
     return row;
   }
 
@@ -164,11 +190,17 @@ public class DataPageManager {
   }
 
   public DataRow RegisterRow(string collectionName, ushort bytesLength) {
+    return RegisterRow(collectionName, bytesLength, countRecord: true);
+  }
+
+  private DataRow RegisterRow(string collectionName, ushort bytesLength, bool countRecord) {
     var page = GetAvailablePage(collectionName, bytesLength);
     _transactionManager.Track(page);
     var slotIndex = FindSlotFor(page, bytesLength);
     var buffer = page.RegisterItem(bytesLength);
-    _catalog.IncrementRecordCount(collectionName);
+    if (countRecord) {
+      _catalog.IncrementRecordCount(collectionName);
+    }
     RecordFreeSpace(collectionName, page);
     return new DataRow(new DocumentAddress(page.Index, slotIndex), buffer);
   }
@@ -185,8 +217,41 @@ public class DataPageManager {
     return before;
   }
 
-  //Rewrites a record where it already lies. Nothing here grows a record: an update that
-  //needs more room than its slot has waits for ST-6.
+  //Whether the image would still fit where it is. A caller that has to be able to grow a
+  //record asks first rather than catching the overflow.
+  public bool CanUpdateRowInPlace(DocumentAddress address, RecordHeader header, ObjectDocument document) {
+    var slot = LoadPage(address.PageIndex).GetItem(address.SlotIndex);
+    return StoredRecordUtilities.GetBytesLength(header, document) <= slot.Length;
+  }
+
+  //An image that has outgrown the slot it was written into. It moves to a new one rather than
+  //being rewritten where it lies, which is the copy on write of VR-12 — but the record count
+  //does not move with it, because it is the same record and counting it again would rewrite
+  //the catalogue in the middle of a catalogue write.
+  //
+  //The one thing that needs this so far is a collection descriptor gaining a secondary index
+  //root (DC-4): the document grows, and the slot it was first written into was sized for the
+  //document as it then was.
+  public DataRow RewriteRow(string collectionName, DocumentAddress address, RecordHeader header,
+      ObjectDocument document) {
+    var recordBytes = StoredRecordUtilities.ToBytes(header, document);
+    if (recordBytes.Length > MaxInPageRecordLength) {
+      throw new PageOverflowException(
+        $"A record of {recordBytes.Length} bytes cannot be moved to another slot; growing one into an " +
+        $"overflow chain is not implemented.");
+    }
+    var page = LoadPage(address.PageIndex);
+    page.FreeItem(address.SlotIndex);
+    _transactionManager.Track(page);
+    RecordFreeSpace(collectionName, page);
+
+    var row = RegisterRow(collectionName, (ushort)recordBytes.Length, countRecord: false);
+    row.Buffer.WriteBytes(recordBytes, 0, out _);
+    return row;
+  }
+
+  //Rewrites a record where it already lies. A record that has outgrown its slot goes through
+  //RewriteRow instead; nothing here moves one.
   public void UpdateRow(DocumentAddress address, RecordHeader header, ObjectDocument document) {
     var page = LoadPage(address.PageIndex);
     var slot = page.GetItem(address.SlotIndex);
@@ -233,6 +298,24 @@ public class DataPageManager {
     return StoredRecordUtilities.ReadHeader(row.Buffer).IsLive ? row : null;
   }
 
+  //DC-4's acceptance criterion: a lookup by an indexed field reads the index and then the
+  //pages the entries address, rather than every page of the collection.
+  public IEnumerable<DataRow> FindRowsByValue(string collectionName, string columnName, IDocumentValue value) {
+    var index = _indexes?.Find(collectionName, columnName)
+      ?? throw new InvalidOperationException(
+        $"Column '{columnName}' of collection '{collectionName}' has no index to look it up by.");
+    foreach (var (_, address) in index.Find(value)) {
+      var page = LoadPage(address.PageIndex);
+      if (page.IsItemFree(address.SlotIndex)) {
+        continue;
+      }
+      var row = new DataRow(address, page.GetItem(address.SlotIndex));
+      if (StoredRecordUtilities.ReadHeader(row.Buffer).IsLive) {
+        yield return row;
+      }
+    }
+  }
+
   //What the lookup was before the index, and what it still is for a collection that has no
   //tree: the system collections, whose catalogue is what a tree would have to read its own
   //root out of, and a collection written before the index existed and not yet written to
@@ -263,6 +346,67 @@ public class DataPageManager {
 
   private bool HasPrimaryIndex(string collectionName) {
     return IsIndexed(collectionName) && !PrimaryIndex(collectionName).IsEmpty;
+  }
+
+  //DC-4: every index of the collection gets an entry for the value this record carries in the
+  //column it covers.
+  private void AddSecondaryEntries(string collectionName, Ulid recordId, ObjectDocument document,
+      DocumentAddress address) {
+    foreach (var index in SecondaryIndexes(collectionName)) {
+      index.Add(IndexCatalog.ReadColumn(document, index.Descriptor.ColumnName), recordId, address);
+    }
+  }
+
+  private void RemoveSecondaryEntries(string collectionName, Ulid recordId, ObjectDocument document) {
+    foreach (var index in SecondaryIndexes(collectionName)) {
+      index.Remove(IndexCatalog.ReadColumn(document, index.Descriptor.ColumnName), recordId);
+    }
+  }
+
+  //A unique index refuses a value another record already holds. Null is not such a value:
+  //a column may be unique and still optional, and every record missing it would otherwise
+  //conflict with every other.
+  private void CheckUniqueConstraints(string collectionName, Ulid recordId, ObjectDocument document) {
+    foreach (var index in SecondaryIndexes(collectionName)) {
+      if (!index.Descriptor.Unique) {
+        continue;
+      }
+      var value = IndexCatalog.ReadColumn(document, index.Descriptor.ColumnName);
+      if (value is NullDocumentValue) {
+        continue;
+      }
+      if (index.FindConflict(value, recordId) is { } conflict) {
+        throw new UniqueConstraintViolationException(collectionName, index.Descriptor.ColumnName,
+          IndexCatalog.Describe(value), conflict);
+      }
+    }
+  }
+
+  //DC-4: a relation is only checkable because its target column is indexed, so this is a
+  //descent of that index rather than a scan of the collection it points at.
+  private void CheckRelations(string collectionName, ObjectDocument document) {
+    foreach (var relation in _relations?.From(collectionName) ?? []) {
+      var value = IndexCatalog.ReadColumn(document, relation.SourceColumn);
+      //A column that refers to nothing is not a broken reference.
+      if (value is NullDocumentValue) {
+        continue;
+      }
+      var target = _indexes.Find(relation.TargetCollection, relation.TargetColumn)
+        ?? throw new InvalidOperationException(
+          $"Relation '{relation.Name}' has no index on {relation.TargetCollection}." +
+          $"{relation.TargetColumn} to check against.");
+      if (!target.Find(value).Any()) {
+        throw new ReferentialIntegrityException(relation, IndexCatalog.Describe(value));
+      }
+    }
+  }
+
+  private IReadOnlyList<SecondaryIndex> SecondaryIndexes(string collectionName) {
+    return IsIndexed(collectionName) ? _indexes?.For(collectionName) ?? [] : [];
+  }
+
+  private bool HasSecondaryIndexes(string collectionName) {
+    return SecondaryIndexes(collectionName).Count > 0;
   }
 
   private void IndexRow(string collectionName, Ulid recordId, DocumentAddress address) {
@@ -306,6 +450,11 @@ public class DataPageManager {
     //freeing the slot rather than of writing something different.
     var slot = page.GetItem(address.SlotIndex);
     var header = StoredRecordUtilities.ReadHeader(slot);
+    //Read while the record is still whole: taking its entries out of the secondary indexes
+    //needs the values it held, and the overflow chain holding them is about to be freed.
+    var document = HasSecondaryIndexes(collectionName)
+      ? StoredRecordUtilities.FromBuffer(ReadRecordBuffer(new DataRow(address, slot))).Document
+      : null;
     //A record that overflowed takes its chain with it, through this same one seam.
     if (header.Flags.HasFlag(RecordFlags.HasOverflow)) {
       FreeOverflowChain(collectionName, slot.ReadUInt(RecordHeader.ByteSize, out _));
@@ -317,6 +466,12 @@ public class DataPageManager {
     //one transaction of VR-12, so nothing ever reads the entry in between.
     if (flags == RecordFlags.Deleted && IsIndexed(collectionName)) {
       PrimaryIndex(collectionName).Delete(PrimaryIndexKey(header.RecordId));
+    }
+    //Unlike the primary entry, a secondary one goes for both reasons. Its key is built from a
+    //value that an update may have changed, so it cannot be repointed — the write that
+    //follows an update puts back whatever the new image calls for.
+    if (document is not null) {
+      RemoveSecondaryEntries(collectionName, header.RecordId, document);
     }
     page.FreeItem(address.SlotIndex);
     _transactionManager.Track(page);

@@ -21,6 +21,7 @@ IBenchmark[] benchmarks = [
   new InsertThroughputBenchmark(),
   new LookupLatencyBenchmark(),
   new PrimaryIndexBenchmark(),
+  new IndexMaintenanceBenchmark(),
   new DatabaseOpenBenchmark(),
   new FileSizeGrowthBenchmark()
 ];

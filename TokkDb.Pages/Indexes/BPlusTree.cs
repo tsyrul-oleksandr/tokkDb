@@ -24,19 +24,23 @@ public class BPlusTree {
   private readonly FreeSpaceManager _freeSpace;
   private readonly TransactionManager _transactionManager;
   private readonly string _collectionName;
+  private readonly IndexRoot _root;
 
   public BPlusTree(PageManager pageManager, CollectionCatalog catalog, FreeSpaceManager freeSpace,
-      TransactionManager transactionManager, string collectionName) {
+      TransactionManager transactionManager, string collectionName, IndexRoot root) {
     _pageManager = pageManager;
     _catalog = catalog;
     _freeSpace = freeSpace;
     _transactionManager = transactionManager;
     _collectionName = collectionName;
+    _root = root;
   }
+
+  public string Name => _root.Name;
 
   //D-2 and D-4: the root is a physical pointer, so it is held in the collection's catalogue
   //document and read from there rather than remembered. Zero until the first insert.
-  public uint RootPageIndex => _catalog.Get(_collectionName).PrimaryIndexRoot;
+  public uint RootPageIndex => _root.Read();
 
   public bool IsEmpty => RootPageIndex == default;
 
@@ -73,7 +77,7 @@ public class BPlusTree {
     _transactionManager.RequireTransaction();
     if (IsEmpty) {
       var firstLeaf = CreateLeaf();
-      _catalog.SetPrimaryIndexRoot(_collectionName, firstLeaf.Index);
+      _root.Write(firstLeaf.Index);
     }
     var rootIndex = RootPageIndex;
     var inserted = true;
@@ -254,7 +258,7 @@ public class BPlusTree {
     root.FirstChildPageIndex = oldRootIndex;
     root.Entries.Add(new IndexSeparator(split.SeparatorKey, split.RightPageIndex));
     Track(root);
-    _catalog.SetPrimaryIndexRoot(_collectionName, root.Index);
+    _root.Write(root.Index);
   }
 
   private bool RemoveFrom(BaseIndexPage node, byte[] key) {
@@ -379,7 +383,7 @@ public class BPlusTree {
   private void ShrinkRoot() {
     while (LoadNode(RootPageIndex) is IndexInteriorPage { Entries.Count: 0 } root) {
       var child = root.FirstChildPageIndex;
-      _catalog.SetPrimaryIndexRoot(_collectionName, child);
+      _root.Write(child);
       Retire(root);
     }
   }

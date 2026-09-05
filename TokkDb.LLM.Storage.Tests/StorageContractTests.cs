@@ -46,6 +46,17 @@ public abstract class StorageContractTests : IDisposable
     /// <summary>Whether GetAll stays in insertion order once a record has been deleted.</summary>
     protected abstract bool GetAllOrderSurvivesADelete { get; }
 
+    /// <summary>
+    /// What a backend throws when a column marked unique is given a value another record
+    /// already holds, or null when it stores the duplicate instead.
+    ///
+    /// Separate from <see cref="ValidatesRecordFields"/> since the engine gained unique
+    /// indexes (DC-4): it still checks nothing about types or unknown columns, and it does
+    /// enforce uniqueness. Both backends now refuse the duplicate and each throws its own
+    /// exception type, which is a narrower open question than the one this replaced.
+    /// </summary>
+    protected abstract Type UniqueViolationExceptionType { get; }
+
     public virtual void Dispose()
     {
         foreach (var storage in _opened)
@@ -444,15 +455,26 @@ public abstract class StorageContractTests : IDisposable
         storage.Create("Customer", CustomerFields(Guid.NewGuid(), "Alice", "Brown", "alice@example.com"));
         var duplicate = CustomerFields(Guid.NewGuid(), "Alicia", "Cooper", "alice@example.com");
 
-        if (ValidatesRecordFields)
+        if (UniqueViolationExceptionType is null)
         {
-            var exception = Assert.Throws<StorageValidationException>(() => storage.Create("Customer", duplicate));
-            Assert.Contains(exception.Errors, error => error is { Code: "UniqueConstraint", ColumnName: "Email" });
+            storage.Create("Customer", duplicate);
+            Assert.Equal(2, storage.GetAll("Customer").Count);
             return;
         }
 
-        storage.Create("Customer", duplicate);
-        Assert.Equal(2, storage.GetAll("Customer").Count);
+        var exception = Assert.Throws(UniqueViolationExceptionType, () => storage.Create("Customer", duplicate));
+        //The column has to be named, whichever way the backend reports it — "duplicate key"
+        //on its own tells the caller nothing it can act on.
+        Assert.Contains("Email", DescribeUniqueViolation(exception));
+        //And the refusal left the first record alone.
+        Assert.Single(storage.GetAll("Customer"));
+    }
+
+    private static string DescribeUniqueViolation(Exception exception)
+    {
+        return exception is StorageValidationException validation
+            ? string.Join("; ", validation.Errors.Select(error => $"{error.Code}:{error.ColumnName}"))
+            : exception.Message;
     }
 
     [Fact]

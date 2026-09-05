@@ -1,3 +1,4 @@
+using TokkDb.Pages.Indexes;
 using TokkDb.LLM.Storage.Engine;
 
 namespace TokkDb.LLM.Storage.Tests;
@@ -26,6 +27,10 @@ public sealed class TokkDbStorageContractTests : StorageContractTests
     protected override bool StoresEveryColumnType => true;
 
     protected override bool GetAllOrderSurvivesADelete => false;
+
+    //DC-4: the engine enforces a unique column with a unique index, and reports the violation
+    //in its own currency rather than IStorage's.
+    protected override Type UniqueViolationExceptionType => typeof(UniqueConstraintViolationException);
 
     public override void Dispose()
     {

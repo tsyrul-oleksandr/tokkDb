@@ -18,7 +18,10 @@ public class CollectionDescriptor {
   public uint DataFirstPage { get; set; }
   public uint DataLastPage { get; set; }
   public uint PrimaryIndexRoot { get; set; }
-  public List<uint> SecondaryIndexRoots { get; set; } = [];
+
+  //Index name to root page. A bare list could not say which root belonged to which index,
+  //and the descriptors in _indexes name themselves.
+  public Dictionary<string, uint> SecondaryIndexRoots { get; set; } = new(StringComparer.Ordinal);
   public uint FreeSpaceRoot { get; set; }
   public uint RecordCount { get; set; }
 
