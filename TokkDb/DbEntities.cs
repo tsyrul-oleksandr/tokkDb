@@ -40,12 +40,6 @@ public class DbEntities<T> {
     return LiveRecords()
       .Select(record => new DbRecord<T>(record.Header.RecordId, _serializer.Deserialize(record.Document)));
   }
-  
-  public IEnumerable<T> Get(string exp) {
-    var expression = DocumentPathParser.Parse(exp);
-    return LiveRecords().Where(record => Filter(record.Document, expression))
-      .Select(record => _serializer.Deserialize(record.Document));
-  }
 
   //Returns the identity the record was stored under. A caller that has to address the record
   //again — Update, Delete, or an adapter handing the id back to its own caller — would
@@ -152,10 +146,6 @@ public class DbEntities<T> {
   private bool Filter(ObjectDocument doc, IExpression expression) {
     var result = expression.Execute(doc.Value, doc.Value);
     return result != null;
-  }
-
-  public IEnumerable GetHistories() {
-    return Array.Empty<object>();
   }
 }
 

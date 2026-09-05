@@ -7,6 +7,9 @@ public class PropertyExpression : IExpression {
   private readonly string _propertyName;
   public IExpression Parent { get; set; }
 
+  //Normalisation has to be able to tell a bare column from a path into a document.
+  public string PropertyName => _propertyName;
+
   public PropertyExpression(string propertyName) {
     _propertyName = propertyName;
   }

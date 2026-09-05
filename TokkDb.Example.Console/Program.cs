@@ -54,20 +54,6 @@ internal class Program {
     }
     var persons = db.Entities<Person>();
     WriteAllPersons(persons.GetAll());
-
-    WriteAllPersons(persons.Get("$.Passport.Code"));
-    WriteAllPersons(persons.Get("[($.Age + 1) == 29].Tags[$.Passport.Code == @.Name]"));
-    //persons.Find("$[?($.Passport == 'ST-222222')]");
-    
-    
-    
-    /*person1.Age++;
-    person1.Tags = person1.Tags.Where(tag => tag.Name != "tag1").Concat([new Tag("Tag3")]).ToArray();
-    persons.UpdateById(person1, 1);
-    WriteAllPersons(persons);
-    foreach (var history in persons.GetHistories()) {
-    
-    }*/
   }
 
   private static void WriteAllPersons(IEnumerable<Person> persons) {
