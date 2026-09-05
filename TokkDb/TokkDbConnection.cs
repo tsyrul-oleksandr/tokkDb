@@ -2,6 +2,7 @@
 using TokkDb.Disk;
 using TokkDb.Documents.Serializers;
 using TokkDb.Pages;
+using TokkDb.Pages.Indexes;
 using TokkDb.Pages.Managers;
 using TokkDb.Transactions;
 
@@ -15,6 +16,7 @@ namespace TokkDb;
 //DatabaseLockedException; a reader takes no lock and cannot write.
 public class TokkDbConnection : IDisposable {
   private readonly DiskManager _diskManager;
+  private readonly PageManager _pageManager;
   private readonly DataPageManager _dataPageManager;
   private readonly TransactionManager _transactionManager;
   private readonly RootPageManager _rootPageManager;
@@ -30,12 +32,12 @@ public class TokkDbConnection : IDisposable {
     _diskManager = diskManager;
     //TX-2: before any page of this database is read by anything.
     RecoveryDecision = _diskManager.Recover();
-    var pageManager = new PageManager(_diskManager);
-    _transactionManager = new TransactionManager(pageManager);
-    _rootPageManager = new RootPageManager(pageManager, _transactionManager);
+    _pageManager = new PageManager(_diskManager);
+    _transactionManager = new TransactionManager(_pageManager);
+    _rootPageManager = new RootPageManager(_pageManager, _transactionManager);
     _catalog = new CollectionCatalog(_rootPageManager, _transactionManager);
-    _freeSpace = new FreeSpaceManager(pageManager, _rootPageManager, _catalog, _transactionManager);
-    _dataPageManager = new DataPageManager(pageManager, _catalog, _freeSpace, _transactionManager);
+    _freeSpace = new FreeSpaceManager(_pageManager, _rootPageManager, _catalog, _transactionManager);
+    _dataPageManager = new DataPageManager(_pageManager, _catalog, _freeSpace, _transactionManager);
     _catalog.SetDataPageManager(_dataPageManager);
   }
 
@@ -88,6 +90,26 @@ public class TokkDbConnection : IDisposable {
     return new DbEntities<T>(_dataPageManager, _catalog, _transactionManager, serializer, name);
   }
 
+  //DC-4: the collection's primary index. The tree reads its own root out of the catalogue
+  //document (D-2), so this hands back a view of what is on disk rather than a structure that
+  //had to be built first.
+  public BPlusTree PrimaryIndex(string collectionName) {
+    return new BPlusTree(_pageManager, _catalog, _freeSpace, _transactionManager, collectionName);
+  }
+
+  //Runs the action inside a transaction, so a caller driving the index directly gets the
+  //same journal and the same rollback as everything else.
+  public void InTransaction(Action action) {
+    var transaction = _transactionManager.CreateTransaction();
+    try {
+      action();
+      transaction.Commit();
+    } catch {
+      transaction.Rollback();
+      throw;
+    }
+  }
+
   public void CreateDatabase(Action<TokkDbConfiguration> configure) {
     InTransaction(() => {
       Initialize();
@@ -113,14 +135,4 @@ public class TokkDbConnection : IDisposable {
     _freeSpace.Reset();
   }
 
-  private void InTransaction(Action action) {
-    var transaction = _transactionManager.CreateTransaction();
-    try {
-      action();
-      transaction.Commit();
-    } catch {
-      transaction.Rollback();
-      throw;
-    }
-  }
 }

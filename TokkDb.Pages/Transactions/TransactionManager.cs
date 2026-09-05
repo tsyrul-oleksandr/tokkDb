@@ -32,8 +32,7 @@ public class TransactionManager {
   //disk and changed again through a second object.
   public T FindTrackedPage<T>(uint index) where T : BasePage {
     for (var transaction = Current; transaction != null; transaction = transaction.Parent) {
-      var page = transaction.Pages.OfType<T>().FirstOrDefault(item => item.Index == index);
-      if (page != null) {
+      if (transaction.FindPage(index) is T page) {
         return page;
       }
     }

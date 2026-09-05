@@ -77,6 +77,16 @@ public class CollectionCatalog {
     Save(descriptor);
   }
 
+  //D-2: the root of the collection's primary index is a physical pointer, so it lives in the
+  //catalogue document beside the data chain and the free-space root, and moves with them
+  //inside the same transaction when the tree grows a new root.
+  public void SetPrimaryIndexRoot(string collectionName, uint pageIndex) {
+    _transactionManager.RequireTransaction();
+    var descriptor = Get(collectionName);
+    descriptor.PrimaryIndexRoot = pageIndex;
+    Save(descriptor);
+  }
+
   public void SetDataLastPage(string collectionName, uint pageIndex) {
     _transactionManager.RequireTransaction();
     var descriptor = Get(collectionName);

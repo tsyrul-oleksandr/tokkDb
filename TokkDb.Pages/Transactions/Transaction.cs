@@ -13,6 +13,11 @@ public class Transaction {
   public TransactionState State { get; private set; } = TransactionState.Active;
   public HashSet<BasePage> Pages { get; } = [];
 
+  //The same pages by index. The set is what commits; this is what makes finding one of them
+  //a lookup. A transaction that dirties a few thousand pages — one bulk index build does —
+  //would otherwise spend its time scanning its own page set on every read.
+  private readonly Dictionary<uint, BasePage> _pagesByIndex = [];
+
   //Set when an inner transaction rolls back. The work it undid was part of this one, so the
   //whole nest is doomed and the outermost commit must refuse rather than write half of it.
   public bool IsRollbackOnly { get; private set; }
@@ -37,7 +42,7 @@ public class Transaction {
       _pageManager.CommitPages(Id, Pages.ToArray());
     } else {
       //Nothing durable happens here. The pages become the containing transaction's problem.
-      Parent.Pages.UnionWith(Pages);
+      Parent.Absorb(this);
     }
     State = TransactionState.Committed;
     OnTransactionFinish();
@@ -46,6 +51,7 @@ public class Transaction {
   public void Rollback() {
     RequireActive();
     Pages.Clear();
+    _pagesByIndex.Clear();
     State = TransactionState.RolledBack;
     try {
       if (IsOutermost) {
@@ -63,7 +69,28 @@ public class Transaction {
 
   public void Track(BasePage page) {
     RequireActive();
+    //One object per page index, and the newer one wins. A page freed and handed out again
+    //inside the same transaction — an index page a merge retired and a later split took
+    //back — arrives here as a second object for an index the set already holds, and
+    //committing both would write them in whichever order the set happened to keep.
+    if (_pagesByIndex.TryGetValue(page.Index, out var superseded) && !ReferenceEquals(superseded, page)) {
+      Pages.Remove(superseded);
+    }
     Pages.Add(page);
+    _pagesByIndex[page.Index] = page;
+  }
+
+  //The page this transaction already holds for that index, whatever its kind, or null. The
+  //identity map: a page changed once must not be read back from disk and changed again
+  //through a second object.
+  internal BasePage FindPage(uint index) {
+    return _pagesByIndex.GetValueOrDefault(index);
+  }
+
+  internal void Absorb(Transaction inner) {
+    foreach (var page in inner.Pages) {
+      Track(page);
+    }
   }
 
   internal void MarkRollbackOnly() {

@@ -38,14 +38,20 @@ public class PageManager {
   }
   
   public T LoadPage<T>(uint index) where T : BasePage, new() {
+    return LoadPage<T>(index, _ => new T());
+  }
+
+  //For a caller that cannot name the class before it has seen the page: a B+Tree descent
+  //does not know whether the child it is about to read is an interior node or a leaf, and
+  //reading the page twice to find out would double the page reads NFR-2 counts.
+  public T LoadPage<T>(uint index, Func<PageType, T> create) where T : BasePage {
     var buffer = _diskManager.ReadPage(index);
-    var newPage = new T {
-      Buffer = buffer,
-      //The index that was asked for, so a damaged page is named by where it was read from
-      //rather than by whatever its own bytes claim. Load overwrites it once the page checks out.
-      Index = index,
-      PageSize = _diskManager.PageSize
-    };
+    var newPage = create((PageType)buffer.ReadByte(BasePage.TypeBufferPosition));
+    newPage.Buffer = buffer;
+    //The index that was asked for, so a damaged page is named by where it was read from
+    //rather than by whatever its own bytes claim. Load overwrites it once the page checks out.
+    newPage.Index = index;
+    newPage.PageSize = _diskManager.PageSize;
     newPage.Load();
     return newPage;
   }

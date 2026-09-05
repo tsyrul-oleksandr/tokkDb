@@ -78,6 +78,25 @@ public class FreeSpaceManager {
     return pageIndex;
   }
 
+  //An index page is allocated to the collection and must never take a record, so it is
+  //Reserved while it is in the tree and Retired once a merge empties it. Only the index
+  //takes a Retired page back, which is what keeps a split from having to grow the file
+  //every time a delete-heavy workload has just shrunk the tree.
+  public void RecordIndexPage(string collectionName, uint pageIndex, bool inUse) {
+    Record(collectionName, pageIndex, 0, inUse ? BlockState.Reserved : BlockState.Retired);
+  }
+
+  public uint? TakeRetiredIndexPage(string collectionName) {
+    var entries = Load(collectionName);
+    var index = entries.FindIndex(entry => entry.State == BlockState.Retired);
+    if (index < 0) {
+      return null;
+    }
+    var pageIndex = entries[index].PageIndex;
+    RecordIndexPage(collectionName, pageIndex, inUse: true);
+    return pageIndex;
+  }
+
   //A page whose checksum did not verify is never handed out again.
   public void MarkDamaged(string collectionName, uint pageIndex) {
     Record(collectionName, pageIndex, 0, BlockState.Damaged);

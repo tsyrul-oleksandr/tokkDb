@@ -16,6 +16,10 @@ public abstract class BasePage {
   //shared header, the largest of which is the root page's.
   public const ushort StartContentBufferPosition = 64;
 
+  //Where the type byte sits, for a reader that has to know a page's kind before it can pick
+  //the class to parse it with. LoadHeader reads it from here too, so the two cannot drift.
+  public const int TypeBufferPosition = PageBuffer.IndexBufferPosition + TypesConstants.UIntByteSize;
+
   //The control area closes the page and currently holds the checksum alone.
   public const ushort ControlAreaByteSize = TypesConstants.UIntByteSize;
 
@@ -65,7 +69,7 @@ public abstract class BasePage {
   protected virtual int LoadHeader() {
     int position = StartHeaderBufferPosition;
     Index = Buffer.Index;
-    position += PageBuffer.IndexBufferPosition + TypesConstants.UIntByteSize;
+    position += TypeBufferPosition;
     Type = (PageType)Buffer.ReadByte(position);
     position += TypesConstants.ByteByteSize;
     OwningCollectionId = Buffer.ReadUInt(position, out var readBytes);
