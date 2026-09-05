@@ -3,7 +3,7 @@ using TokkDb.Values;
 
 namespace TokkDb.Documents.Values;
 
-public class ObjectDocumentValue : IDocumentValue {
+public class ObjectDocumentValue : IDocumentValue, IFieldSource {
   public ValueTypeEnum Type => ValueTypeEnum.Object;
   public Dictionary<string, IDocumentValue> Values { get; set; }
 
@@ -13,6 +13,12 @@ public class ObjectDocumentValue : IDocumentValue {
   }
   
   public IDocumentValue this[string key] => Values[key];
+
+  //A parsed object answers for its own fields; a record still in its page buffer answers the
+  //same question without being parsed (see BufferedObjectValue).
+  public IDocumentValue GetField(string name) {
+    return Values.GetValueOrDefault(name);
+  }
   
   public virtual void WriteValue(BufferWriter writer) {
     writer.WriteInt(Values.Count);

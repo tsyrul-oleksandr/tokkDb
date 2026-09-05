@@ -287,15 +287,7 @@ public class DataPageManager {
     if (PrimaryIndex(collectionName).Find(PrimaryIndexKey(recordId)) is not { } address) {
       return null;
     }
-    var page = LoadPage(address.PageIndex);
-    //The entry points at a live image or it should not be there, but the slot is checked
-    //rather than trusted: an entry left behind by something that failed to remove it would
-    //otherwise hand back whatever now occupies the slot.
-    if (page.IsItemFree(address.SlotIndex)) {
-      return null;
-    }
-    var row = new DataRow(address, page.GetItem(address.SlotIndex));
-    return StoredRecordUtilities.ReadHeader(row.Buffer).IsLive ? row : null;
+    return LiveRowAt(address);
   }
 
   //DC-4's acceptance criterion: a lookup by an indexed field reads the index and then the
@@ -305,15 +297,25 @@ public class DataPageManager {
       ?? throw new InvalidOperationException(
         $"Column '{columnName}' of collection '{collectionName}' has no index to look it up by.");
     foreach (var (_, address) in index.Find(value)) {
-      var page = LoadPage(address.PageIndex);
-      if (page.IsItemFree(address.SlotIndex)) {
-        continue;
-      }
-      var row = new DataRow(address, page.GetItem(address.SlotIndex));
-      if (StoredRecordUtilities.ReadHeader(row.Buffer).IsLive) {
+      if (LiveRowAt(address) is { } row) {
         yield return row;
       }
     }
+  }
+
+  //The record an index entry addresses, or nothing when the entry no longer addresses a live
+  //one. Every access path of Phase 6 that follows an index ends here, so the check that an
+  //entry still means what it says is written once.
+  public DataRow? LiveRowAt(DocumentAddress address) {
+    var page = LoadPage(address.PageIndex);
+    //The entry points at a live image or it should not be there, but the slot is checked
+    //rather than trusted: an entry left behind by something that failed to remove it would
+    //otherwise hand back whatever now occupies the slot.
+    if (page.IsItemFree(address.SlotIndex)) {
+      return null;
+    }
+    var row = new DataRow(address, page.GetItem(address.SlotIndex));
+    return StoredRecordUtilities.ReadHeader(row.Buffer).IsLive ? row : null;
   }
 
   //What the lookup was before the index, and what it still is for a collection that has no
