@@ -77,7 +77,7 @@ public class TokkDbConnection : IDisposable {
   public DbEntities<T> Entities<T>(string name = null) {
     name ??= typeof(T).Name;
     var serializer = new DocumentSerializer<T>();
-    return new DbEntities<T>(_dataPageManager, _transactionManager, serializer, name);
+    return new DbEntities<T>(_dataPageManager, _catalog, _transactionManager, serializer, name);
   }
 
   public void CreateDatabase(Action<TokkDbConfiguration> configure) {

@@ -19,6 +19,11 @@ public class BufferWriter {
     MovePosition(writeBytes);
   }
   
+  public void WriteUShort(ushort value) {
+    Buffer.WriteUShort(value, Position, out var writeBytes);
+    MovePosition(writeBytes);
+  }
+  
   public void WriteUInt(uint value) {
     Buffer.WriteUInt(value, Position, out var writeBytes);
     MovePosition(writeBytes);

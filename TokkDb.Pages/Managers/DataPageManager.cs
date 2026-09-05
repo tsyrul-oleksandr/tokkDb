@@ -29,18 +29,18 @@ public class DataPageManager {
     return new DataRow(new DocumentAddress(page.Index, slotIndex), buffer);
   }
 
-  //Rewrites a document where it already lies. Nothing here grows a record: an update that
+  //Rewrites a record where it already lies. Nothing here grows a record: an update that
   //needs more room than its slot has waits for ST-6.
-  public void UpdateRow(DocumentAddress address, ObjectDocument document) {
+  public void UpdateRow(DocumentAddress address, RecordHeader header, ObjectDocument document) {
     var page = LoadPage(address.PageIndex);
     var slot = page.GetItem(address.SlotIndex);
-    var length = ObjectDocumentUtilities.GetBytesLength(document);
+    var length = StoredRecordUtilities.GetBytesLength(header, document);
     if (length > slot.Length) {
       throw new PageOverflowException(
-        $"A document of {length} bytes does not fit the {slot.Length} byte slot {address.SlotIndex} " +
+        $"A record of {length} bytes does not fit the {slot.Length} byte slot {address.SlotIndex} " +
         $"it occupies on page {address.PageIndex}.");
     }
-    ObjectDocumentUtilities.ToBuffer(document, slot);
+    StoredRecordUtilities.ToBuffer(header, document, slot);
     _transactionManager.Track(page);
   }
 

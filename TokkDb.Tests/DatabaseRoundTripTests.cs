@@ -1,4 +1,9 @@
 using TokkDb.Configuration;
+using TokkDb.Disk;
+using TokkDb.Documents.Serializers;
+using TokkDb.Pages;
+using TokkDb.Pages.Managers;
+using TokkDb.Transactions;
 using Xunit;
 
 namespace TokkDb.Tests;
@@ -91,6 +96,47 @@ public class DatabaseRoundTripTests {
     using var reopened = new TokkDbConnection(file.Path);
     reopened.Load();
     Assert.Equal(500, reopened.Entities<Person>().GetAll().Count());
+  }
+
+  //VR-11 says the flags byte is read in this pass. Nothing marks an image dead yet, so the
+  //only way to show that a scan honours it is to write one by hand.
+  [Fact]
+  public void AnImageThatIsNotLiveIsSkippedByAScan() {
+    using var file = new TempDatabaseFile();
+    using (var db = new TokkDbConnection(file.Path)) {
+      db.CreateDatabase(config => config.CreateEntity<Person>());
+      db.Entities<Person>().Insert(TestPeople.Ivan());
+    }
+
+    AppendSupersededImage(file, TestPeople.Numbered(2));
+
+    using var reopened = new TokkDbConnection(file.Path);
+    reopened.Load();
+    //Both images are on the page; only the live one comes back.
+    Assert.Equal("Ivan", Assert.Single(reopened.Entities<Person>().GetAll()).Name);
+  }
+
+  private static void AppendSupersededImage(TempDatabaseFile file, Person person) {
+    using var disk = new DiskManager(file.Path);
+    disk.SetPageSize(RootPage.ReadPrefix(disk.ReadPrefix(RootPage.PrefixByteSize)).PageSize);
+    var pageManager = new PageManager(disk);
+    var transactions = new TransactionManager(pageManager);
+    var rootPageManager = new RootPageManager(pageManager, transactions);
+    var catalog = new CollectionCatalog(rootPageManager, transactions);
+    var dataPageManager = new DataPageManager(pageManager, catalog, transactions);
+    catalog.SetDataPageManager(dataPageManager);
+
+    var transaction = transactions.CreateTransaction();
+    rootPageManager.Initialize();
+    catalog.Initialize();
+
+    var recordId = Ulid.NewUlid();
+    var document = new DocumentSerializer<Person>().Create(person, recordId);
+    var header = RecordHeader.ForNewRecord(recordId);
+    header.Flags = RecordFlags.Superseded;
+    var buffer = dataPageManager.Register("Person", StoredRecordUtilities.GetBytesLength(header, document));
+    StoredRecordUtilities.ToBuffer(header, document, buffer);
+    transaction.Commit();
   }
 
   [Fact]
