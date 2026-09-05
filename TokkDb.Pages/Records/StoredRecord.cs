@@ -23,6 +23,18 @@ public static class StoredRecordUtilities {
     Write(header, document, new BufferWriter(buffer));
   }
 
+  //The header alone, for callers that only need to know whose image this is and whether it
+  //is still live. It costs no document parsing.
+  public static RecordHeader ReadHeader(BufferSlice buffer) {
+    return RecordHeader.Read(new BufferReader(buffer));
+  }
+
+  //Rewrites the header of an image that is already on a page. Only the header changes: the
+  //document body of a stored record is never mutated in place (VR-12).
+  public static void WriteHeader(RecordHeader header, BufferSlice buffer) {
+    header.Write(new BufferWriter(buffer));
+  }
+
   public static StoredRecord FromBuffer(BufferSlice buffer) {
     var reader = new BufferReader(buffer);
     var header = RecordHeader.Read(reader);

@@ -90,6 +90,15 @@ public class CollectionCatalog {
     Save(descriptor);
   }
 
+  public void DecrementRecordCount(string collectionName) {
+    _transactionManager.RequireTransaction();
+    var descriptor = Get(collectionName);
+    if (descriptor.RecordCount > 0) {
+      descriptor.RecordCount--;
+    }
+    Save(descriptor);
+  }
+
   public uint AllocatePageIndex() {
     return _rootPageManager.AllocatePageIndex();
   }

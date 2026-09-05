@@ -50,10 +50,44 @@ public class DataPageManager {
 
   public IEnumerable<DataRow> GetAllRows(string collectionName) {
     foreach (var page in GetPages(collectionName)) {
-      for (ushort slotIndex = 0; slotIndex < page.ItemsCount; slotIndex++) {
-        yield return new DataRow(new DocumentAddress(page.Index, slotIndex), page.GetItem(slotIndex));
+      //Freed slots are skipped: their bytes belong to the free list, not to any record.
+      foreach (var (slotIndex, buffer) in page.GetItemSlots()) {
+        yield return new DataRow(new DocumentAddress(page.Index, slotIndex), buffer);
       }
     }
+  }
+
+  //The primary lookup, such as it is before Phase 5 puts an index behind it: a scan that
+  //reads each record header and stops at the live image of the wanted record.
+  public DataRow? FindLiveRow(string collectionName, Ulid recordId) {
+    foreach (var row in GetAllRows(collectionName)) {
+      var header = StoredRecordUtilities.ReadHeader(row.Buffer);
+      if (header.RecordId == recordId && header.IsLive) {
+        return row;
+      }
+    }
+    return null;
+  }
+
+  //The one mechanism that takes a record image out of use. It is called from exactly one
+  //place — the RemoveCurrentVersion seam of VR-12 — and nothing else in the engine frees or
+  //retires an image.
+  public void RetireRow(string collectionName, DocumentAddress address, RecordFlags flags,
+      RetentionPolicy retentionPolicy) {
+    if (retentionPolicy != RetentionPolicy.None) {
+      throw new NotSupportedException(
+        $"{nameof(RetentionPolicy)}.{retentionPolicy} is not implemented in this pass (D-5). " +
+        $"Only {nameof(RetentionPolicy)}.{nameof(RetentionPolicy.None)} retires an image.");
+    }
+    var page = LoadPage(address.PageIndex);
+    //The image is marked before it goes, so that keeping it instead becomes a matter of not
+    //freeing the slot rather than of writing something different.
+    var header = StoredRecordUtilities.ReadHeader(page.GetItem(address.SlotIndex));
+    header.Flags = flags;
+    StoredRecordUtilities.WriteHeader(header, page.GetItem(address.SlotIndex));
+    page.FreeItem(address.SlotIndex);
+    _transactionManager.Track(page);
+    _catalog.DecrementRecordCount(collectionName);
   }
 
   private DataPage GetAvailablePage(string collectionName, ushort bytesLength) {
