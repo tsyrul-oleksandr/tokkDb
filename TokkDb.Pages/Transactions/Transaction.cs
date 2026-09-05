@@ -47,8 +47,18 @@ public class Transaction {
     RequireActive();
     Pages.Clear();
     State = TransactionState.RolledBack;
-    Parent?.MarkRollbackOnly();
-    OnTransactionFinish();
+    try {
+      if (IsOutermost) {
+        //Dropping the page set is not enough: a commit that failed between writing the pages
+        //and recording the commit has already changed the file, and only the journal undoes that.
+        _pageManager.RollbackPages(Id);
+      }
+    } finally {
+      //The nest unwinds even when the undo itself fails, or the next transaction would open
+      //inside a transaction that is already finished.
+      Parent?.MarkRollbackOnly();
+      OnTransactionFinish();
+    }
   }
 
   public void Track(BasePage page) {

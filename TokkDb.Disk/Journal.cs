@@ -29,21 +29,43 @@ public class Journal : IDisposable {
   public string FilePath { get; }
   public ushort PageSize { get; set; }
 
-  public Journal(string databaseFilePath, ushort pageSize) {
+  public Journal(string databaseFilePath, ushort pageSize,
+      TokkDbAccessMode accessMode = TokkDbAccessMode.ReadWrite) {
     FilePath = GetJournalPath(databaseFilePath);
     PageSize = pageSize;
-    _stream = new FileStream(FilePath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read, bufferSize: 1);
+    AccessMode = accessMode;
+    //A reader must not bring a journal into existence, only read one that is already there.
+    _stream = accessMode == TokkDbAccessMode.ReadWrite
+      ? new FileStream(FilePath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read, bufferSize: 1)
+      : File.Exists(FilePath)
+        ? new FileStream(FilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, bufferSize: 1)
+        : null;
   }
+
+  public TokkDbAccessMode AccessMode { get; }
 
   public static string GetJournalPath(string databaseFilePath) {
     return databaseFilePath + FileExtension;
   }
 
-  public long Length => _stream.Length;
+  public long Length => _stream?.Length ?? 0;
+
+  //Throws away a frame that has nothing left to say: one that committed, or one that never
+  //became durable enough to have touched the database file.
+  public void Discard() {
+    RequireWritable();
+    if (_stream.Length == 0) {
+      return;
+    }
+    _stream.SetLength(0);
+    _stream.Position = 0;
+    Flush();
+  }
 
   //Starts a frame, discarding whatever was there. Anything already in the file belongs to a
   //transaction that finished, so it has nothing left to say.
   public void Begin(ulong transactionId, uint originalPageCount, int pageImageCount) {
+    RequireWritable();
     _stream.SetLength(0);
     _stream.Position = 0;
     var header = new BufferSlice(new byte[HeaderByteSize]);
@@ -106,7 +128,7 @@ public class Journal : IDisposable {
   //Reads the frame back. This is the parser recovery needs; applying what it finds is the
   //next step's work.
   public JournalFrame Read() {
-    if (_stream.Length < HeaderByteSize) {
+    if (_stream is null || _stream.Length < HeaderByteSize) {
       return null;
     }
     _stream.Position = 0;
@@ -152,7 +174,13 @@ public class Journal : IDisposable {
       return;
     }
     _disposed = true;
-    _stream.Dispose();
+    _stream?.Dispose();
+  }
+
+  private void RequireWritable() {
+    if (_stream is null || AccessMode != TokkDbAccessMode.ReadWrite) {
+      throw new ReadOnlyDatabaseException(FilePath);
+    }
   }
 
   private JournalPageImage ReadPageImage(ushort pageSize) {

@@ -12,8 +12,9 @@ public sealed class TempDatabaseFile : IDisposable {
 
   public void Dispose() {
     Delete(Path);
-    //The journal lives beside the database file and goes with it.
+    //The journal and the write lock live beside the database file and go with it.
     Delete(Disk.Journal.GetJournalPath(Path));
+    Delete(Disk.WriteLock.GetLockPath(Path));
   }
 
   private static void Delete(string path) {

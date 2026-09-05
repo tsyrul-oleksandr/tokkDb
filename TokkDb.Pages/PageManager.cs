@@ -79,6 +79,12 @@ public class PageManager {
     _diskManager.CommitJournal(transactionId);
   }
 
+  //TX-3. A commit that failed part way through may already have put pages in the file; the
+  //journal is what takes them back out again.
+  public virtual void RollbackPages(ulong transactionId) {
+    _diskManager.RollbackTransaction(transactionId);
+  }
+
   public void SavePages<T>(params T[] pages) where T : BasePage {
     foreach (var page in pages) {
       page.Save();
