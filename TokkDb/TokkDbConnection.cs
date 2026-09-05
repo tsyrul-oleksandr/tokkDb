@@ -94,7 +94,7 @@ public class TokkDbConnection : IDisposable {
   //document (D-2), so this hands back a view of what is on disk rather than a structure that
   //had to be built first.
   public BPlusTree PrimaryIndex(string collectionName) {
-    return new BPlusTree(_pageManager, _catalog, _freeSpace, _transactionManager, collectionName);
+    return _dataPageManager.PrimaryIndex(collectionName);
   }
 
   //Runs the action inside a transaction, so a caller driving the index directly gets the
@@ -130,9 +130,10 @@ public class TokkDbConnection : IDisposable {
   private void Initialize() {
     _rootPageManager.Initialize();
     _catalog.Initialize();
-    //The free-space structures hang off the catalogue, so they are stale the moment it is
-    //reloaded and are read again from their roots on first use.
+    //The free-space structures and the index trees hang off the catalogue, so they are stale
+    //the moment it is reloaded and are read again from their roots on first use.
     _freeSpace.Reset();
+    _dataPageManager.Reset();
   }
 
 }

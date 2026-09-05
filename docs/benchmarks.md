@@ -13,6 +13,91 @@ Each run is appended below, newest first.
 
 <!-- runs -->
 
+## 2026-09-05 — Phase 5 — primary index
+
+> **The primary index of DC-4, measured at the scale NFR-2 states its targets against.**
+> A lookup by record identity reads **3 pages and takes 0.101 ms**, against the 2,724 pages
+> and 101.439 ms the same database costs to find a record by DOI, which has no index. That is
+> 908 times fewer pages and a thousand times less time, and it is the difference between a
+> cost that follows the collection and one that follows its logarithm: the tree is 2 levels
+> deep over 100,000 records, so a lookup reads 2 index pages and the one data page the entry
+> addresses. The `TokkDb.Tests` B+Tree suite puts a million keys in the same tree and reaches
+> 3 levels, which is the growth rate this row claims.
+>
+> DOI still misses NFR-2 because only the identity is indexed. A secondary index over DOI is
+> the acceptance criterion of DC-4 proper and is the next step; this row is the primary index
+> that has to exist first.
+>
+> **What the index costs.** 310 pages against the collection's 2,724, and nothing measurable
+> per insert: at 5,000 records, run back to back against the Phase 3 build below, 14.232 ms
+> became 14.235 and 14.356 ms over two runs. Do not read the insert figure against the
+> Phase 2 reference run further down — that one was measured by a pre-Phase-3 binary over
+> 1,000 collections rather than 500.
+>
+> **D-1, and a correction to it.** 308 leaf splits built the whole index and the leaves came
+> out full — 324 entries each, the figure a strictly ascending key sequence produces, and
+> half the leaves that random identities need. That is the property D-1 chose `Ulid` over
+> `Guid` for, and it did not hold as the decision was written: `Ulid.NewUlid()` is
+> time-ordered only to the millisecond and draws a fresh random part inside one, so a bulk
+> load — which happens inside a handful of milliseconds — scattered exactly like a `Guid`.
+> Measured over the same 100,000 inserts before the fix: 543 splits and 183 entries per leaf,
+> against 484 and 206 for wholly random bytes, so the identifier was doing worse than the one
+> it was preferred to. `RecordIdentity.Next()` mints monotonically, by the ULID
+> specification's own rule, and the figures in this run are what that restores.
+>
+> The commit stamped below is the one HEAD was on: the primary index was still in the working
+> tree when the run started, so reproduce it from the commit that lands this step, not that one.
+
+| | |
+|---|---|
+| Records | 100,000 |
+| Collections | 500 |
+| Runtime | .NET 10.0.11 |
+| OS | macOS 26.5.2 (Arm64) |
+| Processors | 10 |
+| Commit | 3fcd72d |
+
+| Benchmark | Metric | Measured | Target | Requirement | Verdict |
+|---|---|---|---|---|---|
+| Insert throughput | Insert of one record | 16.13 ms | < 5 ms | NFR-2 | **missed** |
+| Insert throughput | Throughput | 61.997 records/s | — | — | — |
+| Insert throughput | Total for the run | 1,613 s | — | — | — |
+| Lookup latency | Lookup by DOI | 101.439 ms | < 10 ms | NFR-2 | **missed** |
+| Lookup latency | Pages read per lookup | 2,724 pages | — | — | — |
+| Primary index | Lookup by record id | 0.101 ms | < 10 ms | NFR-2 | met |
+| Primary index | Pages read per lookup | 3 pages | — | DC-4 | — |
+| Primary index | Index height | 2 levels | — | — | — |
+| Primary index | Leaf splits building the index | 308 splits | — | D-1 | — |
+| Primary index | Index pages | 310 pages | — | — | — |
+| Database open | Open with 100,000 records | 0.153 ms | < 500 ms | NFR-2 | met |
+| Database open | Open with 500 collections | 5.826 ms | < 500 ms | NFR-2 | met |
+| Database open | Definition lookup after open | 0 page reads | — | — | — |
+| File size growth | File size | 24.188 MiB | — | — | — |
+| File size growth | Bytes per record | 253.498 bytes | — | — | — |
+| File size growth | Overhead over payload | 3.033 x | — | — | — |
+
+### Notes
+
+- **Insert throughput** — One record per transaction through the full commit protocol.
+- **Lookup latency** — Lookup of one record by a non-key field, today a full scan.
+- **Primary index** — Lookup by record identity through the B+Tree, and what a time-ordered identity costs it.
+- **Database open** — Open, recover the journal and load the catalogue.
+- **File size growth** — What a stored record costs on disk, and what the overhead is.
+- *Insert of one record:* One transaction per record: three fsyncs each (journal images, database file, commit record).
+- *Total for the run:* 100,000 records.
+- *Lookup by DOI:* Sequential scan of 100,000 records; DOI has no index of its own yet. 50 of 50 targets found.
+- *Pages read per lookup:* Every data page of the collection. Compare the primary index below, which reads a descent.
+- *Lookup by record id:* One descent of the tree, 200 of 200 targets found.
+- *Pages read per lookup:* A tree of height 2 over 100,000 records: 2 index pages and the one data page the entry addresses. O(log n), against the whole collection for a scan.
+- *Index height:* 309 leaves holding 323 entries each.
+- *Leaf splits building the index:* 484 for the same number of random identities — the comparison D-1 rests on. A monotonic identity appends, so only the rightmost leaf ever splits and the leaves behind it stay full.
+- *Index pages:* 487 for random identities, which is what a Guid identity would have cost.
+- *Open with 100,000 records:* 2 pages read; the record count does not enter into it.
+- *Open with 500 collections:* 65 pages read: one pass over the catalogue's own pages.
+- *Definition lookup after open:* The catalogue is cached at open, so reading a definition costs no page read at all (DC-7).
+- *File size:* 100,050 records.
+- *Overhead over payload:* File size divided by the bytes of user data in it; slot directories, page headers, control areas and part-filled pages make up the difference.
+
 ## 2026-09-05 — Phase 3 — mutable records and storage
 
 > Against the Phase 2 run at the same scale, further down this file. Insert 15.656 → 14.232 ms,

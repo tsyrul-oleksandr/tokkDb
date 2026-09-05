@@ -5,6 +5,7 @@ using TokkDb.Documents.Path.Expressions;
 using TokkDb.Documents.Serializers;
 using TokkDb.Pages;
 using TokkDb.Pages.Managers;
+using TokkDb.Pages.Records;
 using TokkDb.Transactions;
 
 namespace TokkDb;
@@ -52,8 +53,10 @@ public class DbEntities<T> {
     var transaction = _transactionManager.CreateTransaction();
     try {
       //D-1: the identifier the serializer mints is the record identity, and the header
-      //carries it rather than a second one beside it.
-      var recordId = Ulid.NewUlid();
+      //carries it rather than a second one beside it. Minted monotonically, because a Ulid
+      //is only time-ordered to the millisecond and the primary index wants it ordered
+      //within one as well.
+      var recordId = RecordIdentity.Next();
       WriteImage(recordId, value);
       transaction.Commit();
       return recordId;

@@ -51,17 +51,37 @@ public class BPlusTree {
       : null;
   }
 
+  //How often the tree has had to change shape. D-1 chose a time-ordered identifier so that
+  //this stays small for the primary index: every insert goes to the right-hand edge, so the
+  //same few pages split over and over instead of pages all over the file.
+  public long LeafSplits { get; private set; }
+
+  public long InteriorSplits { get; private set; }
+
   public void Insert(byte[] key, DocumentAddress address) {
+    Write(key, address, replaceExisting: false);
+  }
+
+  //VR-12's copy on write moves a record to a new page and slot, and the entry has to follow
+  //it. The same descent either finds the key and repoints it or does not and inserts it, so
+  //an update costs one pass down the tree rather than a probe and then a pass.
+  public bool Upsert(byte[] key, DocumentAddress address) {
+    return Write(key, address, replaceExisting: true);
+  }
+
+  private bool Write(byte[] key, DocumentAddress address, bool replaceExisting) {
     _transactionManager.RequireTransaction();
     if (IsEmpty) {
       var firstLeaf = CreateLeaf();
       _catalog.SetPrimaryIndexRoot(_collectionName, firstLeaf.Index);
     }
     var rootIndex = RootPageIndex;
-    var split = InsertInto(LoadNode(rootIndex), key, address);
+    var inserted = true;
+    var split = InsertInto(LoadNode(rootIndex), key, address, replaceExisting, ref inserted);
     if (split is { } grown) {
       GrowRoot(rootIndex, grown);
     }
+    return inserted;
   }
 
   public bool Delete(byte[] key) {
@@ -147,13 +167,15 @@ public class BPlusTree {
     return height;
   }
 
-  private SplitResult? InsertInto(BaseIndexPage node, byte[] key, DocumentAddress address) {
+  private SplitResult? InsertInto(BaseIndexPage node, byte[] key, DocumentAddress address,
+      bool replaceExisting, ref bool inserted) {
     if (node is IndexLeafPage leaf) {
-      return InsertIntoLeaf(leaf, key, address);
+      return InsertIntoLeaf(leaf, key, address, replaceExisting, ref inserted);
     }
     var interior = (IndexInteriorPage)node;
     var childPosition = FindChildPosition(interior, key);
-    var split = InsertInto(LoadNode(interior.ChildAt(childPosition)), key, address);
+    var split = InsertInto(LoadNode(interior.ChildAt(childPosition)), key, address, replaceExisting,
+      ref inserted);
     if (split is not { } grown) {
       return null;
     }
@@ -164,21 +186,41 @@ public class BPlusTree {
     return interior.IsOverfull ? SplitInterior(interior) : null;
   }
 
-  private SplitResult? InsertIntoLeaf(IndexLeafPage leaf, byte[] key, DocumentAddress address) {
+  private SplitResult? InsertIntoLeaf(IndexLeafPage leaf, byte[] key, DocumentAddress address,
+      bool replaceExisting, ref bool inserted) {
     var position = FindEntryPosition(leaf, key);
     if (position < leaf.Entries.Count && KeyComparer.Compare(leaf.Entries[position].Key, key) == 0) {
-      throw new DuplicateIndexKeyException(_collectionName, key);
+      if (!replaceExisting) {
+        throw new DuplicateIndexKeyException(_collectionName, key);
+      }
+      //D-2 again: only the address changes. The key is the record identity and does not move
+      //when the record does.
+      leaf.Entries[position] = leaf.Entries[position] with { Address = address };
+      Track(leaf);
+      inserted = false;
+      return null;
     }
     leaf.Entries.Insert(position, new IndexEntry(key, address));
     Track(leaf);
-    return leaf.IsOverfull ? SplitLeaf(leaf) : null;
+    return leaf.IsOverfull ? SplitLeaf(leaf, position) : null;
   }
 
   //The upper half moves to a new leaf and the chain is relinked through it. The separator
   //handed up is a copy of the new leaf's first key: in a B+Tree it is a signpost, and the
   //entry it was copied from stays where it is.
-  private SplitResult SplitLeaf(IndexLeafPage leaf) {
-    var half = HalfPoint(leaf.Entries.Count, i => IndexLeafPage.SizeOf(leaf.Entries[i]));
+  private SplitResult SplitLeaf(IndexLeafPage leaf, int insertedPosition) {
+    LeafSplits++;
+    //Appending to the right-hand edge, which is what a time-ordered identifier does on every
+    //insert (D-1). Splitting such a leaf down the middle would leave it half empty for ever,
+    //because nothing will ever be inserted into it again: the whole left half is below every
+    //key still to come. So the new entry goes on alone and the full leaf stays full.
+    //
+    //Only when the new entry is the last one, because then taking it back out again leaves
+    //exactly the leaf that fitted before the insert.
+    var appendedAtTheEdge = leaf.NextPageIndex == default && insertedPosition == leaf.Entries.Count - 1;
+    var half = appendedAtTheEdge
+      ? leaf.Entries.Count - 1
+      : HalfPoint(leaf.Entries.Count, i => IndexLeafPage.SizeOf(leaf.Entries[i]));
     var right = CreateLeaf();
     right.Entries = leaf.Entries.GetRange(half, leaf.Entries.Count - half);
     leaf.Entries.RemoveRange(half, leaf.Entries.Count - half);
@@ -192,6 +234,7 @@ public class BPlusTree {
   //the child it pointed at becomes the new node's first child. A key in an interior node is
   //only a signpost, so nothing is lost by taking it out of this level.
   private SplitResult SplitInterior(IndexInteriorPage node) {
+    InteriorSplits++;
     var half = HalfPoint(node.Entries.Count, i => IndexInteriorPage.SizeOf(node.Entries[i]));
     //One separator has to be left on each side of the one that moves up.
     half = Math.Clamp(half, 1, node.Entries.Count - 1);

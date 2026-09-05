@@ -1,5 +1,7 @@
 using TokkDb.Buffer;
 using TokkDb.Documents;
+using TokkDb.Documents.Keys;
+using TokkDb.Pages.Indexes;
 using TokkDb.Transactions;
 
 namespace TokkDb.Pages.Managers;
@@ -9,6 +11,11 @@ public class DataPageManager {
   private readonly CollectionCatalog _catalog;
   private readonly FreeSpaceManager _freeSpace;
   private readonly TransactionManager _transactionManager;
+
+  //One tree per collection. A tree holds no state of its own — it reads its root out of the
+  //catalogue document every time (D-2) — so these are cached to keep the split counters and
+  //not because rebuilding one would cost anything.
+  private readonly Dictionary<string, BPlusTree> _primaryIndexes = new(StringComparer.Ordinal);
 
   public DataPageManager(PageManager pageManager, CollectionCatalog catalog, FreeSpaceManager freeSpace,
       TransactionManager transactionManager) {
@@ -27,6 +34,22 @@ public class DataPageManager {
   //read the flags and the identifier without following the chain, and the pointer to it.
   public const int OverflowPrefixByteSize = TypesConstants.UIntByteSize + TypesConstants.IntByteSize;
 
+  //DC-4: the collection's primary index, keyed by the record identity of D-1 and holding the
+  //(pageId, slotId) of D-2.
+  public BPlusTree PrimaryIndex(string collectionName) {
+    if (!_primaryIndexes.TryGetValue(collectionName, out var tree)) {
+      tree = new BPlusTree(_pageManager, _catalog, _freeSpace, _transactionManager, collectionName);
+      _primaryIndexes[collectionName] = tree;
+    }
+    return tree;
+  }
+
+  //Forgets the cached trees, as the free-space structures are forgotten, because the
+  //catalogue they read their roots from has been reloaded.
+  public void Reset() {
+    _primaryIndexes.Clear();
+  }
+
   public BufferSlice Register(string collectionName, ushort bytesLength) {
     return RegisterRow(collectionName, bytesLength).Buffer;
   }
@@ -34,12 +57,21 @@ public class DataPageManager {
   //The write path for a whole record image. Records that fit go on a data page as they are;
   //records that do not keep their header on the page and put the body in an overflow chain.
   public DataRow WriteRecord(string collectionName, byte[] recordBytes) {
-    if (recordBytes.Length <= MaxInPageRecordLength) {
-      var row = RegisterRow(collectionName, (ushort)recordBytes.Length);
-      row.Buffer.WriteBytes(recordBytes, 0, out _);
-      return row;
-    }
-    return WriteOverflowRecord(collectionName, recordBytes);
+    EnsurePrimaryIndex(collectionName);
+    var row = recordBytes.Length <= MaxInPageRecordLength
+      ? WriteInPageRecord(collectionName, recordBytes)
+      : WriteOverflowRecord(collectionName, recordBytes);
+    //Upsert rather than insert, because this is the write half of the copy on write of
+    //VR-12 as well as the write of a new record: the entry either does not exist yet or has
+    //to follow the record to where its new image went.
+    IndexRow(collectionName, StoredRecordUtilities.ReadHeaderFrom(recordBytes).RecordId, row.Address);
+    return row;
+  }
+
+  private DataRow WriteInPageRecord(string collectionName, byte[] recordBytes) {
+    var row = RegisterRow(collectionName, (ushort)recordBytes.Length);
+    row.Buffer.WriteBytes(recordBytes, 0, out _);
+    return row;
   }
 
   //The read path. A record that fits its page is handed back where it lies; one that
@@ -181,9 +213,31 @@ public class DataPageManager {
     }
   }
 
-  //The primary lookup, such as it is before Phase 5 puts an index behind it: a scan that
-  //reads each record header and stops at the live image of the wanted record.
+  //The primary lookup. One descent of the tree — a handful of pages whatever the collection
+  //holds — instead of the walk of every data page this used to be.
   public DataRow? FindLiveRow(string collectionName, Ulid recordId) {
+    if (!HasPrimaryIndex(collectionName)) {
+      return ScanForLiveRow(collectionName, recordId);
+    }
+    if (PrimaryIndex(collectionName).Find(PrimaryIndexKey(recordId)) is not { } address) {
+      return null;
+    }
+    var page = LoadPage(address.PageIndex);
+    //The entry points at a live image or it should not be there, but the slot is checked
+    //rather than trusted: an entry left behind by something that failed to remove it would
+    //otherwise hand back whatever now occupies the slot.
+    if (page.IsItemFree(address.SlotIndex)) {
+      return null;
+    }
+    var row = new DataRow(address, page.GetItem(address.SlotIndex));
+    return StoredRecordUtilities.ReadHeader(row.Buffer).IsLive ? row : null;
+  }
+
+  //What the lookup was before the index, and what it still is for a collection that has no
+  //tree: the system collections, whose catalogue is what a tree would have to read its own
+  //root out of, and a collection written before the index existed and not yet written to
+  //since.
+  private DataRow? ScanForLiveRow(string collectionName, Ulid recordId) {
     foreach (var row in GetAllRows(collectionName)) {
       //Only the header is needed to recognise the record, and the header is always on the
       //page even when the body is not.
@@ -193,6 +247,48 @@ public class DataPageManager {
       }
     }
     return null;
+  }
+
+  //D-3 encodes the identity; the tree compares bytes and never learns what a Ulid is.
+  private static byte[] PrimaryIndexKey(Ulid recordId) {
+    return KeyEncoder.Encode(recordId).Bytes;
+  }
+
+  //The catalogue's own collections are not indexed in this pass. A tree reads its root out
+  //of the catalogue document, and _collections has to be readable before any document can
+  //be read — page 0 keeps a CollectionsPrimaryIndexRoot for when that circle is closed.
+  private bool IsIndexed(string collectionName) {
+    return !_catalog.Get(collectionName).IsSystem;
+  }
+
+  private bool HasPrimaryIndex(string collectionName) {
+    return IsIndexed(collectionName) && !PrimaryIndex(collectionName).IsEmpty;
+  }
+
+  private void IndexRow(string collectionName, Ulid recordId, DocumentAddress address) {
+    if (IsIndexed(collectionName)) {
+      PrimaryIndex(collectionName).Upsert(PrimaryIndexKey(recordId), address);
+    }
+  }
+
+  //A collection written before the primary index existed has records and no tree, and an
+  //index holding only what has been written since would answer for the rest with a confident
+  //null. It is built once, from the scan the lookup used to be, before the first write that
+  //would make it incomplete.
+  private void EnsurePrimaryIndex(string collectionName) {
+    if (!IsIndexed(collectionName)) {
+      return;
+    }
+    var tree = PrimaryIndex(collectionName);
+    if (!tree.IsEmpty || _catalog.Get(collectionName).RecordCount == 0) {
+      return;
+    }
+    foreach (var row in GetAllRows(collectionName)) {
+      var header = StoredRecordUtilities.ReadHeader(row.Buffer);
+      if (header.IsLive) {
+        tree.Insert(PrimaryIndexKey(header.RecordId), row.Address);
+      }
+    }
   }
 
   //The one mechanism that takes a record image out of use. It is called from exactly one
@@ -216,6 +312,12 @@ public class DataPageManager {
     }
     header.Flags = flags;
     StoredRecordUtilities.WriteHeader(header, slot);
+    //A deleted record leaves the index; a superseded one keeps its entry, because the write
+    //that supersedes it repoints that same entry at the new image. Both happen inside the
+    //one transaction of VR-12, so nothing ever reads the entry in between.
+    if (flags == RecordFlags.Deleted && IsIndexed(collectionName)) {
+      PrimaryIndex(collectionName).Delete(PrimaryIndexKey(header.RecordId));
+    }
     page.FreeItem(address.SlotIndex);
     _transactionManager.Track(page);
     _catalog.DecrementRecordCount(collectionName);

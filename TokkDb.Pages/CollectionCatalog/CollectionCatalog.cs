@@ -1,5 +1,6 @@
 using TokkDb.Documents;
 using TokkDb.Pages.Managers;
+using TokkDb.Pages.Records;
 using TokkDb.Transactions;
 
 namespace TokkDb.Pages;
@@ -164,7 +165,7 @@ public class CollectionCatalog {
       throw new ArgumentException($"Collection {name} already exists", nameof(name));
     }
     var descriptor = new CollectionDescriptor {
-      Id = Ulid.NewUlid(),
+      Id = RecordIdentity.Next(),
       Name = name,
       Description = description,
       Columns = columns?.ToList() ?? [],

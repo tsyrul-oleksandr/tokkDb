@@ -21,11 +21,19 @@ public class InsertThroughputBenchmark : IBenchmark {
       entities.Insert(Publication.Numbered(-i - 1));
     }
 
+    //Every two-hundredth identity is kept, spread over the whole run, so that the lookup
+    //benchmark measures the oldest records as well as the newest.
+    var sampleEvery = Math.Max(1, context.RecordCount / 200);
     var stopwatch = Stopwatch.StartNew();
     for (var i = 0; i < context.RecordCount; i++) {
-      entities.Insert(Publication.Numbered(i));
+      var recordId = entities.Insert(Publication.Numbered(i));
+      if (i % sampleEvery == 0) {
+        context.SampleRecordIds.Add(recordId);
+      }
     }
     stopwatch.Stop();
+
+    context.IndexLeafSplits = db.PrimaryIndex(nameof(Publication)).LeafSplits;
 
     var perInsert = stopwatch.Elapsed.TotalMilliseconds / context.RecordCount;
     return [

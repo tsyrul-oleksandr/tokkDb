@@ -12,7 +12,7 @@ MarkdownReport.CaptureCommit();
 
 var recordCount = ReadIntOption(args, "--records", 5000);
 var collectionCount = ReadIntOption(args, "--collections", 500);
-var phase = ReadOption(args, "--phase", "Phase 2 — journal and recovery");
+var phase = ReadOption(args, "--phase", "Phase 5 — primary index");
 var reportPath = ReadOption(args, "--report", FindRepositoryPath("docs/benchmarks.md"));
 var workingDirectory = ReadOption(args, "--work", Path.Combine(Path.GetTempPath(), "tokkdb-benchmarks"));
 
@@ -20,6 +20,7 @@ var context = new BenchmarkContext(recordCount, collectionCount, workingDirector
 IBenchmark[] benchmarks = [
   new InsertThroughputBenchmark(),
   new LookupLatencyBenchmark(),
+  new PrimaryIndexBenchmark(),
   new DatabaseOpenBenchmark(),
   new FileSizeGrowthBenchmark()
 ];
