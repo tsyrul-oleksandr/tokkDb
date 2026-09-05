@@ -13,6 +13,100 @@ Each run is appended below, newest first.
 
 <!-- runs -->
 
+## 2026-09-05 — Phase 3 — mutable records and storage
+
+> Against the Phase 2 run at the same scale, further down this file. Insert 15.656 → 14.232 ms,
+> because `GetAvailablePage` now asks the free-space map instead of walking the collection's
+> page chain (ST-1). Bytes per record 204.4 → 235.2, the +30.8 bytes being the VR-11 record
+> header net of the identifier removed from the document body — within the 25–30 bytes the
+> requirement budgeted. Pages per lookup 121 → 138 follows from the same growth, which is
+> why the scan cost rose 7.113 → 8.251 ms while the scan itself did not change.
+
+| | |
+|---|---|
+| Records | 5,000 |
+| Collections | 500 |
+| Runtime | .NET 10.0.11 |
+| OS | macOS 26.5.2 (Arm64) |
+| Processors | 10 |
+| Commit | 205e4c5 |
+
+| Benchmark | Metric | Measured | Target | Requirement | Verdict |
+|---|---|---|---|---|---|
+| Insert throughput | Insert of one record | 14.232 ms | < 5 ms | NFR-2 | **missed** |
+| Insert throughput | Throughput | 70.265 records/s | — | — | — |
+| Insert throughput | Total for the run | 71.16 s | — | — | — |
+| Lookup latency | Lookup by DOI | 8.251 ms | < 10 ms | NFR-2 | met |
+| Lookup latency | Pages read per lookup | 138 pages | — | — | — |
+| Database open | Open with 5,000 records | 0.148 ms | < 500 ms | NFR-2 | met |
+| Database open | Open with 500 collections | 6.331 ms | < 500 ms | NFR-2 | met |
+| Database open | Definition lookup after open | 0 page reads | — | — | — |
+| File size growth | File size | 1.133 MiB | — | — | — |
+| File size growth | Bytes per record | 235.216 bytes | — | — | — |
+| File size growth | Overhead over payload | 2.852 x | — | — | — |
+
+### Notes
+
+- **Insert throughput** — One record per transaction through the full commit protocol.
+- **Lookup latency** — Lookup of one record by a non-key field, today a full scan.
+- **Database open** — Open, recover the journal and load the catalogue.
+- **File size growth** — What a stored record costs on disk, and what the overhead is.
+- *Insert of one record:* One transaction per record: three fsyncs each (journal images, database file, commit record).
+- *Total for the run:* 5,000 records.
+- *Lookup by DOI:* Sequential scan of 5,000 records; no index exists before Phase 5. 50 of 50 targets found.
+- *Pages read per lookup:* Every data page of the collection, which is what an index has to replace.
+- *Open with 5,000 records:* 2 pages read; the record count does not enter into it.
+- *Open with 500 collections:* 65 pages read: one pass over the catalogue's own pages.
+- *Definition lookup after open:* The catalogue is cached at open, so reading a definition costs no page read at all (DC-7).
+- *File size:* 5,050 records.
+- *Overhead over payload:* File size divided by the bytes of user data in it; slot directories, page headers, control areas and part-filled pages make up the difference.
+
+## 2026-09-05 — Phase 2 — journal and recovery (NFR-2 reference scale)
+
+> Measured by a binary built before Phase 3. The commit below is the one the repository
+> was on when the report was written, not the one the numbers describe: the record header
+> (VR-11), the free-space map (ST-1) and overflow chains (ST-5) all landed during the
+> 84 minutes this run took. Re-run at this scale for a Phase 3 baseline.
+
+| | |
+|---|---|
+| Records | 100,000 |
+| Collections | 1,000 |
+| Runtime | .NET 10.0.11 |
+| OS | macOS 26.5.2 (Arm64) |
+| Processors | 10 |
+| Commit | 205e4c5 |
+
+| Benchmark | Metric | Measured | Target | Requirement | Verdict |
+|---|---|---|---|---|---|
+| Insert throughput | Insert of one record | 50.093 ms | < 5 ms | NFR-2 | **missed** |
+| Insert throughput | Throughput | 19.963 records/s | — | — | — |
+| Insert throughput | Total for the run | 5,009 s | — | — | — |
+| Lookup latency | Lookup by DOI | 130.174 ms | < 10 ms | NFR-2 | **missed** |
+| Lookup latency | Pages read per lookup | 2,440 pages | — | — | — |
+| Database open | Open with 100 000 records | 0.205 ms | < 500 ms | NFR-2 | met |
+| Database open | Open with 1 000 collections | 18.997 ms | < 500 ms | NFR-2 | met |
+| Database open | Definition lookup after open | 0 page reads | — | — | — |
+| File size growth | File size | 19.469 MiB | — | — | — |
+| File size growth | Bytes per record | 204.043 bytes | — | — | — |
+| File size growth | Overhead over payload | 2.441 x | — | — | — |
+
+### Notes
+
+- **Insert throughput** — One record per transaction through the full commit protocol.
+- **Lookup latency** — Lookup of one record by a non-key field, today a full scan.
+- **Database open** — Open, recover the journal and load the catalogue.
+- **File size growth** — What a stored record costs on disk, and what the overhead is.
+- *Insert of one record:* One transaction per record: three fsyncs each (journal images, database file, commit record).
+- *Total for the run:* 100 000 records.
+- *Lookup by DOI:* Sequential scan of 100 000 records; no index exists before Phase 5. 50 of 50 targets found.
+- *Pages read per lookup:* Every data page of the collection, which is what an index has to replace.
+- *Open with 100 000 records:* 2 pages read; the record count does not enter into it.
+- *Open with 1 000 collections:* 127 pages read: one pass over the catalogue's own pages.
+- *Definition lookup after open:* The catalogue is cached at open, so reading a definition costs no page read at all (DC-7).
+- *File size:* 100 050 records.
+- *Overhead over payload:* File size divided by the bytes of user data in it; slot directories, page headers, control areas and part-filled pages make up the difference.
+
 ## 2026-09-05 — Phase 2 — journal and recovery
 
 | | |

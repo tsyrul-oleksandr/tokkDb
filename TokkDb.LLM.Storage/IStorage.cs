@@ -43,11 +43,11 @@ public interface IStorage
 
     StorageRecord Create(string collectionName, IReadOnlyDictionary<string, object?> fields);
 
-    StorageRecord? GetById(string collectionName, Guid id);
+    StorageRecord? GetById(string collectionName, Ulid id);
 
     bool Update(StorageRecord record);
 
-    bool Delete(string collectionName, Guid id);
+    bool Delete(string collectionName, Ulid id);
 
     IReadOnlyCollection<StorageRecord> GetAll(string collectionName);
 }

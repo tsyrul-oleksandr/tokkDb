@@ -45,17 +45,34 @@ public class DbEntities<T> {
       .Select(record => _serializer.Deserialize(record.Document));
   }
 
-  public void Insert(T value) {
+  //Returns the identity the record was stored under. A caller that has to address the record
+  //again — Update, Delete, or an adapter handing the id back to its own caller — would
+  //otherwise have to scan for a record it has just written.
+  public Ulid Insert(T value) {
     var transaction = _transactionManager.CreateTransaction();
     try {
       //D-1: the identifier the serializer mints is the record identity, and the header
       //carries it rather than a second one beside it.
-      WriteImage(Ulid.NewUlid(), value);
+      var recordId = Ulid.NewUlid();
+      WriteImage(recordId, value);
       transaction.Commit();
+      return recordId;
     } catch {
       transaction.Rollback();
       throw;
     }
+  }
+
+  //The counterpart of Update and Delete, which already address a record by its identity.
+  //Still a scan until the primary index of Phase 5 exists, but a scan behind one method
+  //rather than in every caller.
+  public DbRecord<T> GetById(Ulid recordId) {
+    var row = _dataPageManager.FindLiveRow(_entityName, recordId);
+    if (row == null) {
+      return null;
+    }
+    var record = StoredRecordUtilities.FromBuffer(_dataPageManager.ReadRecordBuffer(row.Value));
+    return new DbRecord<T>(recordId, _serializer.Deserialize(record.Document));
   }
 
   //Reading the flags byte is all the skipping of dead images needs; nothing writes a dead

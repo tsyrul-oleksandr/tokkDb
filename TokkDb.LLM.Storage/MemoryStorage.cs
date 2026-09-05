@@ -488,7 +488,7 @@ public sealed partial class MemoryStorage : IStorage
             var state = GetCollectionState(collectionName);
             var normalizedFields = ValidateRecordFields(state, fields, null, null, _semanticTypeRegistry);
 
-            var record = new StorageRecord(Guid.NewGuid(), collectionName, normalizedFields);
+            var record = new StorageRecord(Ulid.NewUlid(), collectionName, normalizedFields);
             state.Records.Add(record.Id, record);
 
             try
@@ -518,7 +518,7 @@ public sealed partial class MemoryStorage : IStorage
         }
     }
 
-    public StorageRecord? GetById(string collectionName, Guid id)
+    public StorageRecord? GetById(string collectionName, Ulid id)
     {
         collectionName = StorageValidation.NormalizeName(collectionName, "collection name");
 
@@ -570,7 +570,7 @@ public sealed partial class MemoryStorage : IStorage
         }
     }
 
-    public bool Delete(string collectionName, Guid id)
+    public bool Delete(string collectionName, Ulid id)
     {
         collectionName = StorageValidation.NormalizeName(collectionName, "collection name");
 
@@ -712,7 +712,7 @@ public sealed partial class MemoryStorage : IStorage
         var targetState = GetCollectionState(relation.TargetCollection);
         var targetRecords = targetState.Records.Values.ToArray();
 
-        var sourceToTargetMatches = new List<(Guid sourceRecordId, Guid targetRecordId)>();
+        var sourceToTargetMatches = new List<(Ulid sourceRecordId, Ulid targetRecordId)>();
         foreach (var sourceRecord in sourceState.Records.Values)
         {
             if (!sourceRecord.Fields.TryGetValue(relation.SourceColumn, out var sourceValue) || sourceValue is null)
@@ -874,7 +874,7 @@ public sealed partial class MemoryStorage : IStorage
     private static Dictionary<string, object?> ValidateRecordFields(
         CollectionState state,
         IReadOnlyDictionary<string, object?> fields,
-        Guid? currentRecordId,
+        Ulid? currentRecordId,
         StorageRecord? existingRecord,
         ISemanticTypeRegistry? semanticTypeRegistry)
     {
@@ -1006,7 +1006,7 @@ public sealed partial class MemoryStorage : IStorage
     private static void ValidateUniqueConstraints(
         CollectionState state,
         Dictionary<string, object?>? normalizedFields,
-        Guid? currentRecordId,
+        Ulid? currentRecordId,
         List<StorageValidationError>? errors = null)
     {
         var uniqueColumns = state.Columns.Values.Where(column => column.Unique).ToArray();
@@ -1217,7 +1217,7 @@ public sealed partial class MemoryStorage : IStorage
 
         public Dictionary<string, ColumnDefinition> Columns { get; }
 
-        public Dictionary<Guid, StorageRecord> Records { get; } = new();
+        public Dictionary<Ulid, StorageRecord> Records { get; } = new();
 
         public Dictionary<string, string?> Metadata { get; }
 

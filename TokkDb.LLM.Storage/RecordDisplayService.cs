@@ -251,7 +251,7 @@ public sealed class RecordDisplayService : IRecordDisplayService
     /// </summary>
     private StorageRecord? TryLoadRecord(IStorage storage, string collectionName, string recordId)
     {
-        if (!Guid.TryParse(recordId, out var id))
+        if (!Ulid.TryParse(recordId, out var id))
         {
             _logger.LogWarning(
                 "ShowRecords received a record id that is not a valid identifier. Collection: {CollectionName}, RecordId: {RecordId}",

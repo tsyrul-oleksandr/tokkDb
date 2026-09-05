@@ -103,10 +103,10 @@ public sealed class RecordQueryBinder : IRecordQueryBinder
     /// <summary>
     /// Resolves the requested record ids. A record's identity is not a column,
     /// so this is checked here rather than through the filter tree: an id that
-    /// is not a GUID could never match anything, and saying so is more useful
+    /// is not a ULID could never match anything, and saying so is more useful
     /// than returning nothing.
     /// </summary>
-    private static IReadOnlyList<Guid>? BindIds(
+    private static IReadOnlyList<Ulid>? BindIds(
         List<string>? recordIds,
         List<StorageValidationError> errors)
     {
@@ -115,10 +115,10 @@ public sealed class RecordQueryBinder : IRecordQueryBinder
             return null;
         }
 
-        var ids = new List<Guid>(recordIds.Count);
+        var ids = new List<Ulid>(recordIds.Count);
         foreach (var raw in recordIds)
         {
-            if (Guid.TryParse(raw?.Trim(), out var id))
+            if (Ulid.TryParse(raw?.Trim(), out var id))
             {
                 ids.Add(id);
                 continue;

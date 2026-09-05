@@ -301,7 +301,7 @@ public sealed class RecordQueryTests
         Assert.Empty(Execute(storage, new RecordQuery
         {
             CollectionName = "Customer",
-            RecordIds = [Guid.NewGuid().ToString()]
+            RecordIds = [Ulid.NewUlid().ToString()]
         }).Rows);
     }
 
@@ -348,7 +348,7 @@ public sealed class RecordQueryTests
         }).Rows[0];
 
         Assert.Equal(["FullName"], row.Fields.Keys.ToArray());
-        Assert.NotEqual(Guid.Empty, row.Id);
+        Assert.NotEqual(Ulid.Empty, row.Id);
     }
 
     [Fact]

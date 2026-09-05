@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\TokkDb.LLM.Core\TokkDb.LLM.Core.csproj" />
     <ProjectReference Include="..\TokkDb.LLM.Storage\TokkDb.LLM.Storage.csproj" />
+    <ProjectReference Include="..\TokkDb.LLM.Storage.Engine\TokkDb.LLM.Storage.Engine.csproj" />
   </ItemGroup>
 
 </Project>

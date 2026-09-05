@@ -82,10 +82,10 @@ public sealed record StorageQuery(
     int Skip,
     int Take,
     IReadOnlyList<ColumnDefinition> Select,
-    IReadOnlyList<Guid>? Ids = null);
+    IReadOnlyList<Ulid>? Ids = null);
 
 public sealed record StorageQueryRow(
-    Guid Id,
+    Ulid Id,
     IReadOnlyDictionary<string, object?> Fields);
 
 public sealed record StorageQueryResult(

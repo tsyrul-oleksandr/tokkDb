@@ -755,7 +755,7 @@ public sealed partial class StorageToolGateway : IStorageToolGateway
             return StorageToolResult<RecordResult>.Fail(invalidCollectionNameError);
         }
 
-        if (!Guid.TryParse(recordId, out var id))
+        if (!Ulid.TryParse(recordId, out var id))
         {
             return StorageToolResult<RecordResult>.Fail(new StorageToolError("InvalidRecordId", "recordId", "Record ID must be a valid GUID."));
         }
@@ -827,7 +827,7 @@ public sealed partial class StorageToolGateway : IStorageToolGateway
             return StorageToolResult<DeleteRecordResult>.Fail(invalidCollectionNameError);
         }
 
-        if (!Guid.TryParse(recordId, out var id))
+        if (!Ulid.TryParse(recordId, out var id))
         {
             return StorageToolResult<DeleteRecordResult>.Fail(new StorageToolError("InvalidRecordId", "recordId", "Record ID must be a valid GUID."));
         }
