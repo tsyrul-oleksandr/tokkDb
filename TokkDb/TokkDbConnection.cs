@@ -5,6 +5,7 @@ using TokkDb.Pages;
 using TokkDb.Pages.Indexes;
 using TokkDb.Pages.Relations;
 using TokkDb.Pages.Managers;
+using TokkDb.Pages.Query;
 using TokkDb.Transactions;
 
 namespace TokkDb;
@@ -25,6 +26,7 @@ public class TokkDbConnection : IDisposable {
   private readonly IndexCatalog _indexCatalog;
   private readonly RelationCatalog _relationCatalog;
   private readonly FreeSpaceManager _freeSpace;
+  private readonly QueryService _queries;
 
   public TokkDbConnection(string filePath, TokkDbAccessMode accessMode = TokkDbAccessMode.ReadWrite,
       ILogger logger = null)
@@ -47,7 +49,12 @@ public class TokkDbConnection : IDisposable {
     _indexCatalog.SetDataPageManager(_dataPageManager);
     _relationCatalog.SetDataPageManager(_dataPageManager);
     _dataPageManager.SetCatalogs(_indexCatalog, _relationCatalog);
+    _queries = new QueryService(_dataPageManager, _indexCatalog, _pageManager);
   }
+
+  //DC-5 and UI-4: the planner, and the report every query it runs publishes. A host that
+  //wants the measurements subscribes to QueryExecuted here rather than at each call site.
+  public QueryService Queries => _queries;
 
   //Physical page reads since the file was opened. A catalogue lookup must not move it.
   public long PageReadCount => _diskManager.PageReadCount;
@@ -98,7 +105,7 @@ public class TokkDbConnection : IDisposable {
   //being given the reflection-over-properties one.
   public DbEntities<T> Entities<T>(DocumentSerializer<T> serializer, string name = null) {
     name ??= typeof(T).Name;
-    return new DbEntities<T>(_dataPageManager, _catalog, _transactionManager, serializer, name);
+    return new DbEntities<T>(_dataPageManager, _catalog, _transactionManager, _queries, serializer, name);
   }
 
   //DC-4: the secondary indexes and the referential constraints, as the catalogue holds them.

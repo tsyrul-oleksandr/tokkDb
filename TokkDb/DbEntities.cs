@@ -1,11 +1,10 @@
-using System.Collections;
 using TokkDb.Documents;
-using TokkDb.Documents.Path;
-using TokkDb.Documents.Path.Expressions;
+using TokkDb.Documents.Path.Normalization;
 using TokkDb.Documents.Serializers;
 using TokkDb.Documents.Values;
 using TokkDb.Pages;
 using TokkDb.Pages.Managers;
+using TokkDb.Pages.Query;
 using TokkDb.Pages.Records;
 using TokkDb.Transactions;
 
@@ -15,14 +14,17 @@ public class DbEntities<T> {
   private readonly DataPageManager _dataPageManager;
   private readonly CollectionCatalog _catalog;
   private readonly TransactionManager _transactionManager;
+  private readonly QueryService _queries;
   private readonly DocumentSerializer<T> _serializer;
   private readonly string _entityName;
 
   public DbEntities(DataPageManager dataPageManager, CollectionCatalog catalog,
-      TransactionManager transactionManager, DocumentSerializer<T> serializer, string entityName) {
+      TransactionManager transactionManager, QueryService queries, DocumentSerializer<T> serializer,
+      string entityName) {
     _dataPageManager = dataPageManager;
     _catalog = catalog;
     _transactionManager = transactionManager;
+    _queries = queries;
     _serializer = serializer;
     _entityName = entityName;
   }
@@ -68,6 +70,25 @@ public class DbEntities<T> {
     return _dataPageManager.FindRowsByValue(_entityName, columnName, DocumentValues.From(value))
       .Select(row => StoredRecordUtilities.FromBuffer(_dataPageManager.ReadRecordBuffer(row)))
       .Select(record => new DbRecord<T>(record.Header.RecordId, _serializer.Deserialize(record.Document)));
+  }
+
+  //DC-5. The query path: the planner picks how to reach the records, and only the records
+  //that survive the predicate are turned into values of T. A query over an indexed column
+  //reads the index and the pages its entries address; one over an unindexed column scans, and
+  //says so in the report rather than looking the same as the other.
+  public DbQueryResult<T> Query(NormalizedQuery query, IReadOnlyList<Ulid> ids = null) {
+    var result = _queries.Run(_entityName, query, ids);
+    return new DbQueryResult<T>(
+      result.Matches
+        .Select(match => new DbRecord<T>(match.Record.Header.RecordId,
+          _serializer.Deserialize(match.Record.Document)))
+        .ToList(),
+      result.Report);
+  }
+
+  //What the query would do, without doing it.
+  public QueryPlan Explain(NormalizedQuery query, IReadOnlyList<Ulid> ids = null) {
+    return _queries.Plan(_entityName, query, ids);
   }
 
   //The counterpart of Update and Delete, which already address a record by its identity.
@@ -142,12 +163,12 @@ public class DbEntities<T> {
     //goes rather than its bytes, because the indexes of DC-4 are keyed by what is inside it.
     _dataPageManager.WriteRecord(_entityName, header, document);
   }
-  
-  private bool Filter(ObjectDocument doc, IExpression expression) {
-    var result = expression.Execute(doc.Value, doc.Value);
-    return result != null;
   }
-}
 
 //A stored value with the identity it is stored under.
 public record DbRecord<T>(Ulid RecordId, T Value);
+
+//The records a query returned and what reading them cost (UI-4). The report travels with the
+//result rather than beside it, so a caller cannot read the records without being able to say
+//how they were reached.
+public record DbQueryResult<T>(IReadOnlyList<DbRecord<T>> Records, QueryReport Report);

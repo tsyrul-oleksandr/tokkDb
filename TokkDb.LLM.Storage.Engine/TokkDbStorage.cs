@@ -1,4 +1,6 @@
+using TokkDb.Documents.Path.Normalization;
 using TokkDb.LLM.Core;
+using TokkDb.LLM.Core.Diagnostics;
 using TokkDb.Pages;
 using TokkDb.Values;
 using EngineColumn = TokkDb.Pages.ColumnDescriptor;
@@ -16,11 +18,23 @@ namespace TokkDb.LLM.Storage.Engine;
 public sealed class TokkDbStorage : IStorage, IDisposable
 {
     private readonly EngineConnection _connection;
+    private readonly QueryDiagnosticsReporter? _reporter;
 
-    public TokkDbStorage(string databaseFilePath)
+    public TokkDbStorage(string databaseFilePath) : this(databaseFilePath, null)
+    {
+    }
+
+    /// <summary>
+    /// UI-4: given a diagnostics service, every query this storage runs reports the access
+    /// path it chose and what it cost. Optional because the engine runs perfectly well
+    /// without a host listening, and the measurement must not be something the caller has to
+    /// remember to switch on per query.
+    /// </summary>
+    public TokkDbStorage(string databaseFilePath, IDiagnosticsService? diagnostics)
     {
         _connection = new EngineConnection(databaseFilePath);
         _connection.Load();
+        _reporter = diagnostics is null ? null : new QueryDiagnosticsReporter(_connection.Queries, diagnostics);
     }
 
     public void CreateCollection(CollectionDefinition definition)
@@ -52,15 +66,20 @@ public sealed class TokkDbStorage : IStorage, IDisposable
         return new StorageRecord(recordId, collectionName, fields);
     }
 
+    // Both reads go through the planner rather than round the side of it, so that the access
+    // path they take is reported like any other query's. A lookup by id is the primary-index
+    // path (identity is not a column, so it arrives as an id list rather than a predicate);
+    // asking for everything is honestly a full scan, and says so.
     public StorageRecord? GetById(string collectionName, Ulid id)
     {
-        var record = Entities(collectionName).GetById(id);
+        var result = Entities(collectionName).Query(NormalizedQuery.Everything, [id]);
+        var record = result.Records.FirstOrDefault();
         return record is null ? null : new StorageRecord(id, collectionName, record.Value);
     }
 
     public IReadOnlyCollection<StorageRecord> GetAll(string collectionName)
     {
-        return Entities(collectionName).GetAllRecords()
+        return Entities(collectionName).Query(NormalizedQuery.Everything).Records
             .Select(record => new StorageRecord(record.RecordId, collectionName, record.Value))
             .ToList();
     }
@@ -92,8 +111,35 @@ public sealed class TokkDbStorage : IStorage, IDisposable
         }
     }
 
+    /// <summary>
+    /// DC-5: a query in the one representation there is, run through the planner. The
+    /// translation into the engine's expression tree happens here and nowhere else, and the
+    /// result carries the report of how the records were reached (UI-4).
+    ///
+    /// Phase 7's <c>ExecuteQuery</c> is this plus the parts of a StorageQuery that are not a
+    /// predicate — ordering, paging and projection — which is why they are carried through
+    /// the translation but not acted on here.
+    /// </summary>
+    public DbQueryResult<Dictionary<string, object?>> RunQuery(StorageQuery query)
+    {
+        var translated = StorageQueryTranslator.Translate(query);
+        return Entities(translated.CollectionName).Query(translated.Normalized, translated.Ids);
+    }
+
+    /// <summary>
+    /// DC-4. IStorage has no index vocabulary of its own yet — Phase 7 decides whether it
+    /// should — so an index is created through the engine underneath. It is here because a
+    /// query's access path depends on which indexes exist, and a caller that cannot create
+    /// one cannot influence that.
+    /// </summary>
+    public void CreateIndex(string collectionName, string columnName, bool unique = false)
+    {
+        _connection.CreateIndex(collectionName, columnName, unique);
+    }
+
     public void Dispose()
     {
+        _reporter?.Dispose();
         _connection.Dispose();
     }
 
