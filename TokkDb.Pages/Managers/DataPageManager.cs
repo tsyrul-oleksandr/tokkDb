@@ -18,8 +18,117 @@ public class DataPageManager {
     _transactionManager = transactionManager;
   }
 
+  //What a record can occupy on a data page: the content area of an empty page, less the slot
+  //it needs. Anything larger goes to an overflow chain (ST-5).
+  public int MaxInPageRecordLength =>
+    _pageManager.PageSize - BasePage.StartContentBufferPosition - BasePage.ControlAreaByteSize - SlotByteSize;
+
+  //What stays on the data page of a record that overflowed: its header, so that a scan can
+  //read the flags and the identifier without following the chain, and the pointer to it.
+  public const int OverflowPrefixByteSize = TypesConstants.UIntByteSize + TypesConstants.IntByteSize;
+
   public BufferSlice Register(string collectionName, ushort bytesLength) {
     return RegisterRow(collectionName, bytesLength).Buffer;
+  }
+
+  //The write path for a whole record image. Records that fit go on a data page as they are;
+  //records that do not keep their header on the page and put the body in an overflow chain.
+  public DataRow WriteRecord(string collectionName, byte[] recordBytes) {
+    if (recordBytes.Length <= MaxInPageRecordLength) {
+      var row = RegisterRow(collectionName, (ushort)recordBytes.Length);
+      row.Buffer.WriteBytes(recordBytes, 0, out _);
+      return row;
+    }
+    return WriteOverflowRecord(collectionName, recordBytes);
+  }
+
+  //The read path. A record that fits its page is handed back where it lies; one that
+  //overflowed is put together again out of its chain.
+  public BufferSlice ReadRecordBuffer(DataRow row) {
+    var header = StoredRecordUtilities.ReadHeader(row.Buffer);
+    if (!header.Flags.HasFlag(RecordFlags.HasOverflow)) {
+      return row.Buffer;
+    }
+    var firstOverflowPage = row.Buffer.ReadUInt(RecordHeader.ByteSize, out var readBytes);
+    var bodyLength = row.Buffer.ReadInt(RecordHeader.ByteSize + readBytes, out _);
+
+    var assembled = new byte[RecordHeader.ByteSize + bodyLength];
+    Array.Copy(row.Buffer.ReadBytes(RecordHeader.ByteSize, 0, out _), assembled, RecordHeader.ByteSize);
+    var written = RecordHeader.ByteSize;
+    var next = firstOverflowPage;
+    while (next != default) {
+      var page = LoadOverflowPage(next);
+      page.CopyPayloadTo(assembled, written);
+      written += page.PayloadLength;
+      next = page.NextPageIndex;
+    }
+    return new BufferSlice(assembled);
+  }
+
+  private DataRow WriteOverflowRecord(string collectionName, byte[] recordBytes) {
+    var bodyLength = recordBytes.Length - RecordHeader.ByteSize;
+    //The chain is built first, so the pointer written on the data page is already good.
+    var firstOverflowPage = WriteOverflowChain(collectionName, recordBytes, RecordHeader.ByteSize, bodyLength);
+
+    var row = RegisterRow(collectionName, (ushort)(RecordHeader.ByteSize + OverflowPrefixByteSize));
+    var header = StoredRecordUtilities.ReadHeaderFrom(recordBytes);
+    header.Flags |= RecordFlags.HasOverflow;
+    StoredRecordUtilities.WriteHeader(header, row.Buffer);
+    row.Buffer.WriteUInt(firstOverflowPage, RecordHeader.ByteSize, out var writeBytes);
+    row.Buffer.WriteInt(bodyLength, RecordHeader.ByteSize + writeBytes, out _);
+    return row;
+  }
+
+  private uint WriteOverflowChain(string collectionName, byte[] source, int offset, int length) {
+    uint firstPageIndex = default;
+    OverflowPage previous = null;
+    var written = 0;
+    while (written < length) {
+      var page = AllocateOverflowPage(collectionName);
+      var take = Math.Min(page.Capacity, length - written);
+      page.SetPayload(source, offset + written, take);
+      written += take;
+      _transactionManager.Track(page);
+      if (previous is null) {
+        firstPageIndex = page.Index;
+      } else {
+        previous.NextPageIndex = page.Index;
+      }
+      previous = page;
+    }
+    return firstPageIndex;
+  }
+
+  private OverflowPage AllocateOverflowPage(string collectionName) {
+    //A chain freed earlier is used again before the file is grown.
+    if (_freeSpace.TakeFreeOverflowPage(collectionName) is { } reused) {
+      var recycled = LoadOverflowPage(reused);
+      recycled.NextPageIndex = default;
+      recycled.PayloadLength = 0;
+      return recycled;
+    }
+    var pageIndex = _catalog.AllocatePageIndex();
+    var page = _pageManager.CreateNewMemoryPage<OverflowPage>(PageType.Overflow, pageIndex);
+    page.OwningCollectionId = _catalog.GetOwningCollectionId(collectionName);
+    _freeSpace.RecordOverflowPage(collectionName, pageIndex, inUse: true);
+    return page;
+  }
+
+  private void FreeOverflowChain(string collectionName, uint firstPageIndex) {
+    var next = firstPageIndex;
+    while (next != default) {
+      var page = LoadOverflowPage(next);
+      next = page.NextPageIndex;
+      page.NextPageIndex = default;
+      page.PayloadLength = 0;
+      _transactionManager.Track(page);
+      _freeSpace.RecordOverflowPage(collectionName, page.Index, inUse: false);
+    }
+  }
+
+  private OverflowPage LoadOverflowPage(uint pageIndex) {
+    return _transactionManager.FindTrackedPage<OverflowPage>(pageIndex)
+      ?? _pageManager.LoadPage<OverflowPage>(pageIndex);
   }
 
   public DataRow RegisterRow(string collectionName, ushort bytesLength) {
@@ -76,6 +185,8 @@ public class DataPageManager {
   //reads each record header and stops at the live image of the wanted record.
   public DataRow? FindLiveRow(string collectionName, Ulid recordId) {
     foreach (var row in GetAllRows(collectionName)) {
+      //Only the header is needed to recognise the record, and the header is always on the
+      //page even when the body is not.
       var header = StoredRecordUtilities.ReadHeader(row.Buffer);
       if (header.RecordId == recordId && header.IsLive) {
         return row;
@@ -97,9 +208,14 @@ public class DataPageManager {
     var page = LoadPage(address.PageIndex);
     //The image is marked before it goes, so that keeping it instead becomes a matter of not
     //freeing the slot rather than of writing something different.
-    var header = StoredRecordUtilities.ReadHeader(page.GetItem(address.SlotIndex));
+    var slot = page.GetItem(address.SlotIndex);
+    var header = StoredRecordUtilities.ReadHeader(slot);
+    //A record that overflowed takes its chain with it, through this same one seam.
+    if (header.Flags.HasFlag(RecordFlags.HasOverflow)) {
+      FreeOverflowChain(collectionName, slot.ReadUInt(RecordHeader.ByteSize, out _));
+    }
     header.Flags = flags;
-    StoredRecordUtilities.WriteHeader(header, page.GetItem(address.SlotIndex));
+    StoredRecordUtilities.WriteHeader(header, slot);
     page.FreeItem(address.SlotIndex);
     _transactionManager.Track(page);
     _catalog.DecrementRecordCount(collectionName);

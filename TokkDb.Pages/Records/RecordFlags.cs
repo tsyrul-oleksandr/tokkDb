@@ -8,5 +8,9 @@ public enum RecordFlags : byte {
   None = 0,
   Live = 1,
   Superseded = 2,
-  Deleted = 4
+  Deleted = 4,
+
+  //The record did not fit one page: what follows its header on the page is a pointer to the
+  //overflow chain holding the body (ST-5).
+  HasOverflow = 8
 }

@@ -12,11 +12,20 @@ namespace TokkDb.Pages;
 public record StoredRecord(RecordHeader Header, ObjectDocument Document);
 
 public static class StoredRecordUtilities {
-  public static ushort GetBytesLength(RecordHeader header, ObjectDocument document) {
-    var buffer = new BufferSlice(new byte[TokkDb.Configuration.TokkConstants.DefaultPageSize]);
-    var writer = new BufferWriter(buffer);
+  //Counted rather than written, and not capped at a page: a record may need an overflow
+  //chain (ST-5).
+  public static int GetBytesLength(RecordHeader header, ObjectDocument document) {
+    var writer = new BufferWriter(new CountingBufferSlice());
     Write(header, document, writer);
-    return (ushort)writer.Position;
+    return writer.Position;
+  }
+
+  //The whole record image. Splitting it across an overflow chain is the storage layer's
+  //business, so it gets the bytes rather than a buffer to write into.
+  public static byte[] ToBytes(RecordHeader header, ObjectDocument document) {
+    var bytes = new byte[GetBytesLength(header, document)];
+    Write(header, document, new BufferWriter(new BufferSlice(bytes)));
+    return bytes;
   }
 
   public static void ToBuffer(RecordHeader header, ObjectDocument document, BufferSlice buffer) {
@@ -31,6 +40,10 @@ public static class StoredRecordUtilities {
 
   //Rewrites the header of an image that is already on a page. Only the header changes: the
   //document body of a stored record is never mutated in place (VR-12).
+  public static RecordHeader ReadHeaderFrom(byte[] recordBytes) {
+    return RecordHeader.Read(new BufferReader(new BufferSlice(recordBytes)));
+  }
+
   public static void WriteHeader(RecordHeader header, BufferSlice buffer) {
     header.Write(new BufferWriter(buffer));
   }

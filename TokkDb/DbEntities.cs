@@ -61,8 +61,8 @@ public class DbEntities<T> {
   //Reading the flags byte is all the skipping of dead images needs; nothing writes a dead
   //image yet, but a scan that ignored the byte would have to change when something does.
   private IEnumerable<StoredRecord> LiveRecords() {
-    return _dataPageManager.GetAll(_entityName)
-      .Select(StoredRecordUtilities.FromBuffer)
+    return _dataPageManager.GetAllRows(_entityName)
+      .Select(row => StoredRecordUtilities.FromBuffer(_dataPageManager.ReadRecordBuffer(row)))
       .Where(record => record.Header.IsLive);
   }
 
@@ -113,9 +113,9 @@ public class DbEntities<T> {
   private void WriteImage(Ulid recordId, T value) {
     var document = _serializer.Create(value, recordId);
     var header = RecordHeader.ForNewRecord(recordId, _catalog.Get(_entityName).SchemaVersion);
-    var size = StoredRecordUtilities.GetBytesLength(header, document);
-    var buffer = _dataPageManager.Register(_entityName, size);
-    StoredRecordUtilities.ToBuffer(header, document, buffer);
+    //A record larger than a page keeps its header on the page and its body in an overflow
+    //chain (ST-5); which of the two happens is the storage layer's decision.
+    _dataPageManager.WriteRecord(_entityName, StoredRecordUtilities.ToBytes(header, document));
   }
   
   private bool Filter(ObjectDocument doc, IExpression expression) {

@@ -1,5 +1,6 @@
 using TokkDb.Buffer;
-using TokkDb.Configuration;
+
+using TokkDb.Documents.Values;
 
 namespace TokkDb.Documents;
 
@@ -16,11 +17,17 @@ public class ObjectDocumentUtilities {
     document.Write(writer);
   }
   
-  public static ushort GetBytesLength(ObjectDocument document) {
-    //todo fix
-    var buffer = new BufferSlice(new byte[TokkConstants.DefaultPageSize]);
-    var writer = new BufferWriter(buffer);
+  //Counts the bytes the document would take without writing them anywhere, and returns a
+  //count that is not capped at a page: a document may be far larger than one (ST-5).
+  public static int GetBytesLength(ObjectDocument document) {
+    var writer = new BufferWriter(new CountingBufferSlice());
     document.Write(writer);
-    return (ushort)writer.Position;
+    return writer.Position;
+  }
+
+  public static int GetValueBytesLength(IDocumentValue value) {
+    var writer = new BufferWriter(new CountingBufferSlice());
+    writer.Write(value);
+    return writer.Position;
   }
 }

@@ -117,7 +117,7 @@ public class CollectionCatalog {
     _descriptors[SystemCollections.Collections] = CreateBootstrapDescriptor();
     var rows = _dataPageManager.GetAllRows(SystemCollections.Collections).ToList();
     foreach (var row in rows) {
-      var record = StoredRecordUtilities.FromBuffer(row.Buffer);
+      var record = StoredRecordUtilities.FromBuffer(_dataPageManager.ReadRecordBuffer(row));
       if (!record.Header.IsLive) {
         continue;
       }
@@ -184,10 +184,12 @@ public class CollectionCatalog {
     //The catalogue's records carry the VR-11 header like any other, and the descriptor's own
     //identifier is the record identity (D-1) rather than a second one beside it.
     var header = CreateHeader(descriptor);
-    var length = StoredRecordUtilities.GetBytesLength(header, CollectionDescriptorDocument.Write(descriptor));
-    var row = _dataPageManager.RegisterRow(SystemCollections.Collections, length);
+    //Written through the same path as any other record, so a descriptor that outgrew a page
+    //would take an overflow chain like anything else.
+    var row = _dataPageManager.WriteRecord(SystemCollections.Collections,
+      StoredRecordUtilities.ToBytes(header, CollectionDescriptorDocument.Write(descriptor)));
     //The record count moved while the row was being made; write what the descriptor says now.
-    StoredRecordUtilities.ToBuffer(header, CollectionDescriptorDocument.Write(descriptor), row.Buffer);
+    _dataPageManager.UpdateRow(row.Address, header, CollectionDescriptorDocument.Write(descriptor));
     descriptor.Address = row.Address;
   }
 

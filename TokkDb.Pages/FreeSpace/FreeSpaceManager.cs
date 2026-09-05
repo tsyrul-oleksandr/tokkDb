@@ -39,7 +39,7 @@ public class FreeSpaceManager {
   //packed rather than spread.
   public IEnumerable<uint> FindPagesWithRoom(string collectionName, ushort bytesLength) {
     return Load(collectionName)
-      .Where(entry => entry.CanHoldRecords && entry.ReclaimableBytes >= bytesLength)
+      .Where(entry => entry.CanHoldRecords && entry.ReclaimableBytes > 0 && entry.ReclaimableBytes >= bytesLength)
       .OrderBy(entry => entry.ReclaimableBytes)
       .Select(entry => entry.PageIndex)
       .ToList();
@@ -58,6 +58,24 @@ public class FreeSpaceManager {
       entries.Add(new FreeSpaceEntry(pageIndex, reclaimableBytes, state));
     }
     Save(collectionName, entries);
+  }
+
+  //Overflow pages belong to one record and never hold another, so they are kept out of the
+  //allocator: in use they are Reserved, and free they are Free with nothing reclaimable,
+  //which is how a freed chain is told apart from a data page with room.
+  public void RecordOverflowPage(string collectionName, uint pageIndex, bool inUse) {
+    Record(collectionName, pageIndex, 0, inUse ? BlockState.Reserved : BlockState.Free);
+  }
+
+  public uint? TakeFreeOverflowPage(string collectionName) {
+    var entries = Load(collectionName);
+    var index = entries.FindIndex(entry => entry.State == BlockState.Free && entry.ReclaimableBytes == 0);
+    if (index < 0) {
+      return null;
+    }
+    var pageIndex = entries[index].PageIndex;
+    RecordOverflowPage(collectionName, pageIndex, inUse: true);
+    return pageIndex;
   }
 
   //A page whose checksum did not verify is never handed out again.
