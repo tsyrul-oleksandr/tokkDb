@@ -108,7 +108,8 @@ public class PageIntegrityTests {
     var catalogueId = connection.Collection(SystemCollections.Collections).OwningCollectionId;
     var personId = connection.Collection("Person").OwningCollectionId;
 
-    using var disk = new DiskManager(file.Path);
+    //A reader alongside the open writer: TX-4 allows that, a second writer it would not.
+    using var disk = new DiskManager(file.Path, accessMode: TokkDbAccessMode.ReadOnly);
     var pageManager = new PageManager(disk);
     pageManager.SetPageSize(RootPage.ReadPrefix(pageManager.ReadPrefix(RootPage.PrefixByteSize)).PageSize);
 

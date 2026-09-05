@@ -5,6 +5,7 @@ namespace TokkDb.Transactions;
 
 public class TransactionManager {
   private readonly PageManager _pageManager;
+  private ulong _lastTransactionId;
 
   public Transaction Current { get; set; }
   
@@ -13,12 +14,17 @@ public class TransactionManager {
   }
 
   public Transaction CreateTransaction() {
-    var transaction = new Transaction(_pageManager, this);
-    if (Current != null) {
-      transaction.Parent = Current;
-    }
+    var transaction = new Transaction(++_lastTransactionId, _pageManager, this) {
+      Parent = Current
+    };
     Current = transaction;
     return transaction;
+  }
+
+  //DC-8: a catalogue change and the data change it goes with belong to one transaction, so
+  //every mutation has to find one already open.
+  public Transaction RequireTransaction() {
+    return Current ?? throw new TransactionNotFoundException();
   }
   
 

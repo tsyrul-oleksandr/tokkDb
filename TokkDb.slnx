@@ -5,6 +5,7 @@
     <Project Path="TokkDb.LLM.Storage.Tests/TokkDb.LLM.Storage.Tests.csproj" />
     <Project Path="TokkDb.LLM.Storage/TokkDb.LLM.Storage.csproj" />
   </Folder>
+  <Project Path="TokkDb.Benchmarks\TokkDb.Benchmarks.csproj" Type="C#" />
   <Project Path="TokkDb.Buffer\TokkDb.Buffer.csproj" Type="C#" />
   <Project Path="TokkDb.Configuration\TokkDb.Configuration.csproj" Type="C#" />
   <Project Path="TokkDb.Disk\TokkDb.Disk.csproj" Type="C#" />

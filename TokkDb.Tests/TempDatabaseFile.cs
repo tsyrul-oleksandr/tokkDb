@@ -11,8 +11,15 @@ public sealed class TempDatabaseFile : IDisposable {
   public long PageCount => Length / Configuration.TokkConstants.DefaultPageSize;
 
   public void Dispose() {
-    if (File.Exists(Path)) {
-      File.Delete(Path);
+    Delete(Path);
+    //The journal and the write lock live beside the database file and go with it.
+    Delete(Disk.Journal.GetJournalPath(Path));
+    Delete(Disk.WriteLock.GetLockPath(Path));
+  }
+
+  private static void Delete(string path) {
+    if (File.Exists(path)) {
+      File.Delete(path);
     }
   }
 }

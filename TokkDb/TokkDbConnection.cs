@@ -1,4 +1,5 @@
-﻿using TokkDb.Disk;
+﻿using Microsoft.Extensions.Logging;
+using TokkDb.Disk;
 using TokkDb.Documents.Serializers;
 using TokkDb.Pages;
 using TokkDb.Pages.Managers;
@@ -7,7 +8,11 @@ using TokkDb.Transactions;
 namespace TokkDb;
 
 //Holds the database file open for as long as it lives, so it has to be disposed before the
-//same file is opened again.
+//same file is opened for writing again.
+//
+//Isolation (TX-4): one writer at a time, any number of readers alongside it. A writer holds
+//an exclusive lock beside the database and a second one is refused with
+//DatabaseLockedException; a reader takes no lock and cannot write.
 public class TokkDbConnection : IDisposable {
   private readonly DiskManager _diskManager;
   private readonly DataPageManager _dataPageManager;
@@ -15,18 +20,30 @@ public class TokkDbConnection : IDisposable {
   private readonly RootPageManager _rootPageManager;
   private readonly CollectionCatalog _catalog;
 
-  public TokkDbConnection(string filePath) {
-    _diskManager = new DiskManager(filePath);
+  public TokkDbConnection(string filePath, TokkDbAccessMode accessMode = TokkDbAccessMode.ReadWrite,
+      ILogger logger = null)
+    : this(new DiskManager(filePath, accessMode: accessMode, logger: logger)) { }
+
+  //Takes an already opened file. The connection owns it from here and disposes it.
+  public TokkDbConnection(DiskManager diskManager) {
+    _diskManager = diskManager;
+    //TX-2: before any page of this database is read by anything.
+    RecoveryDecision = _diskManager.Recover();
     var pageManager = new PageManager(_diskManager);
     _transactionManager = new TransactionManager(pageManager);
     _rootPageManager = new RootPageManager(pageManager, _transactionManager);
-    _catalog = new CollectionCatalog(_rootPageManager);
+    _catalog = new CollectionCatalog(_rootPageManager, _transactionManager);
     _dataPageManager = new DataPageManager(pageManager, _catalog, _transactionManager);
     _catalog.SetDataPageManager(_dataPageManager);
   }
 
   //Physical page reads since the file was opened. A catalogue lookup must not move it.
   public long PageReadCount => _diskManager.PageReadCount;
+
+  //What recovery found and did when this connection opened the file.
+  public RecoveryDecision RecoveryDecision { get; }
+
+  public TokkDbAccessMode AccessMode => _diskManager.AccessMode;
 
   public bool IsExists() {
     return !_diskManager.IsBlank();
