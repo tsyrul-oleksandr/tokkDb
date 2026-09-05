@@ -49,6 +49,43 @@ public class TransactionTests {
     Assert.Equal(TransactionState.RolledBack, second.State);
   }
 
+  //The identity map has to be exactly that. A page freed and handed out again inside one
+  //transaction arrives as a second object for an index the transaction already holds — an
+  //index page a B+Tree merge retired and a later split took back is the case that reaches
+  //here — and only the newer object is the page. Keeping both would leave which of them
+  //lands in the file to the order the page set happened to keep them in.
+  [Fact]
+  public void TrackingAPageIndexTwiceKeepsTheNewerPageAndOnlyThatOne() {
+    using var fixture = new Fixture();
+    var transaction = fixture.Transactions.CreateTransaction();
+
+    var retired = fixture.NewPage(1, marker: 111);
+    transaction.Track(retired);
+    var takenBack = fixture.NewPage(1, marker: 222);
+    transaction.Track(takenBack);
+
+    Assert.Single(transaction.Pages);
+    Assert.Same(takenBack, transaction.Pages.Single());
+    Assert.Same(takenBack, fixture.Transactions.FindTrackedPage<DataPage>(1));
+
+    transaction.Commit();
+    Assert.Equal(222, fixture.Pages.LoadPage<DataPage>(1).GetItem(0).ReadInt(0, out _));
+  }
+
+  //Tracking the same object again is not a change of page and must not disturb the set.
+  [Fact]
+  public void TrackingTheSamePageTwiceChangesNothing() {
+    using var fixture = new Fixture();
+    var transaction = fixture.Transactions.CreateTransaction();
+    var page = fixture.NewPage(1, marker: 7);
+
+    transaction.Track(page);
+    transaction.Track(page);
+
+    Assert.Single(transaction.Pages);
+    Assert.Same(page, transaction.Pages.Single());
+  }
+
   [Fact]
   public void AFinishedTransactionCannotBeUsedAgain() {
     using var fixture = new Fixture();

@@ -1,5 +1,8 @@
 using TokkDb.Documents;
 using TokkDb.Pages.Managers;
+using TokkDb.Pages.Indexes;
+using TokkDb.Pages.Records;
+using TokkDb.Pages.Relations;
 using TokkDb.Transactions;
 
 namespace TokkDb.Pages;
@@ -77,6 +80,25 @@ public class CollectionCatalog {
     Save(descriptor);
   }
 
+  //D-2: the root of the collection's primary index is a physical pointer, so it lives in the
+  //catalogue document beside the data chain and the free-space root, and moves with them
+  //inside the same transaction when the tree grows a new root.
+  public void SetPrimaryIndexRoot(string collectionName, uint pageIndex) {
+    _transactionManager.RequireTransaction();
+    var descriptor = Get(collectionName);
+    descriptor.PrimaryIndexRoot = pageIndex;
+    Save(descriptor);
+  }
+
+  //DC-4: where one of the collection's secondary indexes begins. The descriptor of the index
+  //itself lives in _indexes; this is the physical pointer D-2 keeps in the catalogue.
+  public void SetSecondaryIndexRoot(string collectionName, string indexName, uint pageIndex) {
+    _transactionManager.RequireTransaction();
+    var descriptor = Get(collectionName);
+    descriptor.SecondaryIndexRoots[indexName] = pageIndex;
+    Save(descriptor);
+  }
+
   public void SetDataLastPage(string collectionName, uint pageIndex) {
     _transactionManager.RequireTransaction();
     var descriptor = Get(collectionName);
@@ -130,9 +152,14 @@ public class CollectionCatalog {
 
   protected virtual void CreateNewCatalog() {
     foreach (var name in SystemCollections.All) {
-      var columns = name == SystemCollections.Collections
-        ? CollectionDescriptorDocument.CreateSelfColumns()
-        : [];
+      //The system collections that hold descriptors describe their own columns, for the same
+      //reason _collections does: nothing about the catalogue should be readable only in code.
+      var columns = name switch {
+        SystemCollections.Collections => CollectionDescriptorDocument.CreateSelfColumns(),
+        SystemCollections.Indexes => IndexDescriptorDocument.CreateColumns(),
+        SystemCollections.Relations => RelationDescriptorDocument.CreateColumns(),
+        _ => []
+      };
       CreateCollectionCore(name, columns, SystemCollections.Descriptions[name]);
     }
   }
@@ -154,7 +181,7 @@ public class CollectionCatalog {
       throw new ArgumentException($"Collection {name} already exists", nameof(name));
     }
     var descriptor = new CollectionDescriptor {
-      Id = Ulid.NewUlid(),
+      Id = RecordIdentity.Next(),
       Name = name,
       Description = description,
       Columns = columns?.ToList() ?? [],
@@ -186,8 +213,8 @@ public class CollectionCatalog {
     var header = CreateHeader(descriptor);
     //Written through the same path as any other record, so a descriptor that outgrew a page
     //would take an overflow chain like anything else.
-    var row = _dataPageManager.WriteRecord(SystemCollections.Collections,
-      StoredRecordUtilities.ToBytes(header, CollectionDescriptorDocument.Write(descriptor)));
+    var row = _dataPageManager.WriteRecord(SystemCollections.Collections, header,
+      CollectionDescriptorDocument.Write(descriptor));
     //The record count moved while the row was being made; write what the descriptor says now.
     _dataPageManager.UpdateRow(row.Address, header, CollectionDescriptorDocument.Write(descriptor));
     descriptor.Address = row.Address;
@@ -210,7 +237,16 @@ public class CollectionCatalog {
       //Not written yet: the append in progress will put the current values on the page.
       return;
     }
-    _dataPageManager.UpdateRow(descriptor.Address.Value, CreateHeader(descriptor),
-      CollectionDescriptorDocument.Write(descriptor));
+    var header = CreateHeader(descriptor);
+    var document = CollectionDescriptorDocument.Write(descriptor);
+    //A descriptor grows: gaining a secondary index adds a root to it (DC-4), and the slot it
+    //was first written into was sized for the descriptor as it then was. An image that no
+    //longer fits where it lies moves to a slot that holds it.
+    if (_dataPageManager.CanUpdateRowInPlace(descriptor.Address.Value, header, document)) {
+      _dataPageManager.UpdateRow(descriptor.Address.Value, header, document);
+      return;
+    }
+    descriptor.Address = _dataPageManager
+      .RewriteRow(SystemCollections.Collections, descriptor.Address.Value, header, document).Address;
   }
 }

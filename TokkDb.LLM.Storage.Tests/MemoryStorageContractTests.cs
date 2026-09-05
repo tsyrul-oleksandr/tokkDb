@@ -17,4 +17,6 @@ public sealed class MemoryStorageContractTests : StorageContractTests
     protected override bool StoresEveryColumnType => true;
 
     protected override bool GetAllOrderSurvivesADelete => false;
+
+    protected override Type UniqueViolationExceptionType => typeof(StorageValidationException);
 }

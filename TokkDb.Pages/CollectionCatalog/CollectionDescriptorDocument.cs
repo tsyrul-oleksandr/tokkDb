@@ -17,6 +17,8 @@ public static class CollectionDescriptorDocument {
   public const string DataLastPageField = "dataLastPage";
   public const string PrimaryIndexRootField = "primaryIndexRoot";
   public const string SecondaryIndexRootsField = "secondaryIndexRoots";
+  public const string IndexNameField = "index";
+  public const string IndexRootField = "root";
   public const string FreeSpaceRootField = "freeSpaceRoot";
   public const string RecordCountField = "recordCount";
   public const string HistoryCollectionIdField = "historyCollectionId";
@@ -66,7 +68,11 @@ public static class CollectionDescriptorDocument {
       [DataLastPageField] = new UIntDocumentValue(descriptor.DataLastPage),
       [PrimaryIndexRootField] = new UIntDocumentValue(descriptor.PrimaryIndexRoot),
       [SecondaryIndexRootsField] = new ArrayDocumentValue(descriptor.SecondaryIndexRoots
-        .Select(IDocumentValue (root) => new UIntDocumentValue(root)).ToArray()),
+        .OrderBy(root => root.Key, StringComparer.Ordinal)
+        .Select(IDocumentValue (root) => new ObjectDocumentValue(new Dictionary<string, IDocumentValue> {
+          [IndexNameField] = new StringDocumentValue(root.Key),
+          [IndexRootField] = new UIntDocumentValue(root.Value)
+        })).ToArray()),
       [FreeSpaceRootField] = new UIntDocumentValue(descriptor.FreeSpaceRoot),
       [RecordCountField] = new UIntDocumentValue(descriptor.RecordCount),
       [HistoryCollectionIdField] = new UlidDocumentValue(descriptor.HistoryCollectionId),
@@ -88,7 +94,11 @@ public static class CollectionDescriptorDocument {
       DataLastPage = ReadUInt(value, DataLastPageField),
       PrimaryIndexRoot = ReadUInt(value, PrimaryIndexRootField),
       SecondaryIndexRoots = ReadArray(value, SecondaryIndexRootsField)
-        .Select(root => ((UIntDocumentValue)root).Value).ToList(),
+        //A database written before the roots named themselves holds bare numbers here, and
+        //those cannot be matched to an index, so they are passed over rather than guessed at.
+        .OfType<ObjectDocumentValue>()
+        .ToDictionary(root => ReadString(root, IndexNameField), root => ReadUInt(root, IndexRootField),
+          StringComparer.Ordinal),
       FreeSpaceRoot = ReadUInt(value, FreeSpaceRootField),
       RecordCount = ReadUInt(value, RecordCountField),
       HistoryCollectionId = ReadUlid(value, HistoryCollectionIdField),

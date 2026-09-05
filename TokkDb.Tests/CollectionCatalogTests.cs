@@ -1,6 +1,8 @@
 using TokkDb.Documents;
 using TokkDb.Documents.Values;
 using TokkDb.Pages;
+using TokkDb.Pages.Indexes;
+using TokkDb.Pages.Relations;
 using TokkDb.Values;
 using Xunit;
 
@@ -67,9 +69,25 @@ public class CollectionCatalogTests {
       var collection = reopened.Collection(name);
       Assert.Equal(0u, collection.RecordCount);
       Assert.Equal(0u, collection.DataFirstPage);
-      Assert.Empty(collection.Columns);
       Assert.True(collection.IsSystem);
     }
+  }
+
+  //The system collections that hold descriptors describe their own columns, for the reason
+  //_collections does: what the catalogue holds should be readable out of the catalogue and
+  //not only out of the code that writes it. The ones nothing writes yet have none.
+  [Fact]
+  public void TheSystemCollectionsThatHoldDescriptorsDescribeTheirOwnColumns() {
+    using var file = new TempDatabaseFile();
+    CreateDatabase(file);
+
+    using var reopened = Reopen(file);
+    Assert.NotEmpty(reopened.Collection(SystemCollections.Collections).Columns);
+    Assert.Contains(reopened.Collection(SystemCollections.Indexes).Columns,
+      column => column.Name == IndexDescriptorDocument.ColumnField);
+    Assert.Contains(reopened.Collection(SystemCollections.Relations).Columns,
+      column => column.Name == RelationDescriptorDocument.TargetColumnField);
+    Assert.Empty(reopened.Collection(SystemCollections.SemanticTypes).Columns);
   }
 
   [Fact]
@@ -331,7 +349,8 @@ public class CollectionCatalogTests {
       DataFirstPage = 11,
       DataLastPage = 14,
       PrimaryIndexRoot = 21,
-      SecondaryIndexRoots = [31, 32],
+      //Named, because a root has to say which index it belongs to (DC-4).
+      SecondaryIndexRoots = new Dictionary<string, uint> { ["doi"] = 31, ["year"] = 32 },
       FreeSpaceRoot = 41,
       RecordCount = 512,
       Columns = [
@@ -351,7 +370,7 @@ public class CollectionCatalogTests {
     Assert.Equal(11u, read.DataFirstPage);
     Assert.Equal(14u, read.DataLastPage);
     Assert.Equal(21u, read.PrimaryIndexRoot);
-    Assert.Equal([31u, 32u], read.SecondaryIndexRoots);
+    Assert.Equal(new Dictionary<string, uint> { ["doi"] = 31, ["year"] = 32 }, read.SecondaryIndexRoots);
     Assert.Equal(41u, read.FreeSpaceRoot);
     Assert.Equal(512u, read.RecordCount);
 

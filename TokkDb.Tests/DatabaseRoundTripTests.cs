@@ -138,7 +138,7 @@ public class DatabaseRoundTripTests {
     var document = new DocumentSerializer<Person>().Create(person, recordId);
     var header = RecordHeader.ForNewRecord(recordId);
     header.Flags = RecordFlags.Superseded;
-    dataPageManager.WriteRecord("Person", StoredRecordUtilities.ToBytes(header, document));
+    dataPageManager.WriteRecord("Person", header, document);
     transaction.Commit();
   }
 
@@ -151,8 +151,11 @@ public class DatabaseRoundTripTests {
       entities.Insert(TestPeople.Numbered(i));
     }
 
-    // 200 records of ~130 bytes must not need more than one page each 8KB of payload.
-    var dataPages = file.PageCount - ReservedPages(file, db);
+    // 200 records of ~130 bytes must not need more than one page each 8KB of payload. The
+    // primary index costs pages of its own (DC-4), counted here rather than left to slack.
+    var indexPages = db.PrimaryIndex("Person").Nodes().Count();
+    var dataPages = file.PageCount - ReservedPages(file, db) - indexPages;
     Assert.InRange(dataPages, 1, 200 * 200 / TokkConstants.DefaultPageSize + 2);
+    Assert.Equal(1, indexPages);
   }
 }

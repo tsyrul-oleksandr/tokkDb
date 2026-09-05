@@ -2,9 +2,11 @@ using System.Diagnostics;
 
 namespace TokkDb.Benchmarks.Benchmarks;
 
-//NFR-2: single-record lookup under 10 ms. That target assumes an indexed field, and there
-//are no indexes before Phase 5, so what this measures is the sequential scan the engine
-//falls back on. It is the number Phase 5 has to beat.
+//NFR-2: single-record lookup under 10 ms. DOI is not the record identity, and only the
+//primary index exists so far, so this is still the sequential scan the engine falls back on
+//for a field with no index of its own. It is the number a secondary index over DOI — the
+//acceptance criterion of DC-4 — has to beat; the primary index benchmark beside it shows
+//what a lookup costs once there is an index to use.
 public class LookupLatencyBenchmark : IBenchmark {
   private const int Lookups = 50;
 
@@ -38,10 +40,10 @@ public class LookupLatencyBenchmark : IBenchmark {
 
     return [
       new Measurement(Name, "Lookup by DOI", stopwatch.Elapsed.TotalMilliseconds / wanted.Count, "ms",
-        "NFR-2", 10, $"Sequential scan of {context.RecordCount:N0} records; no index exists before Phase 5. " +
-        $"{found} of {wanted.Count} targets found."),
+        "NFR-2", 10, $"Sequential scan of {context.RecordCount:N0} records; DOI has no index of its own " +
+        $"yet. {found} of {wanted.Count} targets found."),
       new Measurement(Name, "Pages read per lookup", readsPerLookup, "pages", Note:
-        "Every data page of the collection, which is what an index has to replace.")
+        "Every data page of the collection. Compare the primary index below, which reads a descent.")
     ];
   }
 }

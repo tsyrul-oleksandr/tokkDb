@@ -17,6 +17,15 @@ public class BenchmarkContext {
   //The record-filled database the first benchmark builds and the later ones read.
   public string PopulatedDatabasePath { get; set; } = string.Empty;
 
+  //Identities spread evenly through that database, kept as it is built so that a lookup
+  //benchmark does not have to scan the collection to find something to look up.
+  public List<Ulid> SampleRecordIds { get; } = [];
+
+  //How often the primary index had to split while that database was built. Counted on the
+  //connection that did the building: a tree opened later is a fresh view of the same pages
+  //and has no memory of what it took to put them there.
+  public long IndexLeafSplits { get; set; }
+
   public string CreateDatabasePath(string name) {
     var path = Path.Combine(WorkingDirectory, $"{name}.db");
     Remove(path);
