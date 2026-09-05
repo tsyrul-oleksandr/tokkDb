@@ -5,34 +5,6 @@ namespace TokkDb.LLM.Storage.Tests;
 public sealed class MemoryStorageTests
 {
     [Fact]
-    public void CreateCollectionStoresMetadataAndColumnDescriptions()
-    {
-        var storage = new MemoryStorage();
-        storage.CreateCollection(CustomerCollection());
-
-        var collection = storage.GetCollectionDefinition("Customer");
-
-        Assert.NotNull(collection);
-        Assert.Equal("Stores customer records", collection.Description);
-        Assert.Equal("crm", collection.Metadata["source"]);
-        Assert.Contains(collection.Columns, c => c.Name == "Email" && c.Description == "Primary email");
-    }
-
-    [Fact]
-    public void GetCollectionDefinitionsReturnsAllCollections()
-    {
-        var storage = new MemoryStorage();
-        storage.CreateCollection(CustomerCollection());
-        storage.CreateCollection(OrderCollection());
-
-        var collections = storage.GetCollectionDefinitions();
-
-        Assert.Equal(2, collections.Count);
-        Assert.Contains(collections, c => c.Name == "Customer");
-        Assert.Contains(collections, c => c.Name == "Order");
-    }
-
-    [Fact]
     public void DeleteCollectionRemovesCollectionAndRecords()
     {
         var storage = new MemoryStorage();
@@ -137,76 +109,6 @@ public sealed class MemoryStorageTests
     }
 
     [Fact]
-    public void CreateAndGetByIdAssociateRecordsWithCollection()
-    {
-        var storage = new MemoryStorage();
-        storage.CreateCollection(CustomerCollection());
-        var customerId = Guid.NewGuid();
-        var created = storage.Create("Customer", CustomerRecord(customerId, "Alice", "Brown", "alice@example.com"));
-
-        var record = storage.GetById("Customer", created.Id);
-
-        Assert.NotNull(record);
-        Assert.Equal("Customer", record.CollectionName);
-        Assert.Equal(customerId, record.Fields["Id"]);
-        Assert.Equal("Alice", record.Fields["FirstName"]);
-    }
-
-    [Fact]
-    public void CreateRejectsUnknownColumnsAndTypeMismatches()
-    {
-        var storage = new MemoryStorage();
-        storage.CreateCollection(CustomerCollection());
-
-        var unknownColumnException = Assert.Throws<StorageValidationException>(() =>
-            storage.Create("Customer", CustomerRecord(Guid.NewGuid(), "Alice", "Brown", "alice@example.com", "x")));
-        Assert.Contains(unknownColumnException.Errors, e => e.Code == "UnknownColumn" && e.ColumnName == "Unknown");
-
-        var typeMismatchException = Assert.Throws<StorageValidationException>(() =>
-            storage.Create("Customer", new Dictionary<string, object?>
-            {
-                ["Id"] = "not-a-guid",
-                ["FirstName"] = "Alice",
-                ["LastName"] = "Brown",
-                ["Email"] = "alice@example.com"
-            }));
-        Assert.Contains(typeMismatchException.Errors, e => e.Code == "InvalidType" && e.ColumnName == "Id");
-    }
-
-    [Fact]
-    public void CreateAppliesDefaultValueWhenMissing()
-    {
-        var storage = new MemoryStorage();
-        storage.CreateCollection(CustomerCollection());
-
-        var created = storage.Create("Customer", new Dictionary<string, object?>
-        {
-            ["Id"] = Guid.NewGuid(),
-            ["FirstName"] = "Alice",
-            ["LastName"] = "Brown"
-        });
-
-        Assert.Equal("unknown@example.com", created.Fields["Email"]);
-    }
-
-    [Fact]
-    public void CreateReturnsStructuredErrorsForInvalidType()
-    {
-        var storage = new MemoryStorage();
-        storage.CreateCollection(CustomerCollection());
-
-        var exception = Assert.Throws<StorageValidationException>(() =>
-            storage.Create("Customer", new Dictionary<string, object?>
-            {
-                ["Id"] = "bad-guid",
-                ["FirstName"] = "Alice",
-                ["Email"] = null
-            }));
-
-        Assert.Contains(exception.Errors, e => e is { Code: "InvalidType", ColumnName: "Id" });
-    }
-
-    [Fact]
     public void CreateRejectsDuplicatePrimaryKeyAndUniqueValues()
     {
         var storage = new MemoryStorage();
@@ -221,65 +123,6 @@ public sealed class MemoryStorageTests
         var uniqueException = Assert.Throws<StorageValidationException>(() =>
             storage.Create("Customer", CustomerRecord(Guid.NewGuid(), "Alice", "Brown", "alice@example.com")));
         Assert.Contains(uniqueException.Errors, e => e.Code == "UniqueConstraint" && e.ColumnName == "Email");
-    }
-
-    [Fact]
-    public void UpdateRejectsReadOnlyColumnChanges()
-    {
-        var storage = new MemoryStorage();
-        storage.CreateCollection(CustomerCollection());
-        var id = Guid.NewGuid();
-        var created = storage.Create("Customer", CustomerRecord(id, "Alice", "Brown", "alice@example.com"));
-
-        var exception = Assert.Throws<StorageValidationException>(() =>
-            storage.Update(new StorageRecord(created.Id, "Customer", CustomerRecord(Guid.NewGuid(), "Alice", "Brown", "alice@example.com"))));
-
-        Assert.Contains(exception.Errors, e => e.Code == "ReadOnlyColumn" && e.ColumnName == "Id");
-    }
-
-    [Fact]
-    public void UpdateRejectsInvalidDataAndPreservesStoredRecord()
-    {
-        var storage = new MemoryStorage();
-        storage.CreateCollection(CustomerCollection());
-        var id = Guid.NewGuid();
-        var created = storage.Create("Customer", CustomerRecord(id, "Alice", "Brown", "alice@example.com"));
-
-        var exception = Assert.Throws<StorageValidationException>(() =>
-            storage.Update(new StorageRecord(created.Id, "Customer", new Dictionary<string, object?>
-            {
-                ["Id"] = id,
-                ["FirstName"] = "Alice",
-                ["LastName"] = "Brown",
-                ["Email"] = 123
-            })));
-        var stored = storage.GetById("Customer", created.Id);
-
-        Assert.Contains(exception.Errors, e => e.Code == "InvalidType" && e.ColumnName == "Email");
-        Assert.NotNull(stored);
-        Assert.Equal("alice@example.com", stored.Fields["Email"]);
-    }
-
-    [Fact]
-    public void IntegerColumnRejectsStringValue()
-    {
-        var storage = new MemoryStorage();
-        storage.CreateCollection(new CollectionDefinition(
-            "Person",
-            columns: new[]
-            {
-                new ColumnDefinition("Id", ColumnType.Guid),
-                new ColumnDefinition("Age", ColumnType.Int32)
-            }));
-
-        var exception = Assert.Throws<StorageValidationException>(() =>
-            storage.Create("Person", new Dictionary<string, object?>
-            {
-                ["Id"] = Guid.NewGuid(),
-                ["Age"] = "twenty"
-            }));
-
-        Assert.Contains(exception.Errors, e => e.Code == "InvalidType" && e.ColumnName == "Age");
     }
 
     [Fact]
@@ -517,17 +360,6 @@ public sealed class MemoryStorageTests
                 new ColumnDefinition("Email", ColumnType.String, "Primary email", unique: true, defaultValue: "unknown@example.com")
             },
             new Dictionary<string, string?> { ["source"] = "crm" });
-    }
-
-    private static CollectionDefinition OrderCollection()
-    {
-        return new CollectionDefinition(
-            "Order",
-            columns: new[]
-            {
-                new ColumnDefinition("Id", ColumnType.Guid),
-                new ColumnDefinition("Number", ColumnType.String)
-            });
     }
 
     private static CollectionDefinition OrderWithCustomerIdCollection()

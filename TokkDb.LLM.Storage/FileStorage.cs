@@ -44,13 +44,13 @@ public sealed class FileStorage : IStorage
     public StorageRecord Create(string collectionName, IReadOnlyDictionary<string, object?> fields) {
         throw new NotImplementedException();
     }
-    public StorageRecord? GetById(string collectionName, Guid id) {
+    public StorageRecord? GetById(string collectionName, Ulid id) {
         throw new NotImplementedException();
     }
     public bool Update(StorageRecord record) {
         throw new NotImplementedException();
     }
-    public bool Delete(string collectionName, Guid id) {
+    public bool Delete(string collectionName, Ulid id) {
         throw new NotImplementedException();
     }
     public IReadOnlyCollection<StorageRecord> GetAll(string collectionName) {

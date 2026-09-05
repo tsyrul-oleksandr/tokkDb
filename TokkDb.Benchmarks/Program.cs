@@ -8,6 +8,8 @@ CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 
 //The measurement harness behind the experimental chapter. Every phase adds benchmarks here;
 //the numbers land in docs/benchmarks.md, run by run.
+MarkdownReport.CaptureCommit();
+
 var recordCount = ReadIntOption(args, "--records", 5000);
 var collectionCount = ReadIntOption(args, "--collections", 500);
 var phase = ReadOption(args, "--phase", "Phase 2 — journal and recovery");

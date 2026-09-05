@@ -2,14 +2,14 @@ namespace TokkDb.LLM.Storage;
 
 public sealed record StorageRecord
 {
-    public StorageRecord(Guid id, string collectionName, IReadOnlyDictionary<string, object?> fields)
+    public StorageRecord(Ulid id, string collectionName, IReadOnlyDictionary<string, object?> fields)
     {
         Id = id;
         CollectionName = StorageValidation.NormalizeName(collectionName, "collection name");
         Fields = new Dictionary<string, object?>(fields, StringComparer.Ordinal);
     }
 
-    public Guid Id { get; }
+    public Ulid Id { get; }
 
     public string CollectionName { get; }
 

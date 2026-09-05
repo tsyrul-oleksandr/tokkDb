@@ -14,7 +14,7 @@ public sealed class RecordDisplayServiceTests
         return new RecordDisplayService(evaluator, new DisplayRuleValidator(evaluator));
     }
 
-    private static MemoryStorage CreateProductStorage(out Guid[] ids, string? displayRule = "{Name} — {Brand}")
+    private static MemoryStorage CreateProductStorage(out Ulid[] ids, string? displayRule = "{Name} — {Brand}")
     {
         var storage = new MemoryStorage();
         storage.CreateCollection(new CollectionDefinition("Product", "Products", new[]
@@ -135,7 +135,7 @@ public sealed class RecordDisplayServiceTests
     public void InvalidRecordIdDoesNotCrashAndValidRecordsStillRender()
     {
         var storage = CreateProductStorage(out var ids);
-        var requested = new[] { ids[0].ToString(), "not-a-guid", Guid.NewGuid().ToString() };
+        var requested = new[] { ids[0].ToString(), "not-an-id", Ulid.NewUlid().ToString() };
 
         var message = CreateService().BuildRecordsDisplay(storage, new ShowRecordsRequest("Product", requested));
 

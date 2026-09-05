@@ -3,6 +3,7 @@
     <Project Path="TokkDb.LLM.Application/TokkDb.LLM.Application.csproj" />
     <Project Path="TokkDb.LLM.Core/TokkDb.LLM.Core.csproj" />
     <Project Path="TokkDb.LLM.Storage.Tests/TokkDb.LLM.Storage.Tests.csproj" />
+    <Project Path="TokkDb.LLM.Storage.Engine/TokkDb.LLM.Storage.Engine.csproj" />
     <Project Path="TokkDb.LLM.Storage/TokkDb.LLM.Storage.csproj" />
   </Folder>
   <Project Path="TokkDb.Benchmarks\TokkDb.Benchmarks.csproj" Type="C#" />

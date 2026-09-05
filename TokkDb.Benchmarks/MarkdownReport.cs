@@ -48,7 +48,7 @@ public static class MarkdownReport {
     builder.AppendLine($"| Runtime | {RuntimeInformation.FrameworkDescription} |");
     builder.AppendLine($"| OS | {RuntimeInformation.OSDescription.Trim()} ({RuntimeInformation.OSArchitecture}) |");
     builder.AppendLine($"| Processors | {Environment.ProcessorCount} |");
-    builder.AppendLine($"| Commit | {ReadGitCommit()} |");
+    builder.AppendLine($"| Commit | {_commit ?? ReadGitCommit()} |");
     builder.AppendLine();
     builder.AppendLine("| Benchmark | Metric | Measured | Target | Requirement | Verdict |");
     builder.AppendLine("|---|---|---|---|---|---|");
@@ -77,6 +77,15 @@ public static class MarkdownReport {
     var existing = File.ReadAllText(filePath);
     var index = existing.IndexOf(RunsMarker, StringComparison.Ordinal);
     return index < 0 ? string.Empty : existing[(index + RunsMarker.Length)..].TrimStart('\r', '\n');
+  }
+
+  //Read once, before the run starts. A run at NFR-2 scale takes over an hour, and the
+  //repository can move on in that time: stamping the commit at write time would attribute
+  //the numbers to code that did not produce them.
+  private static string? _commit;
+
+  public static void CaptureCommit() {
+    _commit = ReadGitCommit();
   }
 
   private static string ReadGitCommit() {

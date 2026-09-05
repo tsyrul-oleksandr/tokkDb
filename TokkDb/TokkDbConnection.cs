@@ -77,8 +77,14 @@ public class TokkDbConnection : IDisposable {
   }
 
   public DbEntities<T> Entities<T>(string name = null) {
+    return Entities(new DocumentSerializer<T>(), name);
+  }
+
+  //A caller whose records are not a fixed CLR type — the IStorage adapter, whose records are
+  //field maps described by a collection definition — supplies its own serializer rather than
+  //being given the reflection-over-properties one.
+  public DbEntities<T> Entities<T>(DocumentSerializer<T> serializer, string name = null) {
     name ??= typeof(T).Name;
-    var serializer = new DocumentSerializer<T>();
     return new DbEntities<T>(_dataPageManager, _catalog, _transactionManager, serializer, name);
   }
 
