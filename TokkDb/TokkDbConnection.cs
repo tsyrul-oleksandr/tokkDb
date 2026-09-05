@@ -21,8 +21,12 @@ public class TokkDbConnection : IDisposable {
   private readonly CollectionCatalog _catalog;
 
   public TokkDbConnection(string filePath, TokkDbAccessMode accessMode = TokkDbAccessMode.ReadWrite,
-      ILogger logger = null) {
-    _diskManager = new DiskManager(filePath, accessMode: accessMode, logger: logger);
+      ILogger logger = null)
+    : this(new DiskManager(filePath, accessMode: accessMode, logger: logger)) { }
+
+  //Takes an already opened file. The connection owns it from here and disposes it.
+  public TokkDbConnection(DiskManager diskManager) {
+    _diskManager = diskManager;
     //TX-2: before any page of this database is read by anything.
     RecoveryDecision = _diskManager.Recover();
     var pageManager = new PageManager(_diskManager);

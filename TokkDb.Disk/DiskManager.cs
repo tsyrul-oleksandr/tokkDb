@@ -61,19 +61,33 @@ public class DiskManager : IDisposable {
 
   //Step one of the commit protocol: what the pages about to be written looked like before,
   //on the device, before the database file is touched at all.
-  public void WriteJournal(ulong transactionId, IReadOnlyCollection<uint> pageIndexes) {
+  //Split into steps so that a fault can be injected at any point of it, which is where a
+  //killed process leaves the most interesting states.
+  public virtual void WriteJournal(ulong transactionId, IReadOnlyCollection<uint> pageIndexes) {
     RequireWritable();
     var originalPageCount = PageCount;
-    Journal.Begin(transactionId, originalPageCount, pageIndexes.Count);
+    BeginJournal(transactionId, originalPageCount, pageIndexes.Count);
     foreach (var pageIndex in pageIndexes) {
       var beforeImage = pageIndex < originalPageCount ? Reader.ReadPage(pageIndex).ToArray() : null;
-      Journal.WriteBeforeImage(pageIndex, beforeImage);
+      WriteJournalImage(pageIndex, beforeImage);
     }
+    FlushJournal();
+  }
+
+  protected virtual void BeginJournal(ulong transactionId, uint originalPageCount, int pageImageCount) {
+    Journal.Begin(transactionId, originalPageCount, pageImageCount);
+  }
+
+  protected virtual void WriteJournalImage(uint pageIndex, byte[] beforeImage) {
+    Journal.WriteBeforeImage(pageIndex, beforeImage);
+  }
+
+  protected virtual void FlushJournal() {
     Journal.Flush();
   }
 
   //The last step, once the database file itself is durable.
-  public void CommitJournal(ulong transactionId) {
+  public virtual void CommitJournal(ulong transactionId) {
     Journal.MarkCommitted(transactionId);
   }
 
@@ -90,7 +104,7 @@ public class DiskManager : IDisposable {
     return Reader.ReadPage(index);
   }
 
-  public void WritePage(PageBuffer page) {
+  public virtual void WritePage(PageBuffer page) {
     RequireWritable();
     Writer.WritePage(page);
   }
@@ -148,7 +162,7 @@ public class DiskManager : IDisposable {
       restored++;
     }
     //Pages the transaction appended have no before image; they go by shortening the file.
-    _stream.SetLength((long)frame.OriginalPageCount * frame.PageSize);
+    Truncate((long)frame.OriginalPageCount * frame.PageSize);
     Writer.Flush();
     DiscardJournal();
     return Decide(RecoveryOutcome.UncommittedTransactionRolledBack, frame.TransactionId, restored,
@@ -173,9 +187,13 @@ public class DiskManager : IDisposable {
     }
   }
 
-  private void WritePageBytes(uint pageIndex, byte[] bytes, ushort pageSize) {
+  protected virtual void WritePageBytes(uint pageIndex, byte[] bytes, ushort pageSize) {
     _stream.Position = (long)pageIndex * pageSize;
     _stream.Write(bytes, 0, bytes.Length);
+  }
+
+  protected virtual void Truncate(long length) {
+    _stream.SetLength(length);
   }
 
   private RecoveryDecision Decide(RecoveryOutcome outcome, ulong transactionId, int restoredPageCount,
@@ -192,7 +210,7 @@ public class DiskManager : IDisposable {
   }
 
   //Durability point. Only a committing transaction may call it.
-  public void Flush() {
+  public virtual void Flush() {
     RequireWritable();
     Writer.Flush();
   }
