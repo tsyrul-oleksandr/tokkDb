@@ -18,7 +18,7 @@ public sealed class TokkDbStorageContractTests : StorageContractTests
 
     protected override bool AppliesColumnDefaults => false;
 
-    protected override bool KeepsCollectionMetadata => false;
+    protected override bool KeepsCollectionMetadata => true;
 
     protected override bool CollectionNamesIgnoreCase => false;
 

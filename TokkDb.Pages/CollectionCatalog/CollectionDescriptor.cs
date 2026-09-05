@@ -15,6 +15,13 @@ public class CollectionDescriptor {
   //holds a uint, the catalogue holds the Ulid; this is what ties the two together.
   public uint OwningCollectionId { get; set; }
 
+  //On the _collections descriptor only: the highest owning id ever issued. A dropped
+  //collection leaves its pages in the file (there is no global free-page list to return them
+  //to), and those pages carry its owning id in their headers, so reissuing that id would let
+  //a new collection claim them. Taking the maximum of the collections that currently exist is
+  //not enough, because dropping the newest one lowers it.
+  public uint LastOwningCollectionId { get; set; }
+
   public uint DataFirstPage { get; set; }
   public uint DataLastPage { get; set; }
   public uint PrimaryIndexRoot { get; set; }

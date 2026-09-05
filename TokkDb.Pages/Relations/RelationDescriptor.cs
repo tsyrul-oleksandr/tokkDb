@@ -18,6 +18,13 @@ public class RelationDescriptor {
   public string SourceColumn { get; set; } = string.Empty;
   public string TargetCollection { get; set; } = string.Empty;
   public string TargetColumn { get; set; } = string.Empty;
+
+  //Logical properties the engine stores and does not act on. The referential check is the
+  //same whatever the cardinality says — a source value must exist in the target column — so
+  //what OneToOne rather than ManyToOne means is the application's rule, enforced where the
+  //schema is declared. Recording them here is what lets a relation survive a reopen whole.
+  public string Cardinality { get; set; } = string.Empty;
+  public string Description { get; set; } = string.Empty;
 }
 
 public static class RelationDescriptorDocument {
@@ -27,6 +34,8 @@ public static class RelationDescriptorDocument {
   public const string SourceColumnField = "sourceColumn";
   public const string TargetCollectionField = "targetCollection";
   public const string TargetColumnField = "targetColumn";
+  public const string CardinalityField = "cardinality";
+  public const string DescriptionField = "description";
 
   public static List<ColumnDescriptor> CreateColumns() {
     return [
@@ -36,7 +45,9 @@ public static class RelationDescriptorDocument {
       new ColumnDescriptor(SourceCollectionField, ValueTypeEnum.String, "Collection the constraint is on"),
       new ColumnDescriptor(SourceColumnField, ValueTypeEnum.String, "Column that must refer to something"),
       new ColumnDescriptor(TargetCollectionField, ValueTypeEnum.String, "Collection referred to"),
-      new ColumnDescriptor(TargetColumnField, ValueTypeEnum.String, "Indexed column referred to")
+      new ColumnDescriptor(TargetColumnField, ValueTypeEnum.String, "Indexed column referred to"),
+      new ColumnDescriptor(CardinalityField, ValueTypeEnum.String, "Cardinality, declared by the application"),
+      new ColumnDescriptor(DescriptionField, ValueTypeEnum.String, "What the relation means")
     ];
   }
 
@@ -49,7 +60,9 @@ public static class RelationDescriptorDocument {
       [SourceCollectionField] = new StringDocumentValue(descriptor.SourceCollection),
       [SourceColumnField] = new StringDocumentValue(descriptor.SourceColumn),
       [TargetCollectionField] = new StringDocumentValue(descriptor.TargetCollection),
-      [TargetColumnField] = new StringDocumentValue(descriptor.TargetColumn)
+      [TargetColumnField] = new StringDocumentValue(descriptor.TargetColumn),
+      [CardinalityField] = new StringDocumentValue(descriptor.Cardinality),
+      [DescriptionField] = new StringDocumentValue(descriptor.Description)
     }));
     return document;
   }
@@ -62,7 +75,11 @@ public static class RelationDescriptorDocument {
       SourceCollection = ReadString(value, SourceCollectionField),
       SourceColumn = ReadString(value, SourceColumnField),
       TargetCollection = ReadString(value, TargetCollectionField),
-      TargetColumn = ReadString(value, TargetColumnField)
+      TargetColumn = ReadString(value, TargetColumnField),
+      //DC-7: a database written before these existed reads them as empty rather than needing
+      //a migration.
+      Cardinality = ReadString(value, CardinalityField),
+      Description = ReadString(value, DescriptionField)
     };
   }
 

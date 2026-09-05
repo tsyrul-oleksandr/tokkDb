@@ -97,6 +97,38 @@ public class IndexCatalog {
     return index;
   }
 
+  //DC-4. Removes an index: its pages go back to the collection's retired pool, its root
+  //leaves the catalogue document (D-2) and its descriptor leaves _indexes. All of it in one
+  //transaction, so a failure part-way leaves the index exactly as it was.
+  //
+  //The pages are recorded as retired rather than freed outright because that is the pool the
+  //trees of this collection take from — the same recycling a merge uses when it empties a
+  //node, so a dropped index makes room for the next one instead of growing the file.
+  public bool Drop(string collectionName, string columnName) {
+    _transactionManager.RequireTransaction();
+    if (Find(collectionName, columnName) is not { } index) {
+      return false;
+    }
+    foreach (var node in index.Tree.Nodes()) {
+      _freeSpace.RecordIndexPage(collectionName, node.Index, inUse: false);
+    }
+    _catalog.RemoveSecondaryIndexRoot(collectionName, index.Descriptor.Name);
+    if (_dataPageManager.FindLiveRow(SystemCollections.Indexes, index.Descriptor.Id) is { } row) {
+      _dataPageManager.RetireRow(SystemCollections.Indexes, row.Address, RecordFlags.Deleted,
+        RetentionPolicy.None);
+    }
+    _byCollection[collectionName].Remove(index);
+    return true;
+  }
+
+  //Every index of a collection that is going away. Dropping them one at a time from outside
+  //would iterate the list being modified.
+  public void DropAll(string collectionName) {
+    foreach (var columnName in For(collectionName).Select(index => index.Descriptor.ColumnName).ToArray()) {
+      Drop(collectionName, columnName);
+    }
+  }
+
   private void Build(SecondaryIndex index) {
     var collectionName = index.Descriptor.CollectionName;
     foreach (var row in _dataPageManager.GetAllRows(collectionName)) {

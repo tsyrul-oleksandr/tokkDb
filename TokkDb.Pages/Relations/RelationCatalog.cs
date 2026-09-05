@@ -49,7 +49,7 @@ public class RelationCatalog {
   //one already. That is DC-4's "referential checks need an index on the target" made
   //structural: there is no way to have the constraint without the index that affords it.
   public RelationDescriptor Create(string name, string sourceCollection, string sourceColumn,
-      string targetCollection, string targetColumn) {
+      string targetCollection, string targetColumn, string cardinality = "", string description = "") {
     _transactionManager.RequireTransaction();
     if (Descriptors.Any(relation => relation.Name == name)) {
       throw new ArgumentException($"Relation '{name}' already exists.", nameof(name));
@@ -65,13 +65,40 @@ public class RelationCatalog {
       SourceCollection = sourceCollection,
       SourceColumn = sourceColumn,
       TargetCollection = targetCollection,
-      TargetColumn = targetColumn
+      TargetColumn = targetColumn,
+      Cardinality = cardinality,
+      Description = description
     };
     Register(descriptor);
     var header = RecordHeader.ForNewRecord(descriptor.Id, 1);
     _dataPageManager.WriteRecord(SystemCollections.Relations, header,
       RelationDescriptorDocument.Write(descriptor));
     return descriptor;
+  }
+
+  //Removes a relation. The index its check needed is left alone: it was created for the
+  //relation but nothing records that, and dropping an index a query may now depend on is a
+  //worse outcome than leaving one that is merely no longer required.
+  public bool Remove(string name) {
+    _transactionManager.RequireTransaction();
+    var descriptor = Descriptors.FirstOrDefault(relation => relation.Name == name);
+    if (descriptor is null) {
+      return false;
+    }
+    if (_dataPageManager.FindLiveRow(SystemCollections.Relations, descriptor.Id) is { } row) {
+      _dataPageManager.RetireRow(SystemCollections.Relations, row.Address, RecordFlags.Deleted,
+        RetentionPolicy.None);
+    }
+    _bySource[descriptor.SourceCollection].Remove(descriptor);
+    return true;
+  }
+
+  //Every relation naming this collection at either end, for a collection being dropped.
+  public IEnumerable<RelationDescriptor> Naming(string collectionName) {
+    return Descriptors
+      .Where(relation => relation.SourceCollection == collectionName
+        || relation.TargetCollection == collectionName)
+      .ToArray();
   }
 
   private void RequireColumn(string collectionName, string columnName) {

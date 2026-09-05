@@ -13,6 +13,7 @@ public static class CollectionDescriptorDocument {
   public const string SchemaVersionField = "schemaVersion";
   public const string ColumnsField = "columns";
   public const string OwningCollectionIdField = "owningCollectionId";
+  public const string LastOwningCollectionIdField = "lastOwningCollectionId";
   public const string DataFirstPageField = "dataFirstPage";
   public const string DataLastPageField = "dataLastPage";
   public const string PrimaryIndexRootField = "primaryIndexRoot";
@@ -30,6 +31,8 @@ public static class CollectionDescriptorDocument {
   public const string ColumnReadOnlyField = "readOnly";
   public const string ColumnDefaultValueField = "defaultValue";
   public const string ColumnDescriptionField = "description";
+  public const string ColumnSemanticTypeField = "semanticType";
+  public const string ColumnValidationPatternsField = "validationPatterns";
 
   //The hardcoded minimal descriptor of D-4: the columns of the catalogue's own documents,
   //and the only schema in the engine that is not itself read from a document.
@@ -43,6 +46,8 @@ public static class CollectionDescriptorDocument {
       new ColumnDescriptor(ColumnsField, ValueTypeEnum.Array, "Column definitions of the collection"),
       new ColumnDescriptor(OwningCollectionIdField, ValueTypeEnum.UInt,
         "The number the data pages of the collection carry in their header", unique: true, readOnly: true),
+      new ColumnDescriptor(LastOwningCollectionIdField, ValueTypeEnum.UInt,
+        "Highest owning id ever issued; on the catalogue's own descriptor"),
       new ColumnDescriptor(DataFirstPageField, ValueTypeEnum.UInt, "First page of the data chain"),
       new ColumnDescriptor(DataLastPageField, ValueTypeEnum.UInt, "Last page of the data chain"),
       new ColumnDescriptor(PrimaryIndexRootField, ValueTypeEnum.UInt, "Root page of the primary index"),
@@ -64,6 +69,7 @@ public static class CollectionDescriptorDocument {
       [SchemaVersionField] = new UIntDocumentValue(descriptor.SchemaVersion),
       [ColumnsField] = new ArrayDocumentValue(descriptor.Columns.Select(WriteColumn).ToArray()),
       [OwningCollectionIdField] = new UIntDocumentValue(descriptor.OwningCollectionId),
+      [LastOwningCollectionIdField] = new UIntDocumentValue(descriptor.LastOwningCollectionId),
       [DataFirstPageField] = new UIntDocumentValue(descriptor.DataFirstPage),
       [DataLastPageField] = new UIntDocumentValue(descriptor.DataLastPage),
       [PrimaryIndexRootField] = new UIntDocumentValue(descriptor.PrimaryIndexRoot),
@@ -90,6 +96,7 @@ public static class CollectionDescriptorDocument {
       SchemaVersion = (ushort)ReadUInt(value, SchemaVersionField),
       Columns = ReadArray(value, ColumnsField).Select(ReadColumn).ToList(),
       OwningCollectionId = ReadUInt(value, OwningCollectionIdField),
+      LastOwningCollectionId = ReadUInt(value, LastOwningCollectionIdField),
       DataFirstPage = ReadUInt(value, DataFirstPageField),
       DataLastPage = ReadUInt(value, DataLastPageField),
       PrimaryIndexRoot = ReadUInt(value, PrimaryIndexRootField),
@@ -114,7 +121,10 @@ public static class CollectionDescriptorDocument {
       [ColumnUniqueField] = new BooleanDocumentValue(column.Unique),
       [ColumnReadOnlyField] = new BooleanDocumentValue(column.ReadOnly),
       [ColumnDefaultValueField] = column.DefaultValue,
-      [ColumnDescriptionField] = new StringDocumentValue(column.Description)
+      [ColumnDescriptionField] = new StringDocumentValue(column.Description),
+      [ColumnSemanticTypeField] = new StringDocumentValue(column.SemanticTypeName),
+      [ColumnValidationPatternsField] = new ArrayDocumentValue(column.ValidationPatterns
+        .Select(IDocumentValue (pattern) => new StringDocumentValue(pattern)).ToArray())
     });
   }
 
@@ -126,7 +136,11 @@ public static class CollectionDescriptorDocument {
       Unique = ReadBoolean(column, ColumnUniqueField),
       ReadOnly = ReadBoolean(column, ColumnReadOnlyField),
       DefaultValue = column.Values.GetValueOrDefault(ColumnDefaultValueField) ?? new NullDocumentValue(),
-      Description = ReadString(column, ColumnDescriptionField)
+      Description = ReadString(column, ColumnDescriptionField),
+      //DC-7: a database written before these fields existed reads them as their defaults.
+      SemanticTypeName = ReadString(column, ColumnSemanticTypeField),
+      ValidationPatterns = ReadArray(column, ColumnValidationPatternsField)
+        .OfType<StringDocumentValue>().Select(pattern => pattern.Value).ToList()
     };
   }
 

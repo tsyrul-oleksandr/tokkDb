@@ -27,6 +27,7 @@ public class TokkDbConnection : IDisposable {
   private readonly RelationCatalog _relationCatalog;
   private readonly FreeSpaceManager _freeSpace;
   private readonly QueryService _queries;
+  private readonly CollectionSettingsCatalog _settings;
 
   public TokkDbConnection(string filePath, TokkDbAccessMode accessMode = TokkDbAccessMode.ReadWrite,
       ILogger logger = null)
@@ -48,6 +49,8 @@ public class TokkDbConnection : IDisposable {
     _catalog.SetDataPageManager(_dataPageManager);
     _indexCatalog.SetDataPageManager(_dataPageManager);
     _relationCatalog.SetDataPageManager(_dataPageManager);
+    _settings = new CollectionSettingsCatalog(_transactionManager);
+    _settings.SetDataPageManager(_dataPageManager);
     _dataPageManager.SetCatalogs(_indexCatalog, _relationCatalog);
     _queries = new QueryService(_dataPageManager, _indexCatalog, _pageManager);
   }
@@ -123,11 +126,85 @@ public class TokkDbConnection : IDisposable {
   //DC-4: a relation cannot be checked without an index on the column it points at, so
   //creating one creates that index if it is not already there.
   public RelationDescriptor CreateRelation(string name, string sourceCollection, string sourceColumn,
-      string targetCollection, string targetColumn) {
+      string targetCollection, string targetColumn, string cardinality = "", string description = "") {
     RelationDescriptor descriptor = null;
-    InTransaction(() => descriptor =
-      _relationCatalog.Create(name, sourceCollection, sourceColumn, targetCollection, targetColumn));
+    InTransaction(() => descriptor = _relationCatalog.Create(name, sourceCollection, sourceColumn,
+      targetCollection, targetColumn, cardinality, description));
     return descriptor;
+  }
+
+  //D-4: the display rule and the per-collection settings, as their own documents. The engine
+  //stores both and interprets neither.
+  public string DisplayRule(string collectionName) {
+    return _settings.GetDisplayRule(collectionName);
+  }
+
+  public void SetDisplayRule(string collectionName, string template) {
+    InTransaction(() => _settings.SetDisplayRule(collectionName, template));
+  }
+
+  public IReadOnlyDictionary<string, string> Metadata(string collectionName) {
+    return _settings.GetMetadata(collectionName);
+  }
+
+  public void SetMetadata(string collectionName, IReadOnlyDictionary<string, string> metadata) {
+    InTransaction(() => _settings.SetMetadata(collectionName, metadata));
+  }
+
+  //DC-7. Replaces the column set of a collection and bumps its schema version. The indexes
+  //over columns that are gone go with them, because an index over a column nothing declares
+  //could never be chosen by the planner and would still be maintained on every write.
+  public CollectionDescriptor SetColumns(string collectionName, IEnumerable<ColumnDescriptor> columns) {
+    CollectionDescriptor descriptor = null;
+    InTransaction(() => {
+      var wanted = columns?.ToList() ?? [];
+      foreach (var index in _indexCatalog.For(collectionName).ToArray()) {
+        var column = wanted.FirstOrDefault(candidate => candidate.Name == index.Descriptor.ColumnName);
+        //Dropped, or no longer unique: a unique index that outlived the declaration would go
+        //on refusing duplicates the schema now permits.
+        if (column is null || (index.Descriptor.Unique && !column.Unique)) {
+          _indexCatalog.Drop(collectionName, index.Descriptor.ColumnName);
+        }
+      }
+      descriptor = _catalog.SetColumns(collectionName, wanted);
+      CreateUniqueIndexes(descriptor);
+    });
+    return descriptor;
+  }
+
+  //Removes a collection and everything the engine holds about it: its records, its indexes,
+  //its relations, its display rule and its settings, in one transaction (DC-8).
+  public bool DropCollection(string collectionName) {
+    var dropped = false;
+    InTransaction(() => {
+      if (!_catalog.Exists(collectionName)) {
+        return;
+      }
+      foreach (var relation in _relationCatalog.Naming(collectionName)) {
+        _relationCatalog.Remove(relation.Name);
+      }
+      _indexCatalog.DropAll(collectionName);
+      //Before the descriptor goes: retiring a row asks the catalogue where the collection's
+      //pages are.
+      foreach (var row in _dataPageManager.GetAllRows(collectionName).ToArray()) {
+        _dataPageManager.RetireRow(collectionName, row.Address, RecordFlags.Deleted, RetentionPolicy.None);
+      }
+      _settings.Remove(collectionName);
+      dropped = _catalog.DropCollection(collectionName);
+    });
+    return dropped;
+  }
+
+  public bool DropIndex(string collectionName, string columnName) {
+    var dropped = false;
+    InTransaction(() => dropped = _indexCatalog.Drop(collectionName, columnName));
+    return dropped;
+  }
+
+  public bool RemoveRelation(string name) {
+    var removed = false;
+    InTransaction(() => removed = _relationCatalog.Remove(name));
+    return removed;
   }
 
   //DC-4: the collection's primary index. The tree reads its own root out of the catalogue
@@ -170,7 +247,11 @@ public class TokkDbConnection : IDisposable {
   //the enforcement could live — the check is a lookup by value, which is what an index is.
   private void CreateUniqueIndexes(CollectionDescriptor descriptor) {
     foreach (var column in descriptor.Columns.Where(column => column.Unique)) {
-      _indexCatalog.Create(descriptor.Name, column.Name, unique: true);
+      //A column set that is being replaced mostly keeps the columns it had, so most of the
+      //unique ones already have the index this would create.
+      if (_indexCatalog.Find(descriptor.Name, column.Name) is null) {
+        _indexCatalog.Create(descriptor.Name, column.Name, unique: true);
+      }
     }
   }
 
@@ -183,6 +264,9 @@ public class TokkDbConnection : IDisposable {
     //before anything is written, because a write maintains whatever is described here.
     _indexCatalog.Initialize();
     _relationCatalog.Initialize();
+    //Neither structural: what a collection displays as and what the application notes about
+    //it are their own documents (D-4), so a change to either leaves the schema alone.
+    _settings.Initialize();
     //The free-space structures and the index trees hang off the catalogue, so they are stale
     //the moment it is reloaded and are read again from their roots on first use.
     _freeSpace.Reset();

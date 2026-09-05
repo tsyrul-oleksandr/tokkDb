@@ -5,6 +5,16 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      The engine-backed adapter is another implementation of IStorage, not a consumer of one.
+      It has to normalise a name and judge a value against a column type by exactly the rules
+      MemoryStorage uses, or the two backends would disagree about what the same schema means.
+      Those rules stay internal to the contract assembly rather than becoming public API.
+    -->
+    <InternalsVisibleTo Include="TokkDb.LLM.Storage.Engine" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
     <PackageReference Include="Ulid" Version="1.3.4" />
