@@ -148,7 +148,8 @@ public class TransactionTests {
     var transactions = new TransactionManager(pageManager);
     var rootPageManager = new RootPageManager(pageManager, transactions);
     var catalog = new CollectionCatalog(rootPageManager, transactions);
-    var dataPageManager = new DataPageManager(pageManager, catalog, transactions);
+    var freeSpace = new FreeSpaceManager(pageManager, rootPageManager, catalog, transactions);
+    var dataPageManager = new DataPageManager(pageManager, catalog, freeSpace, transactions);
     catalog.SetDataPageManager(dataPageManager);
 
     var loading = transactions.CreateTransaction();

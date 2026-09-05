@@ -9,8 +9,11 @@ using Xunit;
 namespace TokkDb.Tests;
 
 public class DatabaseRoundTripTests {
-  //Root page plus the collections catalogue page precede any data page.
-  private const int ReservedPages = 2;
+  //The root page, the catalogue's own pages and the free-space structures all precede the
+  //first page of user data, so what counts as overhead is read rather than assumed.
+  private static long ReservedPages(TempDatabaseFile file, TokkDbConnection db) {
+    return db.Collection("Person").DataFirstPage;
+  }
 
   private static TokkDbConnection NewDatabase(TempDatabaseFile file) {
     var db = new TokkDbConnection(file.Path);
@@ -89,7 +92,7 @@ public class DatabaseRoundTripTests {
       for (var i = 0; i < 500; i++) {
         entities.Insert(TestPeople.Numbered(i));
       }
-      Assert.True(file.PageCount > ReservedPages + 1,
+      Assert.True(file.PageCount > ReservedPages(file, db) + 1,
         $"expected the data to span several pages, got {file.PageCount}");
     }
 
@@ -123,7 +126,8 @@ public class DatabaseRoundTripTests {
     var transactions = new TransactionManager(pageManager);
     var rootPageManager = new RootPageManager(pageManager, transactions);
     var catalog = new CollectionCatalog(rootPageManager, transactions);
-    var dataPageManager = new DataPageManager(pageManager, catalog, transactions);
+    var freeSpace = new FreeSpaceManager(pageManager, rootPageManager, catalog, transactions);
+    var dataPageManager = new DataPageManager(pageManager, catalog, freeSpace, transactions);
     catalog.SetDataPageManager(dataPageManager);
 
     var transaction = transactions.CreateTransaction();
@@ -149,7 +153,7 @@ public class DatabaseRoundTripTests {
     }
 
     // 200 records of ~130 bytes must not need more than one page each 8KB of payload.
-    var dataPages = file.PageCount - ReservedPages;
+    var dataPages = file.PageCount - ReservedPages(file, db);
     Assert.InRange(dataPages, 1, 200 * 200 / TokkConstants.DefaultPageSize + 2);
   }
 }

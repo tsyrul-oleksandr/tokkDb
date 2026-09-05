@@ -26,6 +26,22 @@ public abstract class BaseItemsPage : BasePage {
   public ushort NextFreePosition { get; protected set; } = StartContentBufferPosition;
   public ushort ItemsCount { get; protected set; }
 
+  //Everything the page could give up: the contiguous tail plus what sits in freed slots.
+  //Compaction is what turns the second into the first.
+  public ushort ReclaimableBytes => (ushort)(FreeBytes + FreeListBytes);
+
+  //Whether anything is still stored here at all.
+  public bool IsEmpty {
+    get {
+      for (ushort i = 0; i < ItemsCount; i++) {
+        if (!IsItemFree(i)) {
+          return false;
+        }
+      }
+      return true;
+    }
+  }
+
   protected override int LoadHeader() {
     var position = base.LoadHeader();
     ItemsCount = Buffer.ReadUShort(position, out var readBytes);
@@ -57,6 +73,12 @@ public abstract class BaseItemsPage : BasePage {
     return Buffer.Slice(addressValue.Position, addressValue.Length);
   }
 
+  //Whether RegisterItem would hand this freed slot out for a record of that size.
+  public virtual bool WouldReuseSlot(ushort index, ushort bytesLength) {
+    var address = GetItemSlotAddressValue(index);
+    return address.Position == FreeSlotPosition && address.Length > 0 && address.Length >= bytesLength;
+  }
+
   public virtual bool IsItemFree(ushort index) {
     return GetItemSlotAddressValue(index).Position == FreeSlotPosition;
   }
@@ -72,6 +94,15 @@ public abstract class BaseItemsPage : BasePage {
     //free list is for.
     if (FindFreeSlot(bytesLength) is { } reused) {
       return ReuseSlot(reused, bytesLength);
+    }
+    //A slot emptied by compaction keeps its index but holds no space; giving it space out of
+    //the contiguous area costs no new slot and keeps the directory from growing for ever.
+    if (FreeBytes >= bytesLength && FindEmptySlot() is { } emptied) {
+      var reusedPosition = NextFreePosition;
+      SetItemSlotAddressValue(emptied, reusedPosition, bytesLength);
+      NextFreePosition += bytesLength;
+      FreeBytes -= bytesLength;
+      return Buffer.Slice(reusedPosition, bytesLength);
     }
     if (FreeBytes < bytesLength + SlotSize) {
       throw new PageOverflowException(
@@ -95,6 +126,29 @@ public abstract class BaseItemsPage : BasePage {
     }
     SetItemSlotAddressValue(index, FreeSlotPosition, address.Length);
     FreeListBytes += address.Length;
+  }
+
+  //ST-4. Slides the live records down over the gaps the freed ones left, so that scattered
+  //free bytes become one usable run. Slot indexes do not change: the slot array is the
+  //indirection (D-2), so a record moving inside its page is invisible from outside it.
+  public virtual void Compact() {
+    var position = StartContentBufferPosition;
+    for (ushort i = 0; i < ItemsCount; i++) {
+      var address = GetItemSlotAddressValue(i);
+      if (address.Position == FreeSlotPosition) {
+        //The slot stays — its identity is stable — but its bytes go back to the run.
+        SetItemSlotAddressValue(i, FreeSlotPosition, 0);
+        continue;
+      }
+      if (address.Position != position) {
+        Buffer.MoveBytes(address.Position, position, address.Length);
+        SetItemSlotAddressValue(i, position, address.Length);
+      }
+      position += address.Length;
+    }
+    NextFreePosition = position;
+    FreeListBytes = 0;
+    FreeBytes = (ushort)(PageSize - ControlAreaByteSize - ItemsCount * SlotSize - position);
   }
 
   public virtual IEnumerable<BufferSlice> GetItems() {
@@ -121,7 +175,18 @@ public abstract class BaseItemsPage : BasePage {
   protected virtual ushort? FindFreeSlot(ushort bytesLength) {
     for (ushort i = 0; i < ItemsCount; i++) {
       var address = GetItemSlotAddressValue(i);
-      if (address.Position == FreeSlotPosition && address.Length >= bytesLength) {
+      if (address.Position == FreeSlotPosition && address.Length > 0 && address.Length >= bytesLength) {
+        return i;
+      }
+    }
+    return null;
+  }
+
+  //A slot that was freed and then emptied by compaction: it has an index but no space.
+  protected virtual ushort? FindEmptySlot() {
+    for (ushort i = 0; i < ItemsCount; i++) {
+      var address = GetItemSlotAddressValue(i);
+      if (address.Position == FreeSlotPosition && address.Length == 0) {
         return i;
       }
     }

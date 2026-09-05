@@ -143,6 +143,12 @@ public class BufferSlice {
     writeBytes = lenBytes + contentBytes;
   }
   
+  //Moves bytes inside the buffer. The regions may overlap, which is what compaction does
+  //when it slides records down over the gaps in front of them.
+  public virtual void MoveBytes(int fromIndex, int toIndex, int length) {
+    _buffer.Span.Slice(fromIndex, length).CopyTo(_buffer.Span.Slice(toIndex, length));
+  }
+
   public virtual byte[] ToArray() {
     return _buffer.ToArray();
   }

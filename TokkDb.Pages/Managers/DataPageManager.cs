@@ -7,12 +7,14 @@ namespace TokkDb.Pages.Managers;
 public class DataPageManager {
   private readonly PageManager _pageManager;
   private readonly CollectionCatalog _catalog;
+  private readonly FreeSpaceManager _freeSpace;
   private readonly TransactionManager _transactionManager;
 
-  public DataPageManager(PageManager pageManager, CollectionCatalog catalog,
+  public DataPageManager(PageManager pageManager, CollectionCatalog catalog, FreeSpaceManager freeSpace,
       TransactionManager transactionManager) {
     _pageManager = pageManager;
     _catalog = catalog;
+    _freeSpace = freeSpace;
     _transactionManager = transactionManager;
   }
 
@@ -23,10 +25,23 @@ public class DataPageManager {
   public DataRow RegisterRow(string collectionName, ushort bytesLength) {
     var page = GetAvailablePage(collectionName, bytesLength);
     _transactionManager.Track(page);
-    var slotIndex = page.ItemsCount;
+    var slotIndex = FindSlotFor(page, bytesLength);
     var buffer = page.RegisterItem(bytesLength);
     _catalog.IncrementRecordCount(collectionName);
+    RecordFreeSpace(collectionName, page);
     return new DataRow(new DocumentAddress(page.Index, slotIndex), buffer);
+  }
+
+  //RegisterItem may reuse a freed slot rather than append one, so where the record landed
+  //has to be worked out from the same rule rather than assumed to be the end.
+  private static ushort FindSlotFor(DataPage page, ushort bytesLength) {
+    var before = page.ItemsCount;
+    for (ushort i = 0; i < before; i++) {
+      if (page.IsItemFree(i) && page.WouldReuseSlot(i, bytesLength)) {
+        return i;
+      }
+    }
+    return before;
   }
 
   //Rewrites a record where it already lies. Nothing here grows a record: an update that
@@ -88,16 +103,45 @@ public class DataPageManager {
     page.FreeItem(address.SlotIndex);
     _transactionManager.Track(page);
     _catalog.DecrementRecordCount(collectionName);
+    RecordFreeSpace(collectionName, page);
   }
 
+  private void RecordFreeSpace(string collectionName, DataPage page) {
+    //A page holding nothing is Free and can take anything; one still holding records is
+    //Occupied and offers whatever it has left.
+    var state = page.IsEmpty ? BlockState.Free : BlockState.Occupied;
+    _freeSpace.Record(collectionName, page.Index, page.ReclaimableBytes, state);
+  }
+
+  //ST-1. The free-space structure says which pages are worth trying, so this no longer walks
+  //the whole chain for every insert.
   private DataPage GetAvailablePage(string collectionName, ushort bytesLength) {
-    foreach (var page in GetPages(collectionName)) {
+    foreach (var pageIndex in _freeSpace.FindPagesWithRoom(collectionName, bytesLength)) {
+      DataPage page;
+      try {
+        page = LoadPage(pageIndex);
+      } catch (PageCorruptedException) {
+        //A damaged page is recorded as such and never offered again.
+        _freeSpace.MarkDamaged(collectionName, pageIndex);
+        continue;
+      }
       if (page.CanFit(bytesLength)) {
         return page;
+      }
+      //The room is there but scattered. ST-4: close the gaps and try again.
+      if (page.ReclaimableBytes >= bytesLength + SlotByteSize) {
+        page.Compact();
+        _transactionManager.Track(page);
+        if (page.CanFit(bytesLength)) {
+          return page;
+        }
       }
     }
     return CreateNewPage(collectionName);
   }
+
+  //What a slot costs in the directory, for deciding whether compaction would free enough.
+  private const ushort SlotByteSize = 4;
 
   protected virtual IEnumerable<DataPage> GetPages(string collectionName) {
     var nextPageIndex = _catalog.GetDataFirstPage(collectionName);
@@ -127,6 +171,7 @@ public class DataPageManager {
     _transactionManager.Track(newPage);
     //Last, so that the catalogue write that follows sees a page chain that is already whole.
     _catalog.SetDataLastPage(collectionName, newPageIndex);
+    RecordFreeSpace(collectionName, newPage);
     return newPage;
   }
 }

@@ -69,6 +69,14 @@ public class CollectionCatalog {
     return Get(collectionName).DataLastPage;
   }
 
+  //ST-1: where the collection's free-space structure begins.
+  public void SetFreeSpaceRoot(string collectionName, uint pageIndex) {
+    _transactionManager.RequireTransaction();
+    var descriptor = Get(collectionName);
+    descriptor.FreeSpaceRoot = pageIndex;
+    Save(descriptor);
+  }
+
   public void SetDataLastPage(string collectionName, uint pageIndex) {
     _transactionManager.RequireTransaction();
     var descriptor = Get(collectionName);
