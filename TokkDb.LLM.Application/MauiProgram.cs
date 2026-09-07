@@ -7,6 +7,7 @@ using TokkDb.LLM.Application.Settings;
 using TokkDb.LLM.Core;
 using TokkDb.LLM.Core.Orchestration;
 using TokkDb.LLM.Storage;
+using TokkDb.LLM.Storage.Engine;
 
 namespace TokkDb.LLM.Application;
 
@@ -40,6 +41,10 @@ public static class MauiProgram
         builder.Logging.AddFilter("System.Net.Http", LogLevel.Warning);
         builder.Services.AddCoreServices();
         builder.Services.AddStorageServices();
+        // Phase 7: TokkDb is the storage, and it brings the semantic type registry and the
+        // conversation history with it — all three keep their documents in the same database
+        // file, so the application is still itself after a restart (CX-2).
+        builder.Services.AddTokkDbStorage(Settings.Settings.Instance.StorageFilePath);
         builder.Services.AddSingleton<ILlmConfigurationProvider, SettingsLlmConfigurationProvider>();
         builder.Services.AddAgentOrchestration();
         // The registry comes from AddStorageServices, which decides where it keeps its

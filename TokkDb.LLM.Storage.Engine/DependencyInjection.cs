@@ -20,14 +20,31 @@ public static class DependencyInjection
     /// </summary>
     public static IServiceCollection AddTokkDbStorage(this IServiceCollection services, string databaseFilePath)
     {
-        services.AddSingleton(provider => new TokkDbStorage(
-            databaseFilePath,
-            provider.GetService<TokkDb.LLM.Core.Diagnostics.IDiagnosticsService>()));
+        services.AddSingleton(provider =>
+        {
+            // The application's data directory may not exist on a first run, and opening the
+            // file is what would otherwise fail — after the container is built, where the
+            // failure is much harder to read.
+            if (Path.GetDirectoryName(databaseFilePath) is { Length: > 0 } directory)
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            return new TokkDbStorage(
+                databaseFilePath,
+                provider.GetService<TokkDb.LLM.Core.Diagnostics.IDiagnosticsService>(),
+                provider.GetService<Microsoft.Extensions.Logging.ILoggerFactory>());
+        });
         services.AddSingleton<IStorage>(provider => provider.GetRequiredService<TokkDbStorage>());
         services.AddSingleton<ISemanticTypeStore>(provider =>
             provider.GetRequiredService<TokkDbStorage>().SemanticTypes);
         services.AddSingleton<ISemanticTypeRegistry>(provider =>
             new SemanticTypeRegistry(provider.GetRequiredService<ISemanticTypeStore>()));
+        // CX-2. From the storage rather than built here, so there is one history over one
+        // connection: the database allows one writer (TX-4), and two instances would answer
+        // from two caches.
+        services.AddSingleton(provider =>
+            provider.GetRequiredService<TokkDbStorage>().Conversations);
         return services;
     }
 }

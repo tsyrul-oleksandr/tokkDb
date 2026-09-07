@@ -40,6 +40,16 @@ public class CollectionCatalog {
       return;
     }
     LoadCatalog();
+    CreateMissingSystemCollections();
+  }
+
+  //D-4 said the reserved list would grow — "(later: _events, _versions)" — so a database
+  //written before a system collection existed has to gain it rather than be migrated. It
+  //costs one catalogue document, and a collection nothing has written to has no pages at all.
+  private void CreateMissingSystemCollections() {
+    foreach (var name in SystemCollections.All.Where(name => !Exists(name))) {
+      CreateCollectionCore(name, SystemCollectionColumns(name), SystemCollections.Descriptions[name]);
+    }
   }
 
   public bool Exists(string collectionName) {
@@ -245,18 +255,22 @@ public class CollectionCatalog {
 
   protected virtual void CreateNewCatalog() {
     foreach (var name in SystemCollections.All) {
-      //The system collections that hold descriptors describe their own columns, for the same
-      //reason _collections does: nothing about the catalogue should be readable only in code.
-      var columns = name switch {
-        SystemCollections.Collections => CollectionDescriptorDocument.CreateSelfColumns(),
-        SystemCollections.Indexes => IndexDescriptorDocument.CreateColumns(),
-        SystemCollections.Relations => RelationDescriptorDocument.CreateColumns(),
-        SystemCollections.DisplayRules => DisplayRuleDocument.CreateColumns(),
-        SystemCollections.Settings => SettingsDocument.CreateColumns(),
-        _ => []
-      };
-      CreateCollectionCore(name, columns, SystemCollections.Descriptions[name]);
+      CreateCollectionCore(name, SystemCollectionColumns(name), SystemCollections.Descriptions[name]);
     }
+  }
+
+  //The system collections that hold descriptors describe their own columns, for the same
+  //reason _collections does: nothing about the catalogue should be readable only in code.
+  //One whose documents are defined above the engine says so through DescribeSystemCollection.
+  private static List<ColumnDescriptor> SystemCollectionColumns(string name) {
+    return name switch {
+      SystemCollections.Collections => CollectionDescriptorDocument.CreateSelfColumns(),
+      SystemCollections.Indexes => IndexDescriptorDocument.CreateColumns(),
+      SystemCollections.Relations => RelationDescriptorDocument.CreateColumns(),
+      SystemCollections.DisplayRules => DisplayRuleDocument.CreateColumns(),
+      SystemCollections.Settings => SettingsDocument.CreateColumns(),
+      _ => []
+    };
   }
 
   //The hardcoded minimal descriptor D-4 allows, and the only one in the engine. It carries

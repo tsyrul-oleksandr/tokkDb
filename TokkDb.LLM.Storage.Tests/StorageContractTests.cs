@@ -521,6 +521,104 @@ public abstract class StorageContractTests : IDisposable
         Assert.Equal("alice@example.com", storage.GetById("Customer", created.Id)!.Fields["Email"]);
     }
 
+    // ---- unit of work ----
+
+    [Fact]
+    public void EverythingWrittenInABatchIsThereAfterIt()
+    {
+        var storage = NewStorage();
+        storage.CreateCollection(CustomerCollection());
+
+        storage.InBatch(() =>
+        {
+            for (var index = 0; index < 50; index++)
+            {
+                Insert(storage, $"Name{index}");
+            }
+        });
+
+        Assert.Equal(50, storage.GetAll("Customer").Count);
+    }
+
+    /// <summary>
+    /// The half of the contract the import cares about: a failure part way through leaves
+    /// nothing behind rather than an unknown number of records with nothing to say which.
+    /// </summary>
+    [Fact]
+    public void ABatchThatFailsLeavesNothingBehind()
+    {
+        var storage = NewStorage();
+        storage.CreateCollection(CustomerCollection());
+        var beforeTheBatch = Insert(storage, "Existing");
+
+        var thrown = Record.Exception(() => storage.InBatch(() =>
+        {
+            Insert(storage, "First");
+            Insert(storage, "Second");
+            throw new InvalidOperationException("the import failed half way");
+        }));
+
+        Assert.IsType<InvalidOperationException>(thrown);
+        //Only what was there before the batch.
+        var remaining = Assert.Single(storage.GetAll("Customer"));
+        Assert.Equal(beforeTheBatch, remaining.Id);
+    }
+
+    //A schema change is a write like any other, so a batch has to take it back too.
+    [Fact]
+    public void ABatchThatFailsTakesBackTheSchemaChangesInItAsWell()
+    {
+        var storage = NewStorage();
+        storage.CreateCollection(CustomerCollection());
+
+        Assert.Throws<InvalidOperationException>(() => storage.InBatch(() =>
+        {
+            storage.AddColumn("Customer", new ColumnDefinition("Phone", ColumnType.String));
+            storage.CreateCollection(OrderCollection());
+            throw new InvalidOperationException("the migration failed half way");
+        }));
+
+        Assert.DoesNotContain(storage.GetCollectionDefinition("Customer")!.Columns,
+            column => column.Name == "Phone");
+        Assert.Null(storage.GetCollectionDefinition("Order"));
+    }
+
+    //A method that batches internally must be callable from a caller that is already batching.
+    [Fact]
+    public void ABatchInsideABatchJoinsTheOuterOne()
+    {
+        var storage = NewStorage();
+        storage.CreateCollection(CustomerCollection());
+
+        Assert.Throws<InvalidOperationException>(() => storage.InBatch(() =>
+        {
+            Insert(storage, "Outer");
+            storage.InBatch(() => Insert(storage, "Inner"));
+            throw new InvalidOperationException("the outer batch failed after the inner one finished");
+        }));
+
+        //The inner batch committing nothing on its own is what "joins" means: the outer
+        //failure takes its records back too.
+        Assert.Empty(storage.GetAll("Customer"));
+    }
+
+    [Fact]
+    public void ABatchThatSucceedsAfterOneThatFailedStillWorks()
+    {
+        var storage = NewStorage();
+        storage.CreateCollection(CustomerCollection());
+
+        Assert.Throws<InvalidOperationException>(() => storage.InBatch(() =>
+        {
+            Insert(storage, "Doomed");
+            throw new InvalidOperationException("no");
+        }));
+        storage.InBatch(() => Insert(storage, "Fine"));
+
+        var remaining = Assert.Single(storage.GetAll("Customer"));
+        Assert.Equal("Fine", remaining.Fields["FirstName"]);
+    }
+
     // ---- schema: collections ----
 
     [Fact]
@@ -934,9 +1032,9 @@ public abstract class StorageContractTests : IDisposable
             descending)];
     }
 
-    private static string?[] Names(StorageQueryResult result)
+    private static string[] Names(StorageQueryResult result)
     {
-        return result.Rows.Select(row => row.Fields["FirstName"] as string).ToArray();
+        return result.Rows.Select(row => row.Fields["FirstName"]?.ToString() ?? string.Empty).ToArray();
     }
 
     //Customer.CustomerId is unique and Order.CustomerId is not, which is what makes

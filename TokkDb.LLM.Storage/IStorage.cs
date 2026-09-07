@@ -2,6 +2,20 @@ namespace TokkDb.LLM.Storage;
 
 public interface IStorage
 {
+    /// <summary>
+    /// Runs <paramref name="work"/> as one unit: everything it writes is applied together or
+    /// not at all.
+    ///
+    /// Without it an import of hundreds of records is hundreds of commits — slow, because each
+    /// one pays the durability cost of the whole commit protocol, and worse than slow, because
+    /// a failure half way through leaves half the records behind with nothing to say which
+    /// half. Inside a batch a failure leaves the storage as it was before the batch began.
+    ///
+    /// A batch inside a batch joins the outer one, so a method that batches internally can be
+    /// called from a caller that is already batching.
+    /// </summary>
+    void InBatch(Action work);
+
     void CreateCollection(CollectionDefinition definition);
 
     bool DeleteCollection(string collectionName);

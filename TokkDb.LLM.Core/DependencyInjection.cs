@@ -13,6 +13,9 @@ public static class DependencyInjection
         services.AddSingleton<IDiagnosticsService, DiagnosticsService>();
         // In-memory only: conversations live for the lifetime of the process.
         // Swapping in a persistent implementation needs no change to the chat UI.
+        // In memory, because this assembly knows of no database to keep conversations in. A
+        // host running on TokkDb replaces it through AddTokkDbStorage, which registers the
+        // history that keeps its documents in the database file (CX-2).
         services.AddSingleton<IConversationHistoryService, InMemoryConversationHistoryService>();
         services.AddSingleton<IConversationAgent, ConversationAgent>();
         services.AddSingleton<ISemanticTypeAgent, SemanticTypeAgent>();

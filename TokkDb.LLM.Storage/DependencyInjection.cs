@@ -18,7 +18,6 @@ public static class DependencyInjection
         services.AddSingleton<IRecordDisplayService, RecordDisplayService>();
         services.AddSingleton<IRecordQueryBinder, RecordQueryBinder>();
         services.AddSingleton<MemoryStorage>();
-        services.AddSingleton<FileStorage>();
         services.AddSingleton<IStorage>(provider => provider.GetRequiredService<MemoryStorage>());
         return services;
     }

@@ -1,6 +1,8 @@
 using System.Globalization;
 using TokkDb.Documents.Path.Normalization;
 using TokkDb.LLM.Core;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using TokkDb.LLM.Core.Diagnostics;
 using TokkDb.Pages;
 using TokkDb.Values;
@@ -33,6 +35,7 @@ public sealed class TokkDbStorage : IStorage, IDisposable
 {
     private readonly EngineConnection _connection;
     private readonly QueryDiagnosticsReporter? _reporter;
+    private readonly ILoggerFactory _loggerFactory;
 
     public TokkDbStorage(string databaseFilePath) : this(databaseFilePath, null)
     {
@@ -44,11 +47,26 @@ public sealed class TokkDbStorage : IStorage, IDisposable
     /// without a host listening, and the measurement must not be something the caller has to
     /// remember to switch on per query.
     /// </summary>
-    public TokkDbStorage(string databaseFilePath, IDiagnosticsService? diagnostics)
+    public TokkDbStorage(string databaseFilePath, IDiagnosticsService? diagnostics,
+        ILoggerFactory? loggerFactory = null)
     {
         _connection = new EngineConnection(databaseFilePath);
         _connection.Load();
         _reporter = diagnostics is null ? null : new QueryDiagnosticsReporter(_connection.Queries, diagnostics);
+        _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
+    }
+
+    /// <summary>
+    /// One transaction for everything <paramref name="work"/> writes. The engine already has
+    /// the machinery — this is TX-1's atomicity offered to the caller rather than applied one
+    /// operation at a time — so an import of hundreds of records pays the commit protocol's
+    /// three fsyncs once instead of once per record, and a failure part way through rolls the
+    /// whole import back through the journal.
+    /// </summary>
+    public void InBatch(Action work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        _connection.InTransaction(work);
     }
 
     public void CreateCollection(CollectionDefinition definition)
@@ -193,6 +211,25 @@ public sealed class TokkDbStorage : IStorage, IDisposable
     /// </summary>
     public ISemanticTypeStore SemanticTypes =>
         _semanticTypes ??= new TokkDbSemanticTypeStore(_connection);
+
+    /// <summary>
+    /// The database this storage opened. Internal because a second connection to the same file
+    /// is refused (TX-4: one writer), so anything else that keeps documents in this database —
+    /// the conversation history — has to be built on this one rather than open its own.
+    /// </summary>
+    internal EngineConnection Connection => _connection;
+
+    /// <summary>
+    /// CX-2: the conversation history, kept in this database. One per storage, because it
+    /// caches what it has read and a second instance would answer from a second cache — and
+    /// because the database allows one writer (TX-4), so it could not open its own connection
+    /// even if it wanted to.
+    /// </summary>
+    public IConversationHistoryService Conversations =>
+        _conversations ??= new TokkDbConversationHistoryService(
+            _connection, _loggerFactory.CreateLogger<TokkDbConversationHistoryService>());
+
+    private IConversationHistoryService? _conversations;
 
     private ISemanticTypeStore? _semanticTypes;
 

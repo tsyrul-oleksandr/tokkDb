@@ -326,10 +326,32 @@ public class TokkDbConnection : IDisposable {
 
   //Runs the action inside a transaction, so a caller driving the index directly gets the
   //same journal and the same rollback as everything else.
+  //
+  //A rollback undoes the pages, and the catalogue is read from pages — but it is also cached
+  //in memory from open, so what the rollback took off the disk is still in the cache: a column
+  //the failed action added, a page it allocated, an index root it moved. Everything read from
+  //the catalogue is therefore read again, which is the same thing a reopen does and the only
+  //way to be sure the cache and the file agree. It happens only when the outermost transaction
+  //rolls back, because a nested one leaves the outer one to finish.
   public void InTransaction(Action action) {
     var transaction = _transactionManager.CreateTransaction();
+    var outermost = transaction.IsOutermost;
     try {
       action();
+      transaction.Commit();
+    } catch {
+      transaction.Rollback();
+      if (outermost) {
+        ReloadCatalogues();
+      }
+      throw;
+    }
+  }
+
+  private void ReloadCatalogues() {
+    var transaction = _transactionManager.CreateTransaction();
+    try {
+      Initialize();
       transaction.Commit();
     } catch {
       transaction.Rollback();

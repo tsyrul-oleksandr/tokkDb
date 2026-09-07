@@ -245,21 +245,25 @@ public class SchemaChangeTests {
     Assert.False(metadata.ContainsKey("one"));
   }
 
-  //The limit that comes with keeping the settings in one document: it has to fit a page.
-  //Growing a record into an overflow chain is ST-6 and not implemented, so a settings map
-  //past about 8 KB is refused with the storage layer's own error rather than silently losing
-  //entries. Recorded as a test because it is a boundary a caller can hit, not an accident.
+  //A settings document past a page used to be refused: it was rewritten where it lay, and
+  //growing a record in place is ST-6 and unbuilt. A document that has outgrown its slot is now
+  //retired and written again instead, which takes an overflow chain when it has to (ST-5), so
+  //the cap is gone.
   [Fact]
-  public void MetadataLargerThanAPageIsRefusedRatherThanTruncated() {
+  public void MetadataLargerThanAPageIsStoredRatherThanRefused() {
     using var file = new TempDatabaseFile();
-    using var db = NewDatabase(file);
-    db.SetMetadata(Collection, new Dictionary<string, string> { ["one"] = "1" });
+    using (var db = NewDatabase(file)) {
+      db.SetMetadata(Collection, new Dictionary<string, string> { ["one"] = "1" });
+      db.SetMetadata(Collection, Enumerable.Range(0, 400)
+        .ToDictionary(i => $"key-{i:D3}", i => new string('v', 100)));
+    }
 
-    Assert.Throws<PageOverflowException>(() => db.SetMetadata(Collection, Enumerable.Range(0, 100)
-      .ToDictionary(i => $"key-{i:D3}", i => new string('v', 100))));
+    using var reopened = new TokkDbConnection(file.Path);
+    reopened.Load();
 
-    //The transaction rolled back, so what was there is still there.
-    Assert.Equal("1", db.Metadata(Collection)["one"]);
+    var metadata = reopened.Metadata(Collection);
+    Assert.Equal(400, metadata.Count);
+    Assert.Equal(new string('v', 100), metadata["key-399"]);
   }
 
   //The system collections describe their own columns, for the same reason _collections does:

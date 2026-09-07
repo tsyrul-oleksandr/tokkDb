@@ -34,10 +34,12 @@ public class SystemDocumentStore {
     }
   }
 
-  //Writes the document under this identity, replacing whatever was there. A document grows
-  //and shrinks as its content changes, so it takes the in-place-or-move path a catalogue
-  //descriptor takes; one that outgrows a whole page is refused by the storage layer, because
-  //growing a record into an overflow chain is ST-6 and not implemented.
+  //Writes the document under this identity, replacing whatever was there.
+  //
+  //A document that still fits where it lies is written there; one that has outgrown its slot
+  //is retired and written again. The second path costs more but takes an overflow chain when
+  //it has to (ST-5), so a document is not capped at a page — which the in-place-or-move path
+  //a catalogue descriptor takes is, because growing a record where it lies is ST-6 and unbuilt.
   public void Write(string collectionName, Ulid id, ObjectDocument document) {
     Require(collectionName);
     _transactionManager.RequireTransaction();
@@ -51,7 +53,10 @@ public class SystemDocumentStore {
       _dataPageManager.UpdateRow(row.Value.Address, header, document);
       return;
     }
-    _dataPageManager.RewriteRow(collectionName, row.Value.Address, header, document);
+    //Retired before the new image exists, so "the current document" means one thing (VR-12).
+    _dataPageManager.RetireRow(collectionName, row.Value.Address, RecordFlags.Superseded,
+      RetentionPolicy.None);
+    _dataPageManager.WriteRecord(collectionName, header, document);
   }
 
   public bool Delete(string collectionName, Ulid id) {

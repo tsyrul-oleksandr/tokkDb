@@ -24,7 +24,9 @@ public record Settings
     /// asks for a larger window by default.
     /// </summary>
     public int ContextSize { get; set; } = DefaultContextSize;
-    public StorageBackend StorageType { get; set; } = StorageBackend.Memory;
+    //Phase 7: the engine is the default. Memory is still selectable, and still loses
+    //everything on exit.
+    public StorageBackend StorageType { get; set; } = StorageBackend.TokkDb;
     public string StorageFilePath { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TokkDb", "tokkdb.db");
 
