@@ -12,6 +12,12 @@ public static class CollectionDescriptorDocument {
   public const string DescriptionField = "description";
   public const string SchemaVersionField = "schemaVersion";
   public const string ColumnsField = "columns";
+  public const string MigrationsField = "migrations";
+  public const string MigrationVersionField = "version";
+  public const string MigrationKindField = "kind";
+  public const string MigrationColumnField = "column";
+  public const string MigrationNewNameField = "newName";
+  public const string MigrationNewTypeField = "newType";
   public const string OwningCollectionIdField = "owningCollectionId";
   public const string LastOwningCollectionIdField = "lastOwningCollectionId";
   public const string DataFirstPageField = "dataFirstPage";
@@ -44,6 +50,8 @@ public static class CollectionDescriptorDocument {
       new ColumnDescriptor(DescriptionField, ValueTypeEnum.String, "What the collection holds"),
       new ColumnDescriptor(SchemaVersionField, ValueTypeEnum.UInt, "Version of the column set"),
       new ColumnDescriptor(ColumnsField, ValueTypeEnum.Array, "Column definitions of the collection"),
+      new ColumnDescriptor(MigrationsField, ValueTypeEnum.Array,
+        "Schema changes a record written under an older version is read through"),
       new ColumnDescriptor(OwningCollectionIdField, ValueTypeEnum.UInt,
         "The number the data pages of the collection carry in their header", unique: true, readOnly: true),
       new ColumnDescriptor(LastOwningCollectionIdField, ValueTypeEnum.UInt,
@@ -68,6 +76,7 @@ public static class CollectionDescriptorDocument {
       [DescriptionField] = new StringDocumentValue(descriptor.Description),
       [SchemaVersionField] = new UIntDocumentValue(descriptor.SchemaVersion),
       [ColumnsField] = new ArrayDocumentValue(descriptor.Columns.Select(WriteColumn).ToArray()),
+      [MigrationsField] = new ArrayDocumentValue(descriptor.Migrations.Select(WriteMigration).ToArray()),
       [OwningCollectionIdField] = new UIntDocumentValue(descriptor.OwningCollectionId),
       [LastOwningCollectionIdField] = new UIntDocumentValue(descriptor.LastOwningCollectionId),
       [DataFirstPageField] = new UIntDocumentValue(descriptor.DataFirstPage),
@@ -95,6 +104,7 @@ public static class CollectionDescriptorDocument {
       Description = ReadString(value, DescriptionField),
       SchemaVersion = (ushort)ReadUInt(value, SchemaVersionField),
       Columns = ReadArray(value, ColumnsField).Select(ReadColumn).ToList(),
+      Migrations = ReadArray(value, MigrationsField).Select(ReadMigration).ToList(),
       OwningCollectionId = ReadUInt(value, OwningCollectionIdField),
       LastOwningCollectionId = ReadUInt(value, LastOwningCollectionIdField),
       DataFirstPage = ReadUInt(value, DataFirstPageField),
@@ -110,6 +120,33 @@ public static class CollectionDescriptorDocument {
       RecordCount = ReadUInt(value, RecordCountField),
       HistoryCollectionId = ReadUlid(value, HistoryCollectionIdField),
       RetentionPolicy = ReadString(value, RetentionPolicyField)
+    };
+  }
+
+  private static IDocumentValue WriteMigration(ColumnMigration migration) {
+    return new ObjectDocumentValue(new Dictionary<string, IDocumentValue> {
+      [MigrationVersionField] = new UIntDocumentValue(migration.Version),
+      //Names rather than numbers, for the same reason a column's type is written by name:
+      //renumbering an enum must not silently turn a rename into a removal.
+      [MigrationKindField] = new StringDocumentValue(migration.Kind.ToString()),
+      [MigrationColumnField] = new StringDocumentValue(migration.ColumnName),
+      [MigrationNewNameField] = new StringDocumentValue(migration.NewName),
+      [MigrationNewTypeField] = new StringDocumentValue(migration.NewType.ToString())
+    });
+  }
+
+  private static ColumnMigration ReadMigration(IDocumentValue value) {
+    var migration = (ObjectDocumentValue)value;
+    return new ColumnMigration {
+      Version = (ushort)ReadUInt(migration, MigrationVersionField),
+      Kind = Enum.TryParse<ColumnMigrationKind>(ReadString(migration, MigrationKindField), out var kind)
+        ? kind
+        : ColumnMigrationKind.Remove,
+      ColumnName = ReadString(migration, MigrationColumnField),
+      NewName = ReadString(migration, MigrationNewNameField),
+      NewType = Enum.TryParse<ValueTypeEnum>(ReadString(migration, MigrationNewTypeField), out var type)
+        ? type
+        : ValueTypeEnum.Null
     };
   }
 

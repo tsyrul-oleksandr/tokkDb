@@ -132,7 +132,12 @@ public class IndexCatalog {
   private void Build(SecondaryIndex index) {
     var collectionName = index.Descriptor.CollectionName;
     foreach (var row in _dataPageManager.GetAllRows(collectionName)) {
-      var record = StoredRecordUtilities.FromBuffer(_dataPageManager.ReadRecordBuffer(row));
+      //Migrated (DC-7): the index has to hold the value the column means now, because that is
+      //what a query encodes its constant as. A record written before a retype is indexed
+      //under the new type without being rewritten — which is why a retype rebuilds the index
+      //eagerly while leaving the records alone. The index is keys only, so the scan writes a
+      //fraction of what rewriting the collection would.
+      var record = _dataPageManager.ReadRecord(collectionName, row);
       if (!record.Header.IsLive) {
         continue;
       }

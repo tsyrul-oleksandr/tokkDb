@@ -20,27 +20,24 @@ namespace TokkDb.Pages.Managers;
 //what they mean belongs to the application, which is the only thing that can say.
 public class CollectionSettingsCatalog {
   private readonly TransactionManager _transactionManager;
-  private DataPageManager _dataPageManager;
+  private readonly SystemDocumentStore _documents;
 
   private readonly Dictionary<string, DisplayRuleEntry> _displayRules = new(StringComparer.Ordinal);
   private readonly Dictionary<string, SettingsEntry> _settings = new(StringComparer.Ordinal);
 
-  public CollectionSettingsCatalog(TransactionManager transactionManager) {
+  public CollectionSettingsCatalog(TransactionManager transactionManager, SystemDocumentStore documents) {
     _transactionManager = transactionManager;
-  }
-
-  public void SetDataPageManager(DataPageManager dataPageManager) {
-    _dataPageManager = dataPageManager;
+    _documents = documents;
   }
 
   public void Initialize() {
     _displayRules.Clear();
     _settings.Clear();
-    foreach (var document in ReadLive(SystemCollections.DisplayRules)) {
+    foreach (var (_, document) in _documents.ReadAll(SystemCollections.DisplayRules)) {
       var entry = DisplayRuleDocument.Read(document);
       _displayRules[entry.CollectionName] = entry;
     }
-    foreach (var document in ReadLive(SystemCollections.Settings)) {
+    foreach (var (_, document) in _documents.ReadAll(SystemCollections.Settings)) {
       var entry = SettingsDocument.Read(document);
       _settings[entry.CollectionName] = entry;
     }
@@ -64,7 +61,7 @@ public class CollectionSettingsCatalog {
       //pages, and a cache still holding the value that was refused would answer with something
       //the file does not contain until the next reopen disagreed with it.
       try {
-        Rewrite(SystemCollections.DisplayRules, existing.Id, DisplayRuleDocument.Write(existing));
+        _documents.Write(SystemCollections.DisplayRules, existing.Id, DisplayRuleDocument.Write(existing));
       } catch {
         existing.Template = previous;
         throw;
@@ -75,8 +72,12 @@ public class CollectionSettingsCatalog {
       Id = RecordIdentity.Next(), CollectionName = collectionName, Template = template
     };
     _displayRules[collectionName] = entry;
-    _dataPageManager.WriteRecord(SystemCollections.DisplayRules, RecordHeader.ForNewRecord(entry.Id),
-      DisplayRuleDocument.Write(entry));
+    try {
+      _documents.Write(SystemCollections.DisplayRules, entry.Id, DisplayRuleDocument.Write(entry));
+    } catch {
+      _displayRules.Remove(collectionName);
+      throw;
+    }
   }
 
   public IReadOnlyDictionary<string, string> GetMetadata(string collectionName) {
@@ -92,7 +93,7 @@ public class CollectionSettingsCatalog {
       var previous = existing.Values;
       existing.Values = values;
       try {
-        Rewrite(SystemCollections.Settings, existing.Id, SettingsDocument.Write(existing));
+        _documents.Write(SystemCollections.Settings, existing.Id, SettingsDocument.Write(existing));
       } catch {
         existing.Values = previous;
         throw;
@@ -107,8 +108,7 @@ public class CollectionSettingsCatalog {
     };
     _settings[collectionName] = entry;
     try {
-      _dataPageManager.WriteRecord(SystemCollections.Settings, RecordHeader.ForNewRecord(entry.Id),
-        SettingsDocument.Write(entry));
+      _documents.Write(SystemCollections.Settings, entry.Id, SettingsDocument.Write(entry));
     } catch {
       _settings.Remove(collectionName);
       throw;
@@ -121,48 +121,16 @@ public class CollectionSettingsCatalog {
     _transactionManager.RequireTransaction();
     RemoveDisplayRule(collectionName);
     if (_settings.Remove(collectionName, out var settings)) {
-      Retire(SystemCollections.Settings, settings.Id);
+      _documents.Delete(SystemCollections.Settings, settings.Id);
     }
   }
 
   private void RemoveDisplayRule(string collectionName) {
     if (_displayRules.Remove(collectionName, out var entry)) {
-      Retire(SystemCollections.DisplayRules, entry.Id);
+      _documents.Delete(SystemCollections.DisplayRules, entry.Id);
     }
   }
 
-  //A settings document grows and shrinks as entries are added, so it takes the same
-  //in-place-or-move path a catalogue descriptor does. One that outgrows a whole page is
-  //refused by the storage layer: growing a record into an overflow chain is ST-6 and not
-  //implemented, so the settings of one collection have to fit a page.
-  private void Rewrite(string collectionName, Ulid id, ObjectDocument document) {
-    var row = _dataPageManager.FindLiveRow(collectionName, id);
-    if (row is null) {
-      _dataPageManager.WriteRecord(collectionName, RecordHeader.ForNewRecord(id), document);
-      return;
-    }
-    var header = RecordHeader.ForNewRecord(id);
-    if (_dataPageManager.CanUpdateRowInPlace(row.Value.Address, header, document)) {
-      _dataPageManager.UpdateRow(row.Value.Address, header, document);
-      return;
-    }
-    _dataPageManager.RewriteRow(collectionName, row.Value.Address, header, document);
-  }
-
-  private void Retire(string collectionName, Ulid id) {
-    if (_dataPageManager.FindLiveRow(collectionName, id) is { } row) {
-      _dataPageManager.RetireRow(collectionName, row.Address, RecordFlags.Deleted, RetentionPolicy.None);
-    }
-  }
-
-  private IEnumerable<ObjectDocument> ReadLive(string collectionName) {
-    foreach (var row in _dataPageManager.GetAllRows(collectionName)) {
-      var record = StoredRecordUtilities.FromBuffer(_dataPageManager.ReadRecordBuffer(row));
-      if (record.Header.IsLive) {
-        yield return record.Document;
-      }
-    }
-  }
 }
 
 public class DisplayRuleEntry {

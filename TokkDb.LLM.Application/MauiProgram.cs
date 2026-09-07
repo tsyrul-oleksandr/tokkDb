@@ -42,8 +42,9 @@ public static class MauiProgram
         builder.Services.AddStorageServices();
         builder.Services.AddSingleton<ILlmConfigurationProvider, SettingsLlmConfigurationProvider>();
         builder.Services.AddAgentOrchestration();
-        builder.Services.AddSingleton<ISemanticTypeRegistry>(_ =>
-            new SemanticTypeRegistry());
+        // The registry comes from AddStorageServices, which decides where it keeps its
+        // definitions. Registering a second one here would shadow that with an instance that
+        // persists nothing, and the shadowing would be invisible until a restart.
         builder.Services.AddSingleton<ISchemaChangeProposalStore>(_ =>
             new MemorySchemaChangeProposalStore());
         builder.Services.AddSingleton(new SchemaToolOptions

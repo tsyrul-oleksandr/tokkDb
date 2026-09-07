@@ -144,11 +144,29 @@ public class CollectionCatalog {
     return _rootPageManager.AllocatePageIndex();
   }
 
+  //The column set of a reserved collection, for one whose documents are defined above the
+  //engine. It is the counterpart of the CreateSelfColumns the engine's own system collections
+  //carry, and it exists so that a collection like _semanticTypes — whose shape only the
+  //application knows — still describes itself in the catalogue rather than only in code
+  //(DC-7). The schema version does not move: nothing here changes what is stored, it records
+  //what was already being stored.
+  public void DescribeSystemCollection(string collectionName, IEnumerable<ColumnDescriptor> columns) {
+    _transactionManager.RequireTransaction();
+    if (!SystemCollections.IsReservedName(collectionName)) {
+      throw new ArgumentException(
+        $"'{collectionName}' is not a system collection.", nameof(collectionName));
+    }
+    var descriptor = Get(collectionName);
+    descriptor.Columns = columns?.ToList() ?? [];
+    Save(descriptor);
+  }
+
   //DC-7. The column set of a collection, replaced as a whole and the schema version bumped
   //with it. Records already written keep the version they were written under (VR-11), which
   //is what makes the migration lazy: a read decides what an old record means from the version
   //in its header rather than the collection being rewritten.
-  public CollectionDescriptor SetColumns(string collectionName, IEnumerable<ColumnDescriptor> columns) {
+  public CollectionDescriptor SetColumns(string collectionName, IEnumerable<ColumnDescriptor> columns,
+      IEnumerable<ColumnMigration> migrations = null) {
     _transactionManager.RequireTransaction();
     var descriptor = Get(collectionName);
     if (descriptor.IsSystem) {
@@ -159,8 +177,29 @@ public class CollectionCatalog {
     if (descriptor.SchemaVersion < ushort.MaxValue) {
       descriptor.SchemaVersion++;
     }
+    //Stamped with the version they produced, which is what a read compares the record's own
+    //version against. The caller says what changed rather than the catalogue diffing the two
+    //column sets: a rename and a remove-then-add look identical in a diff and mean opposite
+    //things to a record written before either.
+    foreach (var migration in migrations ?? []) {
+      migration.Version = descriptor.SchemaVersion;
+      descriptor.Migrations.Add(migration);
+    }
     Save(descriptor);
     return descriptor;
+  }
+
+  //Every record is at the current version, so there is nothing left for a read to replay.
+  //Rewrite calls this last, after the records have converged — before that the steps are the
+  //only thing that can read them.
+  public void ClearMigrations(string collectionName) {
+    _transactionManager.RequireTransaction();
+    var descriptor = Get(collectionName);
+    if (descriptor.Migrations.Count == 0) {
+      return;
+    }
+    descriptor.Migrations.Clear();
+    Save(descriptor);
   }
 
   //Removes a collection from the catalogue. The caller is responsible for what the collection

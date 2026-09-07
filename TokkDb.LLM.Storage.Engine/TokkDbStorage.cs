@@ -186,6 +186,30 @@ public sealed class TokkDbStorage : IStorage, IDisposable
     /// </summary>
     public QueryService Queries => _connection.Queries;
 
+    /// <summary>
+    /// D-4: the semantic type registry, kept in <c>_semanticTypes</c> of this database. One
+    /// per storage because it remembers which document belongs to which name; a second would
+    /// write a second document for the same type.
+    /// </summary>
+    public ISemanticTypeStore SemanticTypes =>
+        _semanticTypes ??= new TokkDbSemanticTypeStore(_connection);
+
+    private ISemanticTypeStore? _semanticTypes;
+
+    /// <summary>
+    /// DC-7: the version of a collection's column set. It moves when the structure changes
+    /// and stays put when metadata does, which is the distinction D-4 asks the two documents
+    /// to keep — a record is read against this version (VR-11), so moving it because a
+    /// confidence score changed would say every stored record now means something else.
+    /// </summary>
+    public int SchemaVersion(string collectionName)
+    {
+        collectionName = StorageValidation.NormalizeName(collectionName, "collection name");
+        return _connection.Collections
+            .FirstOrDefault(descriptor => descriptor.Name == collectionName)?.SchemaVersion
+            ?? throw new InvalidOperationException($"Collection '{collectionName}' does not exist.");
+    }
+
     public void Dispose()
     {
         _reporter?.Dispose();
@@ -420,18 +444,22 @@ public sealed class TokkDbStorage : IStorage, IDisposable
             .Select(column => column == existing ? updatedColumn : column)
             .ToList();
 
-        // The values move before the schema does. Reading them needs the old column set to
-        // decode with, and after the change that set is gone.
-        var rewritten = renamed || updatedColumn.Type != existing.Type
-            ? ReadAllFields(collectionName, definition)
-            : null;
-
-        SetColumns(collectionName, columns);
-
-        if (rewritten is not null)
+        // DC-7's lazy migration: what changed is recorded, not applied. The stored records are
+        // left exactly where they are and reads replay these steps over them, so a retype
+        // costs a version bump and an index rebuild rather than a rewrite of the collection.
+        var steps = new List<ColumnMigration>();
+        if (renamed)
         {
-            RewriteRecords(collectionName, rewritten, existing.Name, updatedColumn);
+            steps.Add(ColumnMigration.Rename(0, existing.Name, updatedColumn.Name));
         }
+
+        if (updatedColumn.Type != existing.Type)
+        {
+            // Under the column's name after the rename, because the rename is replayed first.
+            steps.Add(ColumnMigration.Retype(0, updatedColumn.Name, ToValueType(updatedColumn.Type)));
+        }
+
+        SetColumns(collectionName, columns, steps);
 
         if (renamed)
         {
@@ -465,11 +493,14 @@ public sealed class TokkDbStorage : IStorage, IDisposable
             throw new InvalidOperationException($"Column '{columnName}' is used by one or more relations.");
         }
 
-        var stored = ReadAllFields(collectionName, definition);
-        SetColumns(collectionName, definition.Columns
-            .Where(column => !string.Equals(column.Name, columnName, StringComparison.OrdinalIgnoreCase))
-            .ToList());
-        RewriteRecords(collectionName, stored, columnName, null);
+        // Recorded rather than applied, like a rename or a retype: the values stay on the
+        // pages and every read stops handing them out. Rewrite is what reclaims the space.
+        SetColumns(
+            collectionName,
+            definition.Columns
+                .Where(column => !string.Equals(column.Name, columnName, StringComparison.OrdinalIgnoreCase))
+                .ToList(),
+            [ColumnMigration.Remove(0, columnName)]);
         return true;
     }
 
@@ -565,96 +596,28 @@ public sealed class TokkDbStorage : IStorage, IDisposable
             ?? throw new InvalidOperationException($"Collection '{collectionName}' does not exist.");
     }
 
-    private void SetColumns(string collectionName, IReadOnlyCollection<ColumnDefinition> columns)
-    {
-        _connection.SetColumns(collectionName, columns.Select(ToEngineColumn));
-    }
-
-    /// <summary>
-    /// Every record of the collection, decoded with the schema as it is now. Taken before a
-    /// column change so the values can be written back under the new one — the engine stores
-    /// four of the seven column types as text and the column definition is what says which
-    /// type that text stands for, so a record read after the change would be read wrongly.
-    /// </summary>
-    private List<StorageRecord> ReadAllFields(string collectionName, CollectionDefinition definition)
-    {
-        return _connection.Entities(new FieldMapSerializer(definition), collectionName)
-            .GetAllRecords()
-            .Select(record => new StorageRecord(record.RecordId, collectionName, record.Value))
-            .ToList();
-    }
-
-    /// <summary>
-    /// Writes the records back with one column renamed, retyped or dropped. A rename keeps
-    /// the value under its new name; <paramref name="updatedColumn"/> of null drops it.
-    /// </summary>
-    private void RewriteRecords(
+    private void SetColumns(
         string collectionName,
-        List<StorageRecord> records,
-        string previousColumnName,
-        ColumnDefinition? updatedColumn)
+        IReadOnlyCollection<ColumnDefinition> columns,
+        IReadOnlyCollection<ColumnMigration>? migrations = null)
     {
-        if (records.Count == 0)
-        {
-            return;
-        }
-
-        var entities = Entities(collectionName);
-        // One transaction for the lot: a half-migrated collection is a schema the definition
-        // no longer describes, which nothing downstream could read.
-        _connection.InTransaction(() =>
-        {
-            foreach (var record in records)
-            {
-                var fields = new Dictionary<string, object?>(record.Fields, StringComparer.Ordinal);
-                if (!fields.Remove(previousColumnName, out var value))
-                {
-                    continue;
-                }
-
-                if (updatedColumn is not null)
-                {
-                    fields[updatedColumn.Name] = Convert(value, updatedColumn.Type);
-                }
-
-                entities.Update(record.Id, fields);
-            }
-        });
+        _connection.SetColumns(collectionName, columns.Select(ToEngineColumn), migrations);
     }
 
     /// <summary>
-    /// A stored value moved to a column of a different type. A value that cannot be converted
-    /// is dropped rather than kept: keeping it would store text under a column whose type
-    /// says it is a number, and every later read of the record would throw.
+    /// DC-7's eager migration, on demand. Brings every record of the collection up to the
+    /// current schema and drops the migration log, after which a read replays nothing and the
+    /// space a removed column occupied is gone.
+    ///
+    /// Offered rather than imposed, which is the whole of the decision: a retype on a large
+    /// collection is a long stall and a lot of dead space if it happens at the moment the
+    /// schema changes, and nothing but the caller knows when there is time for it.
     /// </summary>
-    private static object? Convert(object? value, ColumnType type)
+    public int Rewrite(string collectionName)
     {
-        if (value is null || StorageValidation.IsValueCompatible(type, value))
-        {
-            return value;
-        }
-
-        var text = value.ToString();
-        if (text is null)
-        {
-            return null;
-        }
-
-        return type switch
-        {
-            ColumnType.String => text,
-            ColumnType.Boolean => bool.TryParse(text, out var flag) ? flag : null,
-            ColumnType.Int32 => int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i)
-                ? i : null,
-            ColumnType.Int64 => long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var l)
-                ? l : null,
-            ColumnType.Decimal => decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var d)
-                ? d : null,
-            ColumnType.DateTime => DateTime.TryParse(text, CultureInfo.InvariantCulture,
-                DateTimeStyles.RoundtripKind, out var moment) ? moment : null,
-            ColumnType.Guid => Guid.TryParse(text, out var id) ? id : null,
-            _ => null
-        };
+        collectionName = StorageValidation.NormalizeName(collectionName, "collection name");
+        RequireDefinition(collectionName);
+        return _connection.Rewrite(collectionName);
     }
 
     // A relation naming the old column would otherwise describe a constraint on a column that

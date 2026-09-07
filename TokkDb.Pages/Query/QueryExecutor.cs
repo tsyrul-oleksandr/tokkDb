@@ -50,14 +50,15 @@ public sealed class QueryExecutor {
     foreach (var row in Rows(plan.Path)) {
       examined++;
       //An overflowed record is put back together here and nowhere else; one that fits its
-      //page is checked where it lies, with nothing copied.
-      var buffer = _dataPageManager.ReadRecordBuffer(row);
-      var fields = new BufferedObjectValue(buffer, RecordHeader.ByteSize);
+      //page is checked where it lies, with nothing copied. A record written under an older
+      //schema is read through the migration on the way (DC-7), one field at a time like any
+      //other — the predicate cannot tell, which is the point.
+      var fields = _dataPageManager.ReadFields(plan.CollectionName, row, out _);
       if (!Satisfies(filters, plan.Residual, fields)) {
         continue;
       }
       materialised++;
-      matches.Add(new QueryMatch(row.Address, StoredRecordUtilities.FromBuffer(buffer)));
+      matches.Add(new QueryMatch(row.Address, _dataPageManager.ReadRecord(plan.CollectionName, row)));
     }
     stopwatch.Stop();
 
@@ -68,15 +69,16 @@ public sealed class QueryExecutor {
   }
 
   private static bool Satisfies(IReadOnlyList<ComparisonExpression> filters, IExpression residual,
-      BufferedObjectValue fields) {
+      IFieldSource fields) {
+    var value = (IDocumentValue)fields;
     foreach (var filter in filters) {
-      if (!BooleanExpression.IsTrue(filter.Execute(fields, fields))) {
+      if (!BooleanExpression.IsTrue(filter.Execute(value, value))) {
         return false;
       }
     }
     //Last, because it is the expensive half: a conjunct reads one field and a residual may
     //walk a whole subtree of the predicate.
-    return residual is null || BooleanExpression.IsTrue(residual.Execute(fields, fields));
+    return residual is null || BooleanExpression.IsTrue(residual.Execute(value, value));
   }
 
   //The conjunct as the expression it was lifted out of. Rebuilding it rather than

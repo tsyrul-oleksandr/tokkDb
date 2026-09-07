@@ -73,35 +73,39 @@ public abstract class BaseItemsPage : BasePage {
     return Buffer.Slice(addressValue.Position, addressValue.Length);
   }
 
-  //Whether RegisterItem would hand this freed slot out for a record of that size.
-  public virtual bool WouldReuseSlot(ushort index, ushort bytesLength) {
-    var address = GetItemSlotAddressValue(index);
-    return address.Position == FreeSlotPosition && address.Length > 0 && address.Length >= bytesLength;
-  }
-
   public virtual bool IsItemFree(ushort index) {
     return GetItemSlotAddressValue(index).Position == FreeSlotPosition;
   }
 
   //An item costs its own bytes plus the slot it takes from the directory growing down from
-  //the control area — unless a freed slot already big enough can take it.
+  //the control area — unless a slot with no bytes of its own can hold it, which costs only
+  //the bytes.
   public virtual bool CanFit(ushort bytesLength) {
-    return FreeBytes >= bytesLength + SlotSize || FindFreeSlot(bytesLength) is not null;
+    return FreeBytes >= bytesLength + SlotSize
+      || (FreeBytes >= bytesLength && FindEmptySlot() is not null);
   }
 
   public virtual BufferSlice RegisterItem(ushort bytesLength) {
-    //A freed slot is used before the page is grown, which is what returning space to the
-    //free list is for.
-    if (FindFreeSlot(bytesLength) is { } reused) {
-      return ReuseSlot(reused, bytesLength);
-    }
-    //A slot emptied by compaction keeps its index but holds no space; giving it space out of
-    //the contiguous area costs no new slot and keeps the directory from growing for ever.
+    return RegisterItem(bytesLength, out _);
+  }
+
+  //Hands back the slot the item went into as well as its bytes.
+  //
+  //Which slot that is has to come from here rather than be worked out again by the caller.
+  //There are three ways an item can be placed and a caller that models only some of them
+  //writes the item correctly and records the wrong address for it — which a scan cannot see,
+  //because the record is on the page, and an index cannot survive, because the entry points
+  //at a slot that was never written (D-2).
+  public virtual BufferSlice RegisterItem(ushort bytesLength, out ushort slotIndex) {
+    //A slot with no bytes of its own — freed, or emptied by compaction — keeps its index and
+    //is given space out of the contiguous run. That costs no new slot, so the directory does
+    //not grow for ever on a page that is written and freed repeatedly.
     if (FreeBytes >= bytesLength && FindEmptySlot() is { } emptied) {
       var reusedPosition = NextFreePosition;
       SetItemSlotAddressValue(emptied, reusedPosition, bytesLength);
       NextFreePosition += bytesLength;
       FreeBytes -= bytesLength;
+      slotIndex = emptied;
       return Buffer.Slice(reusedPosition, bytesLength);
     }
     if (FreeBytes < bytesLength + SlotSize) {
@@ -114,25 +118,42 @@ public abstract class BaseItemsPage : BasePage {
     NextFreePosition += bytesLength;
     ItemsCount++;
     FreeBytes -= (ushort)(bytesLength + SlotSize);
+    slotIndex = newItemIndex;
     return Buffer.Slice(startPosition, bytesLength);
   }
 
-  //Returns an item's space to the page's free list. The slot keeps its size so the space can
-  //be handed out again; the bytes themselves are left alone until something reuses them.
+  //Returns an item's space to the page's free list. The slot stays — its identity is what an
+  //index entry points at (D-2) — and its bytes are counted as reclaimable, to be recovered by
+  //the next compaction.
+  //
+  //The bytes are not held for the slot to hand out again. Doing that would mean remembering
+  //where they were, and a slot has room for a position or the marker that says it is free,
+  //not both: what the code did instead was reconstruct the position by summing the lengths of
+  //the slots before it, which is only right while every item lies in slot order. One reused
+  //slot breaks that, and the reconstruction then points at a live record, which the next write
+  //overwrites. Space is reclaimed by compaction, which is what ST-4 is for.
   public virtual void FreeItem(ushort index) {
     var address = GetItemSlotAddressValue(index);
     if (address.Position == FreeSlotPosition) {
       return;
     }
-    SetItemSlotAddressValue(index, FreeSlotPosition, address.Length);
+    SetItemSlotAddressValue(index, FreeSlotPosition, 0);
     FreeListBytes += address.Length;
   }
 
   //ST-4. Slides the live records down over the gaps the freed ones left, so that scattered
   //free bytes become one usable run. Slot indexes do not change: the slot array is the
   //indirection (D-2), so a record moving inside its page is invisible from outside it.
+  //
+  //The records are moved in the order they lie in the page, which is not the order of their
+  //slots. A slot handed out again — a freed one reused, or one compaction emptied and
+  //RegisterItem then gave space out of the run — holds bytes further along the page than a
+  //slot after it, so walking the directory in order and sliding each record down would copy
+  //one record over another that had not been moved yet. Ascending by position, every
+  //destination is at or below its source and everything below it is already in place, so the
+  //overlapping copies are safe.
   public virtual void Compact() {
-    var position = StartContentBufferPosition;
+    var live = new List<(ushort Slot, ushort Position, ushort Length)>();
     for (ushort i = 0; i < ItemsCount; i++) {
       var address = GetItemSlotAddressValue(i);
       if (address.Position == FreeSlotPosition) {
@@ -140,11 +161,17 @@ public abstract class BaseItemsPage : BasePage {
         SetItemSlotAddressValue(i, FreeSlotPosition, 0);
         continue;
       }
-      if (address.Position != position) {
-        Buffer.MoveBytes(address.Position, position, address.Length);
-        SetItemSlotAddressValue(i, position, address.Length);
+      live.Add((i, address.Position, address.Length));
+    }
+    live.Sort((left, right) => left.Position.CompareTo(right.Position));
+
+    var position = StartContentBufferPosition;
+    foreach (var item in live) {
+      if (item.Position != position) {
+        Buffer.MoveBytes(item.Position, position, item.Length);
+        SetItemSlotAddressValue(item.Slot, position, item.Length);
       }
-      position += address.Length;
+      position += item.Length;
     }
     NextFreePosition = position;
     FreeListBytes = 0;
@@ -172,16 +199,6 @@ public abstract class BaseItemsPage : BasePage {
 
   //First fit. What is left over inside an oversized slot stays there until compaction; a
   //free-space map across pages is ST-1's job, not this one's.
-  protected virtual ushort? FindFreeSlot(ushort bytesLength) {
-    for (ushort i = 0; i < ItemsCount; i++) {
-      var address = GetItemSlotAddressValue(i);
-      if (address.Position == FreeSlotPosition && address.Length > 0 && address.Length >= bytesLength) {
-        return i;
-      }
-    }
-    return null;
-  }
-
   //A slot that was freed and then emptied by compaction: it has an index but no space.
   protected virtual ushort? FindEmptySlot() {
     for (ushort i = 0; i < ItemsCount; i++) {
@@ -191,24 +208,6 @@ public abstract class BaseItemsPage : BasePage {
       }
     }
     return null;
-  }
-
-  protected virtual BufferSlice ReuseSlot(ushort index, ushort bytesLength) {
-    var address = GetItemSlotAddressValue(index);
-    var startPosition = FindSlotContentPosition(index, address.Length);
-    SetItemSlotAddressValue(index, startPosition, address.Length);
-    FreeListBytes -= address.Length;
-    return Buffer.Slice(startPosition, address.Length);
-  }
-
-  //A freed slot keeps its length but loses its position, so the position is recovered from
-  //where the item before it ends.
-  protected virtual ushort FindSlotContentPosition(ushort index, ushort length) {
-    var position = StartContentBufferPosition;
-    for (ushort i = 0; i < index; i++) {
-      position += GetItemSlotAddressValue(i).Length;
-    }
-    return position;
   }
 
   protected virtual (ushort Position, ushort Length) GetItemSlotAddressValue(ushort index) {
