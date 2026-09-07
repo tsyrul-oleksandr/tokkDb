@@ -23,6 +23,74 @@ public sealed partial class MemoryStorage : IStorage
         _logger = logger ?? NullLogger<MemoryStorage>.Instance;
     }
 
+    //Depth rather than a flag: a batch inside a batch joins the outer one, and only the
+    //outermost decides whether the whole thing is kept.
+    private int _batchDepth;
+    private Dictionary<string, CollectionState>? _batchCollections;
+    private Dictionary<string, RelationDefinition>? _batchRelations;
+
+    /// <summary>
+    /// Everything <paramref name="work"/> writes is applied together or not at all.
+    ///
+    /// In memory there is no commit to defer, so what a batch buys here is the other half of
+    /// the contract: a failure part way through leaves nothing behind. The state is copied
+    /// when the outermost batch opens and put back if it throws — the records and definitions
+    /// are immutable, so only the dictionaries holding them are copied.
+    /// </summary>
+    public void InBatch(Action work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+
+        lock (_sync)
+        {
+            if (_batchDepth++ == 0)
+            {
+                _batchCollections = _collections.ToDictionary(
+                    entry => entry.Key, entry => entry.Value.Snapshot(), StringComparer.OrdinalIgnoreCase);
+                _batchRelations = new Dictionary<string, RelationDefinition>(
+                    _relations, StringComparer.OrdinalIgnoreCase);
+            }
+        }
+
+        try
+        {
+            work();
+        }
+        catch
+        {
+            lock (_sync)
+            {
+                if (_batchDepth == 1 && _batchCollections is not null && _batchRelations is not null)
+                {
+                    _collections.Clear();
+                    foreach (var entry in _batchCollections)
+                    {
+                        _collections[entry.Key] = entry.Value;
+                    }
+
+                    _relations.Clear();
+                    foreach (var entry in _batchRelations)
+                    {
+                        _relations[entry.Key] = entry.Value;
+                    }
+                }
+            }
+
+            throw;
+        }
+        finally
+        {
+            lock (_sync)
+            {
+                if (--_batchDepth == 0)
+                {
+                    _batchCollections = null;
+                    _batchRelations = null;
+                }
+            }
+        }
+    }
+
     public void CreateCollection(CollectionDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
@@ -1225,6 +1293,33 @@ public sealed partial class MemoryStorage : IStorage
             Metadata.TryGetValue(SchemaVersionMetadataKey, out var raw) && int.TryParse(raw, out var parsed) && parsed > 0
                 ? parsed
                 : 1;
+
+        //Everything that can change during a batch, kept so it can be put back if the batch
+        //fails. The records and definitions themselves are immutable, so only the dictionaries
+        //holding them are copied.
+        public CollectionState Snapshot()
+        {
+            var copy = new CollectionState(Definition) { DisplayRule = DisplayRule };
+            copy.Columns.Clear();
+            foreach (var column in Columns)
+            {
+                copy.Columns[column.Key] = column.Value;
+            }
+
+            copy.Metadata.Clear();
+            foreach (var entry in Metadata)
+            {
+                copy.Metadata[entry.Key] = entry.Value;
+            }
+
+            foreach (var record in Records)
+            {
+                copy.Records[record.Key] = record.Value;
+            }
+
+            copy.RebuildDefinition();
+            return copy;
+        }
 
         public void RebuildDefinition()
         {

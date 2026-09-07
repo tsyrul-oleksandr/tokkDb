@@ -217,8 +217,15 @@ public class CollectionCatalogTests {
     var cataloguePage = pageManager.LoadPage<DataPage>(rootPage.CollectionsFirstPageId);
     Assert.Equal(PageType.Data, cataloguePage.Type);
     //Every descriptor is an ordinary record: the VR-11 header, then a document body that the
-    //ordinary document reader understands.
-    var records = cataloguePage.GetItems().Select(StoredRecordUtilities.FromBuffer).ToList();
+    //ordinary document reader understands. Read along the chain rather than off the first
+    //page — the catalogue is an ordinary collection, so it spills onto a second page like any
+    //other, and it does once the system collections describe their own columns.
+    var records = new List<StoredRecord>();
+    for (var page = cataloguePage; page is not null;
+        page = page.NextPageIndex == default ? null : pageManager.LoadPage<DataPage>(page.NextPageIndex)) {
+      Assert.Equal(PageType.Data, page.Type);
+      records.AddRange(page.GetItems().Select(StoredRecordUtilities.FromBuffer));
+    }
     Assert.Equal(SystemCollections.All.Count + 1, records.Count);
     Assert.All(records, record => Assert.True(record.Header.IsLive));
     Assert.All(records, record => Assert.NotEqual(default, record.Header.RecordId));

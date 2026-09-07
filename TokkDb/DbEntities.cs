@@ -68,7 +68,7 @@ public class DbEntities<T> {
   //it a lookup would hide which of the two the caller got.
   public IEnumerable<DbRecord<T>> GetBy(string columnName, object value) {
     return _dataPageManager.FindRowsByValue(_entityName, columnName, DocumentValues.From(value))
-      .Select(row => StoredRecordUtilities.FromBuffer(_dataPageManager.ReadRecordBuffer(row)))
+      .Select(row => _dataPageManager.ReadRecord(_entityName, row))
       .Select(record => new DbRecord<T>(record.Header.RecordId, _serializer.Deserialize(record.Document)));
   }
 
@@ -99,7 +99,7 @@ public class DbEntities<T> {
     if (row == null) {
       return null;
     }
-    var record = StoredRecordUtilities.FromBuffer(_dataPageManager.ReadRecordBuffer(row.Value));
+    var record = _dataPageManager.ReadRecord(_entityName, row.Value);
     return new DbRecord<T>(recordId, _serializer.Deserialize(record.Document));
   }
 
@@ -107,7 +107,8 @@ public class DbEntities<T> {
   //image yet, but a scan that ignored the byte would have to change when something does.
   private IEnumerable<StoredRecord> LiveRecords() {
     return _dataPageManager.GetAllRows(_entityName)
-      .Select(row => StoredRecordUtilities.FromBuffer(_dataPageManager.ReadRecordBuffer(row)))
+      //DC-7: read as the schema now describes it, whatever schema it was written under.
+      .Select(row => _dataPageManager.ReadRecord(_entityName, row))
       .Where(record => record.Header.IsLive);
   }
 

@@ -6,6 +6,11 @@ namespace TokkDb.LLM.Core;
 /// Keeps conversations in application memory only. Nothing is written to disk or
 /// to a database; everything is lost when the application exits.
 ///
+/// No longer what the application uses: CX-2 is served by the storage-backed history that
+/// <c>AddTokkDbStorage</c> registers. This stays as the fallback for a host with no database
+/// — the same place <c>InMemorySemanticTypeStore</c> occupies — and for tests that want a
+/// history with nothing behind it.
+///
 /// Registered as a singleton so every part of the application sees the same
 /// history. All access is guarded, because entries arrive from the orchestrator's
 /// background streaming as well as from the UI thread.

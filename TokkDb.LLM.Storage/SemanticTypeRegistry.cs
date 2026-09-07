@@ -4,14 +4,40 @@ namespace TokkDb.LLM.Storage;
 
 public sealed partial class SemanticTypeRegistry : ISemanticTypeRegistry
 {
+    private readonly ISemanticTypeStore _store;
     private readonly List<SemanticTypeDefinition> _definitions = new();
+
+    /// <summary>
+    /// Kept in memory as well as in the store, because resolving a name or an alias happens
+    /// on every record written and validating a hierarchy needs the whole set. The store is
+    /// read once, here, and written through on every change.
+    /// </summary>
+    public SemanticTypeRegistry(ISemanticTypeStore? store = null)
+    {
+        _store = store ?? new InMemorySemanticTypeStore();
+        _definitions.AddRange(_store.Load());
+    }
 
     public void Register(SemanticTypeDefinition definition)
     {
         var normalized = Normalize(definition);
         ValidateDefinition(normalized);
 
+        //Registering a name that is already known replaces it. Before anything persisted
+        //these it appended, and the second definition simply shadowed the first in every
+        //lookup; a store that appended as well would accumulate a definition per edit and
+        //come back with the oldest.
+        _definitions.RemoveAll(existing => existing.Name == normalized.Name);
         _definitions.Add(normalized);
+        try
+        {
+            _store.Save(normalized);
+        }
+        catch
+        {
+            _definitions.Remove(normalized);
+            throw;
+        }
     }
 
     public bool Delete(string name)
@@ -21,17 +47,19 @@ public sealed partial class SemanticTypeRegistry : ISemanticTypeRegistry
         {
             return false;
         }
-        
+
         _definitions.Remove(item);
-        if (!_definitions.Any(definition =>
+        //A type something else derives from cannot go: the child's base type was checked
+        //against it, and nothing would check it again.
+        if (_definitions.Any(definition =>
                 string.Equals(definition.ParentType, name, StringComparison.OrdinalIgnoreCase)))
         {
-            return true;
+            _definitions.Add(item);
+            return false;
         }
-        
-        _definitions.Add(item);
-        return false;
 
+        _store.Delete(name);
+        return true;
     }
 
     public SemanticTypeDefinition? GetByNameOrAlias(string nameOrAlias)

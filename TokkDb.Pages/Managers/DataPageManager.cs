@@ -100,6 +100,34 @@ public class DataPageManager {
     return row;
   }
 
+  //DC-7. The read path proper: a record as the collection's current schema describes it,
+  //whatever schema it was written under.
+  //
+  //Everything that reads a record of a collection goes through here or through ReadFields —
+  //queries, scans, the index builder, the index maintenance a delete does — so a record
+  //written before a column was renamed reads the same way to all of them. That is what makes
+  //the migration lazy rather than merely deferred: nothing has to remember to apply it.
+  public StoredRecord ReadRecord(string collectionName, DataRow row) {
+    var record = StoredRecordUtilities.FromBuffer(ReadRecordBuffer(row));
+    var migrator = MigratorFor(collectionName, record.Header.SchemaVersion);
+    return migrator.IsIdentity ? record : new StoredRecord(record.Header, migrator.Apply(record.Document));
+  }
+
+  //The same, without parsing the record: the fields a predicate asks for, migrated as they are
+  //read. The query path of Phase 6 filters against the page buffer, and reading the whole
+  //document to migrate it would give that back.
+  public IFieldSource ReadFields(string collectionName, DataRow row, out RecordHeader header) {
+    var buffer = ReadRecordBuffer(row);
+    header = StoredRecordUtilities.ReadHeader(buffer);
+    var fields = new BufferedObjectValue(buffer, RecordHeader.ByteSize);
+    var migrator = MigratorFor(collectionName, header.SchemaVersion);
+    return migrator.IsIdentity ? fields : new MigratedFieldSource(fields, migrator);
+  }
+
+  public SchemaMigrator MigratorFor(string collectionName, ushort recordVersion) {
+    return SchemaMigrator.For(_catalog.Get(collectionName), recordVersion);
+  }
+
   //The read path. A record that fits its page is handed back where it lies; one that
   //overflowed is put together again out of its chain.
   public BufferSlice ReadRecordBuffer(DataRow row) {
@@ -196,8 +224,10 @@ public class DataPageManager {
   private DataRow RegisterRow(string collectionName, ushort bytesLength, bool countRecord) {
     var page = GetAvailablePage(collectionName, bytesLength);
     _transactionManager.Track(page);
-    var slotIndex = FindSlotFor(page, bytesLength);
-    var buffer = page.RegisterItem(bytesLength);
+    //The slot comes from the page rather than being predicted: it knows which of its three
+    //placements it used, and a prediction that modelled only some of them recorded an address
+    //no record was ever written to.
+    var buffer = page.RegisterItem(bytesLength, out var slotIndex);
     if (countRecord) {
       _catalog.IncrementRecordCount(collectionName);
     }
@@ -205,20 +235,27 @@ public class DataPageManager {
     return new DataRow(new DocumentAddress(page.Index, slotIndex), buffer);
   }
 
-  //RegisterItem may reuse a freed slot rather than append one, so where the record landed
-  //has to be worked out from the same rule rather than assumed to be the end.
-  private static ushort FindSlotFor(DataPage page, ushort bytesLength) {
-    var before = page.ItemsCount;
-    for (ushort i = 0; i < before; i++) {
-      if (page.IsItemFree(i) && page.WouldReuseSlot(i, bytesLength)) {
-        return i;
-      }
-    }
-    return before;
-  }
-
   //Whether the image would still fit where it is. A caller that has to be able to grow a
   //record asks first rather than catching the overflow.
+  //DC-7's eager half: a record written back under the current schema. Used only by Rewrite —
+  //nothing on the write path calls it, because a write already produces a record at the
+  //current version.
+  //
+  //The values are the ones a read was already handing out, so the index entries are right
+  //already; what can change is where the record lives, and an entry that pointed at the old
+  //slot has to be moved with it (D-2).
+  public DataRow MigrateRow(string collectionName, DataRow row, RecordHeader header,
+      ObjectDocument document) {
+    if (CanUpdateRowInPlace(row.Address, header, document)) {
+      UpdateRow(row.Address, header, document);
+      return row;
+    }
+    var moved = RewriteRow(collectionName, row.Address, header, document);
+    IndexRow(collectionName, header.RecordId, moved.Address);
+    AddSecondaryEntries(collectionName, header.RecordId, document, moved.Address);
+    return moved;
+  }
+
   public bool CanUpdateRowInPlace(DocumentAddress address, RecordHeader header, ObjectDocument document) {
     var slot = LoadPage(address.PageIndex).GetItem(address.SlotIndex);
     return StoredRecordUtilities.GetBytesLength(header, document) <= slot.Length;
@@ -455,7 +492,9 @@ public class DataPageManager {
     //Read while the record is still whole: taking its entries out of the secondary indexes
     //needs the values it held, and the overflow chain holding them is about to be freed.
     var document = HasSecondaryIndexes(collectionName)
-      ? StoredRecordUtilities.FromBuffer(ReadRecordBuffer(new DataRow(address, slot))).Document
+      //Migrated, because the entries being removed were made from the migrated values: a
+      //record written before a rename is indexed under the column's current name.
+      ? ReadRecord(collectionName, new DataRow(address, slot)).Document
       : null;
     //A record that overflowed takes its chain with it, through this same one seam.
     if (header.Flags.HasFlag(RecordFlags.HasOverflow)) {

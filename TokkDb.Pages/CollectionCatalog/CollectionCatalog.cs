@@ -40,6 +40,16 @@ public class CollectionCatalog {
       return;
     }
     LoadCatalog();
+    CreateMissingSystemCollections();
+  }
+
+  //D-4 said the reserved list would grow — "(later: _events, _versions)" — so a database
+  //written before a system collection existed has to gain it rather than be migrated. It
+  //costs one catalogue document, and a collection nothing has written to has no pages at all.
+  private void CreateMissingSystemCollections() {
+    foreach (var name in SystemCollections.All.Where(name => !Exists(name))) {
+      CreateCollectionCore(name, SystemCollectionColumns(name), SystemCollections.Descriptions[name]);
+    }
   }
 
   public bool Exists(string collectionName) {
@@ -99,6 +109,17 @@ public class CollectionCatalog {
     Save(descriptor);
   }
 
+  //The counterpart of SetSecondaryIndexRoot, for an index that no longer exists. The entry is
+  //removed rather than zeroed: a root of zero is what an empty tree has, so leaving the name
+  //behind would describe an index that is merely empty rather than gone.
+  public void RemoveSecondaryIndexRoot(string collectionName, string indexName) {
+    _transactionManager.RequireTransaction();
+    var descriptor = Get(collectionName);
+    if (descriptor.SecondaryIndexRoots.Remove(indexName)) {
+      Save(descriptor);
+    }
+  }
+
   public void SetDataLastPage(string collectionName, uint pageIndex) {
     _transactionManager.RequireTransaction();
     var descriptor = Get(collectionName);
@@ -133,6 +154,88 @@ public class CollectionCatalog {
     return _rootPageManager.AllocatePageIndex();
   }
 
+  //The column set of a reserved collection, for one whose documents are defined above the
+  //engine. It is the counterpart of the CreateSelfColumns the engine's own system collections
+  //carry, and it exists so that a collection like _semanticTypes — whose shape only the
+  //application knows — still describes itself in the catalogue rather than only in code
+  //(DC-7). The schema version does not move: nothing here changes what is stored, it records
+  //what was already being stored.
+  public void DescribeSystemCollection(string collectionName, IEnumerable<ColumnDescriptor> columns) {
+    _transactionManager.RequireTransaction();
+    if (!SystemCollections.IsReservedName(collectionName)) {
+      throw new ArgumentException(
+        $"'{collectionName}' is not a system collection.", nameof(collectionName));
+    }
+    var descriptor = Get(collectionName);
+    descriptor.Columns = columns?.ToList() ?? [];
+    Save(descriptor);
+  }
+
+  //DC-7. The column set of a collection, replaced as a whole and the schema version bumped
+  //with it. Records already written keep the version they were written under (VR-11), which
+  //is what makes the migration lazy: a read decides what an old record means from the version
+  //in its header rather than the collection being rewritten.
+  public CollectionDescriptor SetColumns(string collectionName, IEnumerable<ColumnDescriptor> columns,
+      IEnumerable<ColumnMigration> migrations = null) {
+    _transactionManager.RequireTransaction();
+    var descriptor = Get(collectionName);
+    if (descriptor.IsSystem) {
+      throw new ReservedCollectionNameException(collectionName);
+    }
+    descriptor.Columns = columns?.ToList() ?? [];
+    //ushort, so it stops rather than wraps to a version that already means something else.
+    if (descriptor.SchemaVersion < ushort.MaxValue) {
+      descriptor.SchemaVersion++;
+    }
+    //Stamped with the version they produced, which is what a read compares the record's own
+    //version against. The caller says what changed rather than the catalogue diffing the two
+    //column sets: a rename and a remove-then-add look identical in a diff and mean opposite
+    //things to a record written before either.
+    foreach (var migration in migrations ?? []) {
+      migration.Version = descriptor.SchemaVersion;
+      descriptor.Migrations.Add(migration);
+    }
+    Save(descriptor);
+    return descriptor;
+  }
+
+  //Every record is at the current version, so there is nothing left for a read to replay.
+  //Rewrite calls this last, after the records have converged — before that the steps are the
+  //only thing that can read them.
+  public void ClearMigrations(string collectionName) {
+    _transactionManager.RequireTransaction();
+    var descriptor = Get(collectionName);
+    if (descriptor.Migrations.Count == 0) {
+      return;
+    }
+    descriptor.Migrations.Clear();
+    Save(descriptor);
+  }
+
+  //Removes a collection from the catalogue. The caller is responsible for what the collection
+  //held — its records, its indexes and the relations naming it — because the catalogue knows
+  //about none of them.
+  //
+  //The pages the collection occupied are not returned to anything. Free space is per
+  //collection (ST-1) and there is no global free-page list, so its pages stay allocated and
+  //unreachable until a file-level compaction exists to reclaim them. The alternative is a
+  //global free list, which is a storage change rather than a catalogue one.
+  public bool DropCollection(string collectionName) {
+    _transactionManager.RequireTransaction();
+    if (SystemCollections.IsReservedName(collectionName)) {
+      throw new ReservedCollectionNameException(collectionName);
+    }
+    if (!_descriptors.TryGetValue(collectionName, out var descriptor)) {
+      return false;
+    }
+    if (descriptor.Address is { } address) {
+      _dataPageManager.RetireRow(SystemCollections.Collections, address, RecordFlags.Deleted,
+        RetentionPolicy.None);
+    }
+    _descriptors.Remove(collectionName);
+    return true;
+  }
+
   protected virtual void LoadCatalog() {
     //Just enough of a descriptor to find the catalogue's own pages. Every other field of
     //every collection, this one included, comes out of the documents below.
@@ -152,16 +255,22 @@ public class CollectionCatalog {
 
   protected virtual void CreateNewCatalog() {
     foreach (var name in SystemCollections.All) {
-      //The system collections that hold descriptors describe their own columns, for the same
-      //reason _collections does: nothing about the catalogue should be readable only in code.
-      var columns = name switch {
-        SystemCollections.Collections => CollectionDescriptorDocument.CreateSelfColumns(),
-        SystemCollections.Indexes => IndexDescriptorDocument.CreateColumns(),
-        SystemCollections.Relations => RelationDescriptorDocument.CreateColumns(),
-        _ => []
-      };
-      CreateCollectionCore(name, columns, SystemCollections.Descriptions[name]);
+      CreateCollectionCore(name, SystemCollectionColumns(name), SystemCollections.Descriptions[name]);
     }
+  }
+
+  //The system collections that hold descriptors describe their own columns, for the same
+  //reason _collections does: nothing about the catalogue should be readable only in code.
+  //One whose documents are defined above the engine says so through DescribeSystemCollection.
+  private static List<ColumnDescriptor> SystemCollectionColumns(string name) {
+    return name switch {
+      SystemCollections.Collections => CollectionDescriptorDocument.CreateSelfColumns(),
+      SystemCollections.Indexes => IndexDescriptorDocument.CreateColumns(),
+      SystemCollections.Relations => RelationDescriptorDocument.CreateColumns(),
+      SystemCollections.DisplayRules => DisplayRuleDocument.CreateColumns(),
+      SystemCollections.Settings => SettingsDocument.CreateColumns(),
+      _ => []
+    };
   }
 
   //The hardcoded minimal descriptor D-4 allows, and the only one in the engine. It carries
@@ -192,6 +301,7 @@ public class CollectionCatalog {
     _descriptors[name] = descriptor;
     try {
       Append(descriptor);
+      RecordOwningCollectionId(descriptor.OwningCollectionId);
     } catch {
       _descriptors.Remove(name);
       throw;
@@ -201,8 +311,33 @@ public class CollectionCatalog {
 
   //Identifiers are never reused, so a page left behind by a dropped collection can never be
   //mistaken for a page of a new one.
+  //
+  //The high-water mark is what makes that true across a drop. The maximum of the collections
+  //that exist falls when the newest one is dropped, and the pages it left behind are still in
+  //the file carrying its id — so the next collection would be handed the id written on them.
   protected virtual uint GetNewOwningCollectionId() {
-    return _descriptors.Count == 0 ? 1 : _descriptors.Values.Max(descriptor => descriptor.OwningCollectionId) + 1;
+    var highest = _descriptors.Values
+      .Select(descriptor => descriptor.OwningCollectionId)
+      .Append(HighWaterMark())
+      .Max();
+    return highest + 1;
+  }
+
+  private uint HighWaterMark() {
+    return _descriptors.TryGetValue(SystemCollections.Collections, out var catalogue)
+      ? catalogue.LastOwningCollectionId
+      : 0;
+  }
+
+  //Recorded on the catalogue's own descriptor, which is a document like any other, so the
+  //mark survives a reopen without a new place to keep it (D-4, DC-7).
+  private void RecordOwningCollectionId(uint owningCollectionId) {
+    if (!_descriptors.TryGetValue(SystemCollections.Collections, out var catalogue)
+        || catalogue.LastOwningCollectionId >= owningCollectionId) {
+      return;
+    }
+    catalogue.LastOwningCollectionId = owningCollectionId;
+    Save(catalogue);
   }
 
   //Writing the first descriptor is what allocates the catalogue's first page and points the
