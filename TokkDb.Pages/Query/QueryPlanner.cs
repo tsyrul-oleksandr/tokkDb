@@ -60,7 +60,7 @@ public static class QueryPlanner {
       if (conjunct.Operator is not (ComparisonOperator.Equal or ComparisonOperator.In)) {
         continue;
       }
-      if (Index(collectionName, conjunct, indexes) is not { } index || !CanEncode(conjunct)) {
+      if (Index(collectionName, conjunct, indexes) is not { } index) {
         continue;
       }
       var candidate = new IndexSeekPath(collectionName, conjunct.ColumnName, conjunct,
@@ -92,7 +92,7 @@ public static class QueryPlanner {
     foreach (var column in query.Conjuncts.Select(conjunct => conjunct.ColumnName).Distinct(StringComparer.Ordinal)) {
       var bounds = query.Conjuncts
         .Where(conjunct => conjunct.ColumnName == column && conjunct.Operator.IsOrdered())
-        .Where(conjunct => Index(collectionName, conjunct, indexes) is not null && CanEncode(conjunct))
+        .Where(conjunct => Index(collectionName, conjunct, indexes) is not null)
         .ToList();
       if (bounds.Count == 0) {
         continue;
@@ -151,23 +151,11 @@ public static class QueryPlanner {
     return (higher ? comparison < 0 : comparison > 0) ? candidate : current;
   }
 
+  //A conjunct an index cannot answer is skipped rather than used wrongly: an index key is a
+  //scalar, and a column holding an object or an array has no index to begin with (IndexCatalog
+  //refuses one) though a predicate could still name one.
   private static SecondaryIndex Index(string collectionName, QueryPredicate conjunct, IndexCatalog indexes) {
-    //A conjunct an index cannot answer is skipped rather than used wrongly. The Phase 4
-    //finding is what makes this necessary: four column types are stored as text, and "250"
-    //sorts below "40" as text, so an ordered comparison over one of them must not become a
-    //range.
-    if (!conjunct.IsIndexable) {
-      return null;
-    }
-    return indexes?.Find(collectionName, conjunct.ColumnName);
-  }
-
-  //An index key is a scalar. A column holding an object or an array has no index to begin
-  //with (IndexCatalog refuses one), but a predicate could still name one.
-  private static bool CanEncode(QueryPredicate conjunct) {
-    return conjunct.Constants.Count > 0
-      && conjunct.Constants.All(constant => constant is null or NullDocumentValue
-        || constant.Type is not (ValueTypeEnum.Object or ValueTypeEnum.Array));
+    return conjunct.IsIndexable ? indexes?.Find(collectionName, conjunct.ColumnName) : null;
   }
 
   //Why the scan happened, in the terms the reader can act on: an index that does not exist is
@@ -182,7 +170,7 @@ public static class QueryPlanner {
       return $"no index on {string.Join(", ", unindexed)}";
     }
     if (query.Conjuncts.Any(conjunct => !conjunct.IsIndexable)) {
-      return "the indexed columns are compared with an operator their stored form does not order by";
+      return "the conjuncts name values an index cannot be keyed by";
     }
     return "no conjunct an index can answer";
   }
@@ -194,6 +182,10 @@ public static class QueryPlanner {
       UIntDocumentValue number => number.Value.ToString(),
       BooleanDocumentValue flag => flag.Value ? "true" : "false",
       UlidDocumentValue identifier => identifier.Value.ToString(),
+      LongDocumentValue number => number.Value.ToString(),
+      DecimalDocumentValue number => number.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+      DateTimeDocumentValue moment => moment.Value.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+      GuidDocumentValue identifier => identifier.Value.ToString("D"),
       _ => "null"
     };
   }

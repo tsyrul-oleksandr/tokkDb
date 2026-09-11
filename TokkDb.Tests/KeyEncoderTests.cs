@@ -1,4 +1,6 @@
+using TokkDb.Documents;
 using TokkDb.Documents.Keys;
+using TokkDb.Documents.Values;
 using TokkDb.Values;
 using Xunit;
 
@@ -357,5 +359,59 @@ public class KeyEncoderTests {
   private static string NextLongSharedPrefixString(Random random) {
     var units = KeyEncoder.MaxStringKeyBytes / sizeof(char);
     return new string('о', random.Next(units - 2, units + 3)) + NextString(random, 8);
+  }
+
+  //A document value encodes as the value it holds. The two entry points have to agree, because
+  //an index is built from stored document values and a query encodes a constant it was handed
+  //— and a key built one way that did not match a key built the other would simply not be
+  //found.
+  [Fact]
+  public void EncodingADocumentValueMatchesEncodingTheValueItself() {
+    var moment = new DateTime(2026, 9, 7, 14, 30, 15, DateTimeKind.Utc);
+    var identifier = Guid.NewGuid();
+    var pairs = new (IDocumentValue Document, byte[] Raw)[] {
+      (new LongDocumentValue(9_000_000_000L), KeyEncoder.Encode(9_000_000_000L).Bytes),
+      (new DecimalDocumentValue(1234.50m), KeyEncoder.Encode(1234.50m).Bytes),
+      (new DateTimeDocumentValue(moment), KeyEncoder.Encode(moment).Bytes),
+      (new GuidDocumentValue(identifier), KeyEncoder.Encode(identifier).Bytes),
+      (new IntDocumentValue(31), KeyEncoder.Encode(31).Bytes),
+      (new BooleanDocumentValue(true), KeyEncoder.Encode(true).Bytes),
+      (new StringDocumentValue("Олена"), KeyEncoder.Encode("Олена").Bytes)
+    };
+
+    foreach (var (document, raw) in pairs) {
+      Assert.Equal(raw, KeyEncoder.Encode(document).Bytes);
+    }
+  }
+
+  //An Int and a Long of the same number encode identically: they share a tag and a width, so a
+  //column widened from one to the other keeps the index it already has rather than needing it
+  //rebuilt from every record.
+  [Fact]
+  public void AnIntAndALongOfTheSameNumberEncodeIdentically() {
+    foreach (var number in new[] { -1_000_000, -1, 0, 1, 40, 250, 1_000_000 }) {
+      Assert.Equal(
+        KeyEncoder.Encode(new IntDocumentValue(number)).Bytes,
+        KeyEncoder.Encode(new LongDocumentValue(number)).Bytes);
+    }
+  }
+
+  //Ordering, through the document values rather than the raw ones: the four that used to be
+  //stored as text are the ones this had no way of being true for.
+  [Theory]
+  [InlineData(40, 250)]
+  [InlineData(-250, -40)]
+  [InlineData(0, 1)]
+  public void TheNewDocumentValuesOrderNumericallyRatherThanAsText(int smaller, int larger) {
+    Assert.True(KeyComparer.Compare(
+      KeyEncoder.Encode(new LongDocumentValue(smaller)).Bytes,
+      KeyEncoder.Encode(new LongDocumentValue(larger)).Bytes) < 0);
+    Assert.True(KeyComparer.Compare(
+      KeyEncoder.Encode(new DecimalDocumentValue(smaller)).Bytes,
+      KeyEncoder.Encode(new DecimalDocumentValue(larger)).Bytes) < 0);
+    //As text "250" sorts below "40", which is exactly what the old encoding got wrong.
+    Assert.True(KeyComparer.Compare(
+      KeyEncoder.Encode(new StringDocumentValue("250")).Bytes,
+      KeyEncoder.Encode(new StringDocumentValue("40")).Bytes) < 0);
   }
 }

@@ -166,6 +166,10 @@ public class IndexCatalog {
       UIntDocumentValue number => number.Value,
       BooleanDocumentValue flag => flag.Value,
       UlidDocumentValue identifier => identifier.Value,
+      LongDocumentValue number => number.Value,
+      DecimalDocumentValue number => number.Value,
+      DateTimeDocumentValue moment => moment.Value,
+      GuidDocumentValue identifier => identifier.Value,
       _ => null
     };
   }

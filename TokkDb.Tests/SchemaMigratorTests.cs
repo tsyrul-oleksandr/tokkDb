@@ -67,9 +67,9 @@ public class SchemaMigratorTests {
 
     var migrated = SchemaMigrator.For(descriptor, 1).Apply(Record(("Age", new IntDocumentValue(31))));
 
-    //Long has no document value of its own, so it is stored as invariant text — the same form
-    //a record written after the retype is written in, which is what makes the two comparable.
-    Assert.Equal("31", ((StringDocumentValue)Fields(migrated)["Age"]).Value);
+    //The same form a record written after the retype is written in, which is what makes the
+    //two comparable.
+    Assert.Equal(31L, ((LongDocumentValue)Fields(migrated)["Age"]).Value);
   }
 
   //Steps stack, and the order they are replayed in is the order they happened in.
@@ -81,7 +81,7 @@ public class SchemaMigratorTests {
 
     var migrated = SchemaMigrator.For(descriptor, 1).Apply(Record(("Age", new IntDocumentValue(31))));
 
-    Assert.Equal("31", ((StringDocumentValue)Fields(migrated)["Years"]).Value);
+    Assert.Equal(31m, ((DecimalDocumentValue)Fields(migrated)["Years"]).Value);
     Assert.False(Fields(migrated).Values.ContainsKey("Age"));
   }
 

@@ -27,7 +27,12 @@ public static class ValueUtilities {
       ValueTypeEnum.Object => new ObjectDocumentValue(),
       ValueTypeEnum.Array => new ArrayDocumentValue(),
       ValueTypeEnum.Ulid => new UlidDocumentValue(),
-      _ => throw new NotImplementedException()
+      ValueTypeEnum.Long => new LongDocumentValue(),
+      ValueTypeEnum.Decimal => new DecimalDocumentValue(),
+      ValueTypeEnum.DateTime => new DateTimeDocumentValue(),
+      ValueTypeEnum.Guid => new GuidDocumentValue(),
+      _ => throw new NotSupportedException(
+        $"The document format has no value for {type}.")
     };
   }
 }

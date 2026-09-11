@@ -29,6 +29,26 @@ public class BufferWriter {
     MovePosition(writeBytes);
   }
   
+  public void WriteLong(long value) {
+    Buffer.WriteLong(value, Position, out var writeBytes);
+    MovePosition(writeBytes);
+  }
+
+  public void WriteDecimal(decimal value) {
+    Buffer.WriteDecimal(value, Position, out var writeBytes);
+    MovePosition(writeBytes);
+  }
+
+  public void WriteDateTime(DateTime value) {
+    Buffer.WriteDateTime(value, Position, out var writeBytes);
+    MovePosition(writeBytes);
+  }
+
+  public void WriteGuid(Guid value) {
+    Buffer.WriteGuid(value, Position, out var writeBytes);
+    MovePosition(writeBytes);
+  }
+
   public void WriteBytes(byte[] values) {
     Buffer.WriteBytes(values, Position, out var writeBytes);
     MovePosition(writeBytes);

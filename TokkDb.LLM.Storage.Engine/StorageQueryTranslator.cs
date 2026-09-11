@@ -128,8 +128,7 @@ public static class StorageQueryTranslator
     /// <summary>
     /// The operand text as the engine stores a value of that column's type. It has to match
     /// what <see cref="FieldMapSerializer"/> writes, or a query would be comparing against a
-    /// form no record is in — including the four types the document format still has no
-    /// value for, which are stored as invariant text.
+    /// form no record is in.
     /// </summary>
     private static IDocumentValue ToValue(ColumnDefinition column, string? operand)
     {
@@ -142,18 +141,14 @@ public static class StorageQueryTranslator
             ColumnType.String => new StringDocumentValue(operand),
             ColumnType.Boolean => new BooleanDocumentValue(bool.Parse(operand)),
             ColumnType.Int32 => new IntDocumentValue(int.Parse(operand, CultureInfo.InvariantCulture)),
-            ColumnType.Int64 => Text(long.Parse(operand, CultureInfo.InvariantCulture)
-                .ToString(CultureInfo.InvariantCulture)),
-            ColumnType.Decimal => Text(decimal.Parse(operand, CultureInfo.InvariantCulture)
-                .ToString(CultureInfo.InvariantCulture)),
-            ColumnType.DateTime => Text(DateTime.Parse(operand, CultureInfo.InvariantCulture,
-                DateTimeStyles.RoundtripKind).ToString("O", CultureInfo.InvariantCulture)),
-            ColumnType.Guid => Text(Guid.Parse(operand).ToString("D")),
+            ColumnType.Int64 => new LongDocumentValue(long.Parse(operand, CultureInfo.InvariantCulture)),
+            ColumnType.Decimal => new DecimalDocumentValue(decimal.Parse(operand, CultureInfo.InvariantCulture)),
+            ColumnType.DateTime => new DateTimeDocumentValue(DateTime.Parse(operand,
+                CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)),
+            ColumnType.Guid => new GuidDocumentValue(Guid.Parse(operand)),
             _ => throw new NotSupportedException($"Column type '{column.Type}' has no engine value.")
         };
     }
-
-    private static IDocumentValue Text(string value) => new StringDocumentValue(value);
 
     private static ComparisonOperator ToComparison(QueryOperator op) => op switch
     {

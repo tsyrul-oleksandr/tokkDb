@@ -5,11 +5,10 @@ namespace TokkDb.Documents.Values;
 
 //A stored value read as a type its column did not declare when the value was written.
 //
-//Four of the types ValueTypeEnum declares have no IDocumentValue behind them — Long, Decimal,
-//DateTime and Guid — so whatever stores them writes invariant text (see TypedKey). That
-//convention is what a retype has to produce as well as consume: turning an Int32 column into
-//an Int64 one means the value a record still holds as an IntDocumentValue has to read as the
-//text a value of the new column is written as, or the two would not compare.
+//What a retype means, in other words: the column says the values mean something else from now
+//on, and a record written before it said so has to be read that way. Conversion goes through
+//the invariant text of the value, which is what makes an Int32 column widened to Int64 keep
+//its numbers and a number retyped to a string keep its digits.
 //
 //A value that cannot be read as the new type becomes null rather than an error. A retype is a
 //statement about what the column means from now on, and a record whose old value has no
@@ -19,6 +18,11 @@ public static class ValueMigration {
   public static IDocumentValue To(ValueTypeEnum type, IDocumentValue value) {
     if (value is null or NullDocumentValue) {
       return new NullDocumentValue();
+    }
+    //Already the type asked for: nothing to reinterpret, and a decimal's scale or a
+    //DateTime's kind survives untouched rather than going through text and back.
+    if (value.Type == type) {
+      return value;
     }
     var text = AsText(value);
     if (text is null) {
@@ -32,35 +36,34 @@ public static class ValueMigration {
         ? new IntDocumentValue(number) : Null(),
       ValueTypeEnum.UInt => uint.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number)
         ? new UIntDocumentValue(number) : Null(),
-      ValueTypeEnum.Ulid => Ulid.TryParse(text, out var identifier)
-        ? new UlidDocumentValue(identifier) : Null(),
-      //The four with no value type of their own: stored as the invariant text of themselves,
-      //parsed first so that text which is not one of them does not survive as though it were.
       ValueTypeEnum.Long => long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number)
-        ? new StringDocumentValue(number.ToString(CultureInfo.InvariantCulture)) : Null(),
+        ? new LongDocumentValue(number) : Null(),
       ValueTypeEnum.Decimal => decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture,
           out var number)
-        ? new StringDocumentValue(number.ToString(CultureInfo.InvariantCulture)) : Null(),
+        ? new DecimalDocumentValue(number) : Null(),
       ValueTypeEnum.DateTime => DateTime.TryParse(text, CultureInfo.InvariantCulture,
           DateTimeStyles.RoundtripKind, out var moment)
-        ? new StringDocumentValue(moment.ToString("O", CultureInfo.InvariantCulture)) : Null(),
-      ValueTypeEnum.Guid => Guid.TryParse(text, out var identifier)
-        ? new StringDocumentValue(identifier.ToString("D")) : Null(),
+        ? new DateTimeDocumentValue(moment) : Null(),
+      ValueTypeEnum.Guid => Guid.TryParse(text, out var guid) ? new GuidDocumentValue(guid) : Null(),
+      ValueTypeEnum.Ulid => Ulid.TryParse(text, out var identifier)
+        ? new UlidDocumentValue(identifier) : Null(),
       //An object or an array is not a scalar and has no text to be read as one. A column
       //retyped to or from one of them keeps nothing.
       _ => Null()
     };
   }
 
-  //The stored value as text, in the invariant form the four text-encoded types are written in
-  //— so a value already stored as text is left exactly as it is and passes straight through a
-  //retype between two of them.
+  //The stored value as text, in the invariant form each type parses back from.
   private static string AsText(IDocumentValue value) {
     return value switch {
       StringDocumentValue text => text.Value,
       BooleanDocumentValue flag => flag.Value ? "True" : "False",
       IntDocumentValue number => number.Value.ToString(CultureInfo.InvariantCulture),
       UIntDocumentValue number => number.Value.ToString(CultureInfo.InvariantCulture),
+      LongDocumentValue number => number.Value.ToString(CultureInfo.InvariantCulture),
+      DecimalDocumentValue number => number.Value.ToString(CultureInfo.InvariantCulture),
+      DateTimeDocumentValue moment => moment.Value.ToString("O", CultureInfo.InvariantCulture),
+      GuidDocumentValue identifier => identifier.Value.ToString("D"),
       UlidDocumentValue identifier => identifier.Value.ToString(),
       _ => null
     };

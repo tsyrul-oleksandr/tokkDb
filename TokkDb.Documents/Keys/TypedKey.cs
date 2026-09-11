@@ -1,4 +1,3 @@
-using System.Globalization;
 using TokkDb.Documents.Values;
 using TokkDb.Values;
 
@@ -6,47 +5,32 @@ namespace TokkDb.Documents.Keys;
 
 //A stored value compared as the type its column declares.
 //
-//Four of the types ValueTypeEnum declares have no IDocumentValue behind them — Long,
-//Decimal, DateTime and Guid — so whatever stores them writes invariant text instead. Text
-//does not order the way a number does: "250" is below "40" as a string and above it as a
-//decimal. So a comparison cannot be made against the stored form alone; it needs the type
-//the column declares, and that is what this puts back.
+//Every type ValueTypeEnum declares now has an IDocumentValue behind it, so a value is
+//normally already the type its column says and this encodes it as it stands. What it is still
+//for is the two cases where a record and its column disagree: a record written before the
+//column was retyped, whose value is whatever the column used to mean, and a record written
+//before Long, Decimal, DateTime and Guid had a document value of their own, whose value is
+//the invariant text they used to be stored as. Both are read as the column reads them now.
 //
-//The encoding is D-3's, which means a comparison here and a range over an index are the
-//same order by construction rather than by agreement.
+//The encoding is D-3's, which means a comparison here and a range over an index are the same
+//order by construction rather than by agreement.
 public static class TypedKey {
-  //Whether values of this type are stored as themselves or as text standing in for them.
-  public static bool IsTextEncoded(ValueTypeEnum type) {
-    return type is ValueTypeEnum.Long or ValueTypeEnum.Decimal or ValueTypeEnum.DateTime
-      or ValueTypeEnum.Guid;
-  }
-
-  //Null when the value cannot be compared as that type at all: a document value of the wrong
+  //Null when the value cannot be read as that type at all: a document value of the wrong
   //shape, or text that does not parse. A predicate over such a value is simply not satisfied,
   //which is what makes a wrong-typed record invisible to a query rather than fatal to it.
   public static EncodedKey? Encode(ValueTypeEnum type, IDocumentValue value) {
     if (value is null or NullDocumentValue) {
       return KeyEncoder.EncodeNull();
     }
-    if (!IsTextEncoded(type)) {
-      try {
-        return KeyEncoder.Encode(value);
-      } catch (NotSupportedException) {
-        return null;
-      }
-    }
-    if (value is not StringDocumentValue text) {
+    var typed = ValueMigration.To(type, value);
+    if (typed is NullDocumentValue) {
       return null;
     }
-    return type switch {
-      ValueTypeEnum.Long => long.TryParse(text.Value, NumberStyles.Integer, CultureInfo.InvariantCulture,
-        out var number) ? KeyEncoder.Encode(number) : null,
-      ValueTypeEnum.Decimal => decimal.TryParse(text.Value, NumberStyles.Number, CultureInfo.InvariantCulture,
-        out var number) ? KeyEncoder.Encode(number) : null,
-      ValueTypeEnum.DateTime => DateTime.TryParse(text.Value, CultureInfo.InvariantCulture,
-        DateTimeStyles.RoundtripKind, out var moment) ? KeyEncoder.Encode(moment) : null,
-      ValueTypeEnum.Guid => Guid.TryParse(text.Value, out var identifier) ? KeyEncoder.Encode(identifier) : null,
-      _ => null
-    };
+    try {
+      return KeyEncoder.Encode(typed);
+    } catch (NotSupportedException) {
+      //An object or an array: no ordering, so no key.
+      return null;
+    }
   }
 }

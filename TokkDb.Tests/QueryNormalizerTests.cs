@@ -195,22 +195,26 @@ public class QueryNormalizerTests {
     Assert.True(conjunct.IsIndexable);
   }
 
-  //The Phase 4 finding, carried into the planner rather than left to surprise it. Decimal,
-  //Int64, DateTime and Guid have no document value of their own and are stored as invariant
-  //text, and text does not order the way a number does: "250" is below "40" as a string.
-  //So an ordered comparison over one of them cannot become an index range, even though it is
-  //a perfectly good conjunct that the planner must still check.
+  //What the planner may turn into an index range.
+  //
+  //An ordered comparison over a Decimal used to be excluded: Decimal, Int64, DateTime and Guid
+  //had no document value of their own and were stored as invariant text, and text does not
+  //order the way a number does — "250" is below "40" as a string. They have their own values
+  //now, so every scalar is indexable however it is compared, and what is left out is what has
+  //no order at all.
   [Fact]
-  public void AnOrderedComparisonOverATextEncodedTypeIsAConjunctButNotAnIndexableOne() {
-    var ordered = Compare("Price", ComparisonOperator.GreaterOrEqual, "40", ValueTypeEnum.Decimal);
-    var equality = Compare("Price", ComparisonOperator.Equal, "40", ValueTypeEnum.Decimal);
+  public void EveryScalarIsIndexableAndAValueWithNoOrderIsNot() {
+    foreach (var op in new[] { ComparisonOperator.GreaterOrEqual, ComparisonOperator.Equal }) {
+      Assert.True(Assert.Single(QueryNormalizer.Normalize(
+        Compare("Price", op, "40", ValueTypeEnum.Decimal)).Conjuncts).IsIndexable);
+      Assert.True(Assert.Single(QueryNormalizer.Normalize(
+        Compare("Age", op, 30)).Conjuncts).IsIndexable);
+    }
 
-    Assert.False(Assert.Single(QueryNormalizer.Normalize(ordered).Conjuncts).IsIndexable);
-    //Equality still is: an exact match on the stored text is an exact match on the value.
-    Assert.True(Assert.Single(QueryNormalizer.Normalize(equality).Conjuncts).IsIndexable);
-    //And a type the format does hold is indexable either way.
-    Assert.True(Assert.Single(QueryNormalizer.Normalize(
-      Compare("Age", ComparisonOperator.GreaterOrEqual, 30)).Conjuncts).IsIndexable);
+    //An object has no ordering, so there is no key an index over it could be sorted by.
+    var overAnObject = new ComparisonExpression(Column("Passport"), ComparisonOperator.Equal,
+      new ConstantExpression(new ObjectDocumentValue()), ValueTypeEnum.Object);
+    Assert.False(Assert.Single(QueryNormalizer.Normalize(overAnObject).Conjuncts).IsIndexable);
   }
 
   //The split has to be exact: conjuncts AND residual is the predicate that came in. Checked

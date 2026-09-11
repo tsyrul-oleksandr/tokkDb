@@ -92,6 +92,14 @@ public static class DocumentFieldReader {
         return position + TypesConstants.UIntByteSize;
       case ValueTypeEnum.Ulid:
         return position + TypesConstants.UlidByteSize;
+      case ValueTypeEnum.Long:
+        return position + TypesConstants.LongByteSize;
+      case ValueTypeEnum.Decimal:
+        return position + TypesConstants.DecimalByteSize;
+      case ValueTypeEnum.DateTime:
+        return position + TypesConstants.DateTimeByteSize;
+      case ValueTypeEnum.Guid:
+        return position + TypesConstants.GuidByteSize;
       case ValueTypeEnum.String: {
         var length = buffer.ReadInt(position, out var lengthBytes);
         return position + lengthBytes + length;
@@ -117,9 +125,7 @@ public static class DocumentFieldReader {
         //The same types ValueUtilities refuses to read. Skipping one would mean guessing a
         //width the writer never wrote, which would silently misread every field after it.
         throw new NotSupportedException(
-          $"A value of type {type} has no stored form to step over. " +
-          $"The document format writes {nameof(ValueTypeEnum.Long)}, {nameof(ValueTypeEnum.Decimal)}, " +
-          $"{nameof(ValueTypeEnum.DateTime)} and {nameof(ValueTypeEnum.Guid)} as text.");
+          $"A value of type {type} has no stored form to step over.");
     }
   }
 }

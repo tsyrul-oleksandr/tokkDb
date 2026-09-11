@@ -1,4 +1,3 @@
-using TokkDb.Documents.Keys;
 using TokkDb.Documents.Path.Expressions;
 using TokkDb.Documents.Values;
 using TokkDb.Values;
@@ -16,10 +15,18 @@ public sealed record QueryPredicate(
 
   public IDocumentValue Constant => Constants[0];
 
-  //Whether an index over this column could answer the predicate, or only narrow it. An
-  //ordered operator over a value the document format stores as text cannot: the stored form
-  //sorts as text and the column means a number (see TypedKey).
-  public bool IsIndexable => !(Operator.IsOrdered() && TypedKey.IsTextEncoded(ColumnType));
+  //Whether an index over this column could answer the predicate at all. Every scalar has an
+  //order-preserving encoding (D-3), so what is left is the shapes that have no order: an
+  //object and an array cannot be an index key, and a predicate with no constant has nothing
+  //to seek by.
+  //
+  //Ordered comparisons over Long, Decimal, DateTime and Guid used to be excluded here,
+  //because those four had no document value and were stored as invariant text — and "250"
+  //sorts below "40" as text. They have their own values now, so the exclusion is gone.
+  public bool IsIndexable =>
+    Constants.Count > 0
+    && Constants.All(constant => constant is null or NullDocumentValue
+      || constant.Type is not (ValueTypeEnum.Object or ValueTypeEnum.Array));
 
   public override string ToString() {
     return $"{ColumnName} {Operator} {string.Join(", ", Constants.Select(Describe))}";
@@ -32,6 +39,10 @@ public sealed record QueryPredicate(
       UIntDocumentValue number => number.Value.ToString(),
       BooleanDocumentValue flag => flag.Value ? "true" : "false",
       UlidDocumentValue identifier => identifier.Value.ToString(),
+      LongDocumentValue number => number.Value.ToString(),
+      DecimalDocumentValue number => number.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+      DateTimeDocumentValue moment => moment.Value.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+      GuidDocumentValue identifier => identifier.Value.ToString("D"),
       NullDocumentValue => "null",
       _ => value?.Type.ToString() ?? "null"
     };

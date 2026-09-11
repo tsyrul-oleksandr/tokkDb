@@ -48,9 +48,9 @@ public sealed class LazyMigrationTests : IDisposable
 
     /// <summary>
     /// A retyped column serves records written on both sides of the change, and a rewrite
-    /// converges them. Int32 to Int64 is the interesting pair: the engine stores an Int32 as a
-    /// document value and an Int64 as invariant text, so the two records genuinely differ on
-    /// the page and only the migration makes them read alike.
+    /// converges them. Int32 to Int64 is the interesting pair: the two are different document
+    /// values with different widths, so the records genuinely differ on the page and only the
+    /// migration makes them read alike.
     /// </summary>
     [Fact]
     public void ARetypedColumnServesOldAndNewRecordsAndARewriteConvergesThem()

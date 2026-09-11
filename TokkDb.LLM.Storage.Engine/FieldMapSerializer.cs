@@ -43,23 +43,23 @@ public sealed class FieldMapSerializer : DocumentSerializer<Dictionary<string, o
     }
 
     /// <summary>
-    /// The engine has document values for String, Boolean, Int and Ulid only — Int64,
-    /// Decimal, DateTime and Guid have a <c>ValueTypeEnum</c> member but no
-    /// <c>IDocumentValue</c> behind it. Those four are written as invariant text so the
-    /// skeleton round-trips; they need real value types before an index can order them (D-3).
+    /// Every column type the application has is a document value the engine holds as itself.
+    /// Int64, Decimal, DateTime and Guid used to be written as invariant text, because
+    /// <c>ValueTypeEnum</c> declared them and nothing implemented them; they have their own
+    /// values now, which is what lets D-3 order them and an index answer a range over them.
     /// </summary>
     private static IDocumentValue ToDocumentValue(object? value) => value switch
     {
         null => new NullDocumentValue(),
-        string text => new StringDocumentValue { Value = text },
-        bool flag => new BooleanDocumentValue { Value = flag },
-        int number => new IntDocumentValue { Value = number },
-        long number => new StringDocumentValue { Value = number.ToString(CultureInfo.InvariantCulture) },
-        decimal number => new StringDocumentValue { Value = number.ToString(CultureInfo.InvariantCulture) },
-        DateTime moment => new StringDocumentValue { Value = moment.ToString("O", CultureInfo.InvariantCulture) },
-        Guid id => new StringDocumentValue { Value = id.ToString("D") },
+        string text => new StringDocumentValue(text),
+        bool flag => new BooleanDocumentValue(flag),
+        int number => new IntDocumentValue(number),
+        long number => new LongDocumentValue(number),
+        decimal number => new DecimalDocumentValue(number),
+        DateTime moment => new DateTimeDocumentValue(moment),
+        Guid id => new GuidDocumentValue(id),
         _ => throw new NotSupportedException(
-            $"Value of type '{value.GetType().Name}' has no document representation in the walking skeleton.")
+            $"Value of type '{value.GetType().Name}' has no document representation.")
     };
 
     private object? FromDocumentValue(string fieldName, IDocumentValue value)
@@ -69,19 +69,26 @@ public sealed class FieldMapSerializer : DocumentSerializer<Dictionary<string, o
             return null;
         }
 
-        // The stored form of the four text-encoded types is a string, so the column
-        // definition is what says which of them it is.
-        if (value is StringDocumentValue text && _columnTypes.TryGetValue(fieldName, out var columnType))
+        // A record written before those four had a value of their own holds the invariant text
+        // they used to be stored as, and the column definition is what says which of them it
+        // is. Reading it costs one branch; not reading it would make an older database look
+        // like a collection of strings.
+        if (value is StringDocumentValue legacy && _columnTypes.TryGetValue(fieldName, out var columnType))
         {
-            return columnType switch
+            switch (columnType)
             {
-                ColumnType.Int64 => long.Parse(text.Value, CultureInfo.InvariantCulture),
-                ColumnType.Decimal => decimal.Parse(text.Value, CultureInfo.InvariantCulture),
-                ColumnType.DateTime => DateTime.Parse(
-                    text.Value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
-                ColumnType.Guid => Guid.Parse(text.Value),
-                _ => text.Value
-            };
+                case ColumnType.Int64 when long.TryParse(
+                    legacy.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number):
+                    return number;
+                case ColumnType.Decimal when decimal.TryParse(
+                    legacy.Value, NumberStyles.Number, CultureInfo.InvariantCulture, out var number):
+                    return number;
+                case ColumnType.DateTime when DateTime.TryParse(
+                    legacy.Value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var moment):
+                    return moment;
+                case ColumnType.Guid when Guid.TryParse(legacy.Value, out var identifier):
+                    return identifier;
+            }
         }
 
         return value switch
@@ -89,9 +96,12 @@ public sealed class FieldMapSerializer : DocumentSerializer<Dictionary<string, o
             StringDocumentValue stringValue => stringValue.Value,
             BooleanDocumentValue booleanValue => booleanValue.Value,
             IntDocumentValue intValue => intValue.Value,
+            LongDocumentValue longValue => longValue.Value,
+            DecimalDocumentValue decimalValue => decimalValue.Value,
+            DateTimeDocumentValue dateTimeValue => dateTimeValue.Value,
+            GuidDocumentValue guidValue => guidValue.Value,
             UlidDocumentValue ulidValue => ulidValue.Value,
-            _ => throw new NotSupportedException(
-                $"Document value '{value.Type}' is not read by the walking skeleton.")
+            _ => throw new NotSupportedException($"Document value '{value.Type}' has no field value.")
         };
     }
 }
