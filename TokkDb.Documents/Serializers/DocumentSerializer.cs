@@ -38,6 +38,18 @@ public class DocumentSerializer<T> {
     if (value.Type == ValueTypeEnum.String) {
       return DeserializeStringValue(value, type);
     }
+    if (value is LongDocumentValue longValue) {
+      return longValue.Value;
+    }
+    if (value is DecimalDocumentValue decimalValue) {
+      return decimalValue.Value;
+    }
+    if (value is DateTimeDocumentValue dateTimeValue) {
+      return dateTimeValue.Value;
+    }
+    if (value is GuidDocumentValue guidValue) {
+      return guidValue.Value;
+    }
     if (value.Type == ValueTypeEnum.Array) {
       return DeserializeArrayValue(value, type);
     }
@@ -103,6 +115,20 @@ public class DocumentSerializer<T> {
     }
     if (value is string stringValue) {
       return SerializeStringValue(stringValue);
+    }
+    //The four ValueTypeEnum declared with nothing behind them until they gained their own
+    //document values. A property of one of these could not be stored at all before.
+    if (value is long longValue) {
+      return new LongDocumentValue(longValue);
+    }
+    if (value is decimal decimalValue) {
+      return new DecimalDocumentValue(decimalValue);
+    }
+    if (value is DateTime dateTimeValue) {
+      return new DateTimeDocumentValue(dateTimeValue);
+    }
+    if (value is Guid guidValue) {
+      return new GuidDocumentValue(guidValue);
     }
     if (type.IsArray && value is IEnumerable enumerable) {
       return SerializeArrayValue(type, enumerable);

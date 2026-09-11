@@ -33,6 +33,30 @@ public class BufferReader {
     return value;
   }
   
+  public long ReadLong() {
+    var value = Buffer.ReadLong(Position, out var readBytes);
+    MovePosition(readBytes);
+    return value;
+  }
+
+  public decimal ReadDecimal() {
+    var value = Buffer.ReadDecimal(Position, out var readBytes);
+    MovePosition(readBytes);
+    return value;
+  }
+
+  public DateTime ReadDateTime() {
+    var value = Buffer.ReadDateTime(Position, out var readBytes);
+    MovePosition(readBytes);
+    return value;
+  }
+
+  public Guid ReadGuid() {
+    var value = Buffer.ReadGuid(Position, out var readBytes);
+    MovePosition(readBytes);
+    return value;
+  }
+
   public byte[] ReadBytes(int count) {
     var value = Buffer.ReadBytes(count, Position, out var readBytes);
     MovePosition(readBytes);

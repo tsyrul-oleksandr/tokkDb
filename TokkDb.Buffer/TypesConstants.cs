@@ -13,8 +13,10 @@ public class TypesConstants {
   public const byte ULongByteSize = 8;
   public const byte FloatByteSize = 4;
   public const byte DoubleByteSize = 8;
-  public const byte DecimalByteSize = 24;
-  public const byte GuidByteSize = 36;
+  //Four ints, which is what decimal.GetBits hands back.
+  public const byte DecimalByteSize = 16;
+  //The identity itself, not its "D" spelling.
+  public const byte GuidByteSize = 16;
   public const byte UlidByteSize = 16;
   public const byte DateTimeByteSize = LongByteSize;
   public const byte TimeSpanByteSize = 8;

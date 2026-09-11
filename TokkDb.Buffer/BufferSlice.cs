@@ -66,6 +66,45 @@ public class BufferSlice {
     return value;
   }
   
+  //Four ints in the order decimal.GetBits gives them: lo, mid, hi, flags. Round-tripping
+  //through the bits rather than through text keeps the scale, so 1.50 comes back as 1.50 and
+  //not as 1.5 — decimal distinguishes the two and the key encoding of D-3 depends on it.
+  //
+  //Through ReadBytes and WriteBytes like every other type here, and virtual for the same
+  //reason: a slice that only counts what a write would cost has no buffer to index into, and
+  //a writer that reached past the virtual pair would fail there rather than measure.
+  public virtual decimal ReadDecimal(int index, out int readBytes) {
+    var bytes = ReadBytes(TypesConstants.DecimalByteSize, index, out readBytes);
+    return new decimal([
+      BitConverter.ToInt32(bytes, 0),
+      BitConverter.ToInt32(bytes, TypesConstants.IntByteSize),
+      BitConverter.ToInt32(bytes, TypesConstants.IntByteSize * 2),
+      BitConverter.ToInt32(bytes, TypesConstants.IntByteSize * 3)
+    ]);
+  }
+
+  public virtual void WriteDecimal(decimal value, int index, out int writeBytes) {
+    Span<int> bits = stackalloc int[4];
+    decimal.GetBits(value, bits);
+    var bytes = new byte[TypesConstants.DecimalByteSize];
+    for (var i = 0; i < 4; i++) {
+      BitConverter.GetBytes(bits[i]).CopyTo(bytes, i * TypesConstants.IntByteSize);
+    }
+    WriteBytes(bytes, index, out writeBytes);
+  }
+
+  //Big endian, the same layout KeyEncoder writes a Guid key in, so the stored bytes and the
+  //key bytes are the same sixteen in the same order.
+  public virtual Guid ReadGuid(int index, out int readBytes) {
+    return new Guid(ReadBytes(TypesConstants.GuidByteSize, index, out readBytes), bigEndian: true);
+  }
+
+  public virtual void WriteGuid(Guid value, int index, out int writeBytes) {
+    var bytes = new byte[TypesConstants.GuidByteSize];
+    value.TryWriteBytes(bytes, bigEndian: true, out _);
+    WriteBytes(bytes, index, out writeBytes);
+  }
+
   public DateTime ReadDateTime(int index, out int readBytes) {
     var ticks = BitConverter.ToInt64(_buffer.Span[index..(index + TypesConstants.LongByteSize)]);
     readBytes = TypesConstants.DateTimeByteSize;

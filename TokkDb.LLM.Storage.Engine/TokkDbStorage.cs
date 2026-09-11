@@ -312,9 +312,8 @@ public sealed class TokkDbStorage : IStorage, IDisposable
     }
 
     /// <summary>
-    /// The declared default, stored the way a value of that column is stored — which for the
-    /// four types the document format has no value for means invariant text, exactly as
-    /// <see cref="FieldMapSerializer"/> writes them.
+    /// The declared default, stored the way a value of that column is stored — the same
+    /// document values <see cref="FieldMapSerializer"/> writes.
     /// </summary>
     private static IDocumentValue ToDefaultValue(object? value) => value switch
     {
@@ -322,10 +321,10 @@ public sealed class TokkDbStorage : IStorage, IDisposable
         string text => new StringDocumentValue(text),
         bool flag => new BooleanDocumentValue(flag),
         int number => new IntDocumentValue(number),
-        long number => new StringDocumentValue(number.ToString(CultureInfo.InvariantCulture)),
-        decimal number => new StringDocumentValue(number.ToString(CultureInfo.InvariantCulture)),
-        DateTime moment => new StringDocumentValue(moment.ToString("O", CultureInfo.InvariantCulture)),
-        Guid id => new StringDocumentValue(id.ToString("D")),
+        long number => new LongDocumentValue(number),
+        decimal number => new DecimalDocumentValue(number),
+        DateTime moment => new DateTimeDocumentValue(moment),
+        Guid id => new GuidDocumentValue(id),
         _ => new NullDocumentValue()
     };
 
@@ -334,6 +333,12 @@ public sealed class TokkDbStorage : IStorage, IDisposable
         null or NullDocumentValue => null,
         BooleanDocumentValue flag => flag.Value,
         IntDocumentValue number => number.Value,
+        LongDocumentValue number => number.Value,
+        DecimalDocumentValue number => number.Value,
+        DateTimeDocumentValue moment => moment.Value,
+        GuidDocumentValue identifier => identifier.Value,
+        // A default declared before those four had a value of their own is the invariant text
+        // they used to be stored as.
         StringDocumentValue text => type switch
         {
             ColumnType.Int64 => long.TryParse(text.Value, NumberStyles.Integer, CultureInfo.InvariantCulture,

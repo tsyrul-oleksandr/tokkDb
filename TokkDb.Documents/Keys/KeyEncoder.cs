@@ -31,17 +31,23 @@ public static class KeyEncoder {
   //A tag byte and the sixteen bytes of the identity.
   public const int UlidKeyByteSize = 1 + 16;
 
-  //The document values an index actually meets. Four of the types ValueTypeEnum declares —
-  //Long, Decimal, DateTime and Guid — have no IDocumentValue implementing them, so a column
-  //of one of those cannot be indexed until the document format can hold it.
+  //Every scalar the document format holds. An Int and a Long of the same number encode
+  //identically — they share a tag and a width — so a column widened from one to the other
+  //keeps the index it already has.
   public static EncodedKey Encode(IDocumentValue value) {
     return value switch {
       null or NullDocumentValue => EncodeNull(),
       BooleanDocumentValue boolean => Encode(boolean.Value),
       IntDocumentValue number => Encode(number.Value),
       UIntDocumentValue number => Encode(number.Value),
+      LongDocumentValue number => Encode(number.Value),
+      DecimalDocumentValue number => Encode(number.Value),
+      DateTimeDocumentValue moment => Encode(moment.Value),
+      GuidDocumentValue identifier => Encode(identifier.Value),
       UlidDocumentValue identifier => Encode(identifier.Value),
       StringDocumentValue text => Encode(text.Value),
+      //An object and an array have no ordering, so there is no key an index over one of them
+      //could be sorted by.
       _ => throw new NotSupportedException(
         $"A value of type {value.Type} cannot be an index key. Index a scalar column instead.")
     };

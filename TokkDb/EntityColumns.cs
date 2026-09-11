@@ -23,6 +23,18 @@ internal static class EntityColumns {
     if (type == typeof(string)) {
       return ValueTypeEnum.String;
     }
+    if (type == typeof(long)) {
+      return ValueTypeEnum.Long;
+    }
+    if (type == typeof(decimal)) {
+      return ValueTypeEnum.Decimal;
+    }
+    if (type == typeof(DateTime)) {
+      return ValueTypeEnum.DateTime;
+    }
+    if (type == typeof(Guid)) {
+      return ValueTypeEnum.Guid;
+    }
     if (type.IsArray) {
       return ValueTypeEnum.Array;
     }

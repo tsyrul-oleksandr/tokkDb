@@ -29,6 +29,10 @@ public class DocumentFieldReaderTests {
       ["count"] = new IntDocumentValue(-42),
       ["size"] = new UIntDocumentValue(4_000_000_000),
       ["identity"] = new UlidDocumentValue(Ulid.NewUlid()),
+      ["big"] = new LongDocumentValue(9_000_000_000L),
+      ["money"] = new DecimalDocumentValue(1234.50m),
+      ["moment"] = new DateTimeDocumentValue(new DateTime(2026, 9, 7, 14, 30, 15, DateTimeKind.Utc)),
+      ["reference"] = new GuidDocumentValue(Guid.NewGuid()),
       ["name"] = new StringDocumentValue("Олена Ковальчук"),
       ["nested"] = new ObjectDocumentValue(new Dictionary<string, IDocumentValue> {
         ["deep"] = new StringDocumentValue("value"),
@@ -55,6 +59,10 @@ public class DocumentFieldReaderTests {
   [InlineData("count")]
   [InlineData("size")]
   [InlineData("identity")]
+  [InlineData("big")]
+  [InlineData("money")]
+  [InlineData("moment")]
+  [InlineData("reference")]
   [InlineData("name")]
   [InlineData("nested")]
   [InlineData("tags")]
@@ -81,6 +89,17 @@ public class DocumentFieldReaderTests {
     Assert.Equal("end", Assert.IsType<StringDocumentValue>(Read(buffer, "last")).Value);
     Assert.Equal(((UlidDocumentValue)document.Values["identity"]).Value,
       Assert.IsType<UlidDocumentValue>(Read(buffer, "identity")).Value);
+    Assert.Equal(9_000_000_000L, Assert.IsType<LongDocumentValue>(Read(buffer, "big")).Value);
+    //The scale as well as the number: 1234.50 and 1234.5 are equal and not the same.
+    Assert.Equal("1234.50", Assert.IsType<DecimalDocumentValue>(Read(buffer, "money")).Value
+      .ToString(System.Globalization.CultureInfo.InvariantCulture));
+    var moment = Assert.IsType<DateTimeDocumentValue>(Read(buffer, "moment")).Value;
+    Assert.Equal(new DateTime(2026, 9, 7, 14, 30, 15, DateTimeKind.Utc), moment);
+    //The kind travels with the ticks, or a value written as Utc comes back meaning a
+    //different moment to anything that later converts it.
+    Assert.Equal(DateTimeKind.Utc, moment.Kind);
+    Assert.Equal(((GuidDocumentValue)document.Values["reference"]).Value,
+      Assert.IsType<GuidDocumentValue>(Read(buffer, "reference")).Value);
   }
 
   //A field that is not there is not an error. A record written before a column was added has

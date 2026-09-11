@@ -425,7 +425,7 @@ public abstract class StorageContractTests : IDisposable
     }
 
     [Fact]
-    public void AValueOfTheWrongTypeIsRejectedOnWriteOrPoisonsTheRecord()
+    public void AValueOfTheWrongTypeIsRejectedOnWriteOrStoredAsWhatItIs()
     {
         var storage = NewStorage();
         storage.CreateCollection(CustomerCollection());
@@ -439,12 +439,17 @@ public abstract class StorageContractTests : IDisposable
             return;
         }
 
-        //Nothing checks the value on the way in, and the column type is what decodes it on
-        //the way out. So the write is accepted and the record can never be read again — and
-        //because a scan decodes every record, it takes the whole collection with it.
+        //Nothing checks the value on the way in, so the write is accepted and the value comes
+        //back as what it was: the stored form says it is a string, and a string is what it is.
+        //
+        //It used to poison the record. The column type was what decoded the stored value, and
+        //four of the types were stored as text, so a Guid column meeting text that is not a
+        //Guid threw on every read — and because a scan decodes every record, it took the whole
+        //collection with it. Those four have their own document values now, so the stored form
+        //says what a value is and the column type no longer has to guess.
         var created = storage.Create("Customer", fields);
-        Assert.Throws<FormatException>(() => storage.GetById("Customer", created.Id));
-        Assert.Throws<FormatException>(() => storage.GetAll("Customer"));
+        Assert.Equal("not-a-guid", storage.GetById("Customer", created.Id)!.Fields["Id"]);
+        Assert.Single(storage.GetAll("Customer"));
     }
 
     [Fact]
@@ -715,7 +720,7 @@ public abstract class StorageContractTests : IDisposable
         storage.AddColumn("Customer", new ColumnDefinition("Phone", ColumnType.String, "Contact number"));
 
         var column = Assert.Single(
-            storage.GetCollectionDefinition("Customer")!.Columns.Where(candidate => candidate.Name == "Phone"));
+            storage.GetCollectionDefinition("Customer")!.Columns, candidate => candidate.Name == "Phone");
         Assert.Equal(ColumnType.String, column.Type);
         //The records already stored are not rewritten: they simply have no value for it.
         Assert.NotNull(storage.GetById("Customer", created.Id));

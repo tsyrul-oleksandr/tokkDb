@@ -317,13 +317,16 @@ public sealed class StorageQueryTranslationTests
     }
 
     /// <summary>
-    /// The Phase 4 finding reaching the planner instead of surprising it. Decimal has no
-    /// document value of its own and is stored as invariant text, and text does not order the
-    /// way a number does. The conjunct is still a conjunct — the planner has to check it —
-    /// but it says it cannot be turned into an index range.
+    /// A decimal operand becomes a decimal, and an ordered comparison over it can become an
+    /// index range.
+    ///
+    /// It could not while Decimal had no document value of its own and was stored as invariant
+    /// text: text does not order the way a number does, so "250" fell below "40" and the
+    /// planner had to be told to leave the column alone. That is what the four new value types
+    /// bought.
     /// </summary>
     [Fact]
-    public void AnOrderedComparisonOverADecimalIsAConjunctThatCannotBecomeAnIndexRange()
+    public void AnOrderedComparisonOverADecimalCanBecomeAnIndexRange()
     {
         var storage = BuildShopSchema();
 
@@ -333,7 +336,8 @@ public sealed class StorageQueryTranslationTests
             Where = new RecordFilter { Field = "Price", Operator = "gte", Value = "40" }
         }).Normalized.Conjuncts);
         Assert.Equal(ValueTypeEnum.Decimal, ordered.ColumnType);
-        Assert.False(ordered.IsIndexable);
+        Assert.Equal(40m, Assert.IsType<DecimalDocumentValue>(ordered.Constant).Value);
+        Assert.True(ordered.IsIndexable);
 
         var equality = Assert.Single(Translate(storage, new RecordQuery
         {

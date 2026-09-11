@@ -14,13 +14,12 @@ public static class DocumentValues {
       uint number => new UIntDocumentValue(number),
       string text => new StringDocumentValue(text),
       Ulid identifier => new UlidDocumentValue(identifier),
-      //The four ValueTypeEnum declares with nothing implementing them: Long, Decimal,
-      //DateTime and Guid. A column of one of those cannot be stored, so it cannot be looked
-      //up either, and saying so here is better than encoding it to something it is not.
+      long number => new LongDocumentValue(number),
+      decimal number => new DecimalDocumentValue(number),
+      DateTime moment => new DateTimeDocumentValue(moment),
+      Guid identifier => new GuidDocumentValue(identifier),
       _ => throw new NotSupportedException(
-        $"{value.GetType().Name} has no document value, so it cannot be stored or looked up. " +
-        $"Only {string.Join(", ", ValueTypeEnum.Boolean, ValueTypeEnum.Int, ValueTypeEnum.UInt,
-          ValueTypeEnum.String, ValueTypeEnum.Ulid)} are implemented.")
+        $"{value.GetType().Name} has no document value, so it cannot be stored or looked up.")
     };
   }
 }
