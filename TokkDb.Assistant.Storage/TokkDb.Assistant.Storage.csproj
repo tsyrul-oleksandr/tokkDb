@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latestMajor</LangVersion>
+  </PropertyGroup>
+
+  <!--
+    SC-1 and D-1. This project is the assistant's own storage contract. It references no
+    TokkDb.LLM.* project, and it references no part of the engine either: nothing here knows
+    that a page or a B+Tree exists. The only dependency is the identifier type SC-4 settled on,
+    which the engine happens to use as well but which belongs to neither of us.
+
+    ContractShapeTests in TokkDb.Assistant.Tests asserts both halves of that: the referenced
+    assemblies, and the absence of anything physical in the definitions.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Ulid" Version="1.3.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The engine-backed implementation (1.3) is another implementation of this contract, not a
+      consumer of one. It has to normalise a name and judge a value against a column type by
+      exactly the rules the in-memory implementation uses, or the two would disagree about what
+      the same schema means - which is the disagreement §2.2 of the engine plan recorded. Those
+      rules stay internal to this assembly rather than becoming public API.
+    -->
+    <InternalsVisibleTo Include="TokkDb.Assistant.Storage.Engine" />
+    <InternalsVisibleTo Include="TokkDb.Assistant.Tests" />
+  </ItemGroup>
+
+</Project>
