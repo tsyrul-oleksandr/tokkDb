@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latestMajor</LangVersion>
+  </PropertyGroup>
+
+  <!--
+    D-1 and SC-1: the contract and the engine, and nothing from TokkDb.LLM.*. The old adapter
+    is worth reading before each part of this is written - it is what found out where the two
+    contracts disagree - but nothing here references it.
+
+    D-2: the engine's own facilities, used directly. TokkDbConnection, its catalogue, its
+    settings documents, its unique indexes and its transactions. There is no second storage
+    mechanism here, and no table of the assistant's own describing what the catalogue already
+    describes.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\TokkDb.Assistant.Storage\TokkDb.Assistant.Storage.csproj" />
+    <ProjectReference Include="..\TokkDb\TokkDb.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -6,6 +6,11 @@
     <Project Path="TokkDb.LLM.Storage.Engine/TokkDb.LLM.Storage.Engine.csproj" />
     <Project Path="TokkDb.LLM.Storage/TokkDb.LLM.Storage.csproj" />
   </Folder>
+  <Folder Name="/Assistant/">
+    <Project Path="TokkDb.Assistant.Storage/TokkDb.Assistant.Storage.csproj" />
+    <Project Path="TokkDb.Assistant.Storage.Engine/TokkDb.Assistant.Storage.Engine.csproj" />
+    <Project Path="TokkDb.Assistant.Tests/TokkDb.Assistant.Tests.csproj" />
+  </Folder>
   <Project Path="TokkDb.Benchmarks\TokkDb.Benchmarks.csproj" Type="C#" />
   <Project Path="TokkDb.Buffer\TokkDb.Buffer.csproj" Type="C#" />
   <Project Path="TokkDb.Configuration\TokkDb.Configuration.csproj" Type="C#" />
