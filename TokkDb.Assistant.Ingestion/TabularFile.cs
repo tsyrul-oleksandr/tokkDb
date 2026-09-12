@@ -53,7 +53,7 @@ public static class TabularFile
     {
         ArgumentNullException.ThrowIfNull(bytes);
 
-        var (text, encoding, declared) = Csv.Decode(bytes);
+        var (text, encoding, declared) = TextEncoding.Decode(bytes);
         var delimiter = Csv.DetectDelimiter(text);
         var rows = Csv.Rows(text, delimiter).ToArray();
 
