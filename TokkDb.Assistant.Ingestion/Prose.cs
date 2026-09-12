@@ -39,6 +39,59 @@ public sealed record ProseBlock(
     /// alternative - plain text with the structure thrown away - fails IN-2 outright, because a
     /// heading and a paragraph become the same thing and a table becomes a paragraph of numbers.
     /// </summary>
+    /// <summary>
+    /// A table block, with its text rendered from its cells rather than supplied beside them.
+    ///
+    /// One way in, because the two have to agree: a block whose <see cref="Text"/> said one thing
+    /// and whose <see cref="Rows"/> said another would render one table and chunk a different
+    /// one, and nothing would notice.
+    /// </summary>
+    public static ProseBlock Table(IReadOnlyList<IReadOnlyList<string>> rows) =>
+        new(ProseBlockKind.Table, RenderRows(rows), Rows: rows);
+
+    /// <summary>
+    /// Rows as a model reads a table: pipes, and a rule under the first row so that the row is
+    /// read as the names of the columns. Every cell's own pipes are escaped, or one cell holding
+    /// a pipe would add a column to that row and the table would stop lining up from there down.
+    /// </summary>
+    public static string RenderRows(IReadOnlyList<IReadOnlyList<string>> rows)
+    {
+        if (rows.Count == 0) return "";
+
+        var width = rows.Max(static row => row.Count);
+        var text = new StringBuilder();
+
+        for (var r = 0; r < rows.Count; r++)
+        {
+            text.Append(Row(rows[r], width)).Append('\n');
+
+            if (r == 0)
+            {
+                text.Append('|');
+                for (var c = 0; c < width; c++) text.Append(" --- |");
+                text.Append('\n');
+            }
+        }
+
+        return text.ToString().TrimEnd('\n');
+    }
+
+    /// <summary>One row, padded to the table's width and with its pipes escaped.</summary>
+    public static string Row(IReadOnlyList<string> cells, int width)
+    {
+        var text = new StringBuilder("|");
+
+        for (var c = 0; c < width; c++)
+        {
+            var cell = c < cells.Count ? cells[c] : "";
+            text.Append(' ')
+                .Append(cell.Replace("|", "\\|", StringComparison.Ordinal).ReplaceLineEndings(" "))
+                .Append(" |");
+        }
+
+        return text.ToString();
+    }
+
     public string Marked => Kind switch
     {
         ProseBlockKind.Heading => $"{new string('#', Math.Clamp(Level, 1, 6))} {Text}",

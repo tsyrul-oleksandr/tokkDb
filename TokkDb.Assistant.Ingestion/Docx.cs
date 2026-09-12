@@ -196,44 +196,7 @@ internal static class Docx
             if (cells.Count > 0) rows.Add(cells);
         }
 
-        return new ProseBlock(ProseBlockKind.Table, Render(rows), Rows: rows);
-    }
-
-    /// <summary>
-    /// A table as a model reads one: pipes, and a rule under the first row so that the row is
-    /// read as the names of the columns. Every cell's own pipes are escaped, or one cell holding
-    /// a pipe would add a column to that row and the table would stop lining up.
-    /// </summary>
-    private static string Render(IReadOnlyList<IReadOnlyList<string>> rows)
-    {
-        if (rows.Count == 0) return "";
-
-        var width = rows.Max(static row => row.Count);
-        var text = new StringBuilder();
-
-        for (var r = 0; r < rows.Count; r++)
-        {
-            text.Append("| ");
-
-            for (var c = 0; c < width; c++)
-            {
-                var cell = c < rows[r].Count ? rows[r][c] : "";
-                text.Append(cell.Replace("|", "\\|", StringComparison.Ordinal).Replace('\n', ' '));
-                text.Append(" |");
-                if (c < width - 1) text.Append(' ');
-            }
-
-            text.Append('\n');
-
-            if (r == 0)
-            {
-                text.Append('|');
-                for (var c = 0; c < width; c++) text.Append(" --- |");
-                text.Append('\n');
-            }
-        }
-
-        return text.ToString().TrimEnd('\n');
+        return ProseBlock.Table(rows);
     }
 
     /// <summary>
