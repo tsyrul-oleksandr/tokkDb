@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\TokkDb.Assistant.Storage\TokkDb.Assistant.Storage.csproj" />
     <ProjectReference Include="..\TokkDb.Assistant.Storage.Engine\TokkDb.Assistant.Storage.Engine.csproj" />
+    <ProjectReference Include="..\TokkDb.Assistant.Ingestion\TokkDb.Assistant.Ingestion.csproj" />
   </ItemGroup>
 
 </Project>

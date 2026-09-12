@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latestMajor</LangVersion>
+  </PropertyGroup>
+
+  <!--
+    IN-1 and phase 2: no model and no storage. Nothing here calls an LLM and nothing here
+    writes anything; a file goes in and a description of what is in it comes out, the same way
+    every time.
+
+    The contract is referenced for one thing: ColumnType. Inference has to conclude in the
+    vocabulary the storage can actually hold, and a second enum here would be two vocabularies
+    to keep in step for no gain. The contract assembly depends on nothing itself, so this
+    borrows no weight by taking it.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\TokkDb.Assistant.Storage\TokkDb.Assistant.Storage.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      R-5, settled. DocumentFormat.OpenXml over ClosedXML, ExcelDataReader and MiniExcel, for
+      four reasons, in order of weight:
+
+      1. It reads .docx as well, and 2.2 needs that. Every alternative here is spreadsheets
+         only, so choosing one means taking this as well - and ClosedXML already depends on
+         this, so choosing it means taking both plus a DOM.
+      2. It streams. OpenXmlReader walks a sheet part forward without holding it, so the
+         50 000-row file of IN-3 is read a row at a time. ClosedXML's XLWorkbook is a document
+         model and loads the workbook; a desktop application that reads 50 MB to produce a 2 KB
+         rendering is paying for nothing.
+      3. Microsoft, MIT, .NET Foundation, 431 million downloads. There is no question about it
+         still being here in a year.
+      4. It is what the format actually is, so nothing is hidden: shared strings, number
+         formats and the 1900 date system are visible rather than guessed at by a layer that
+         may guess differently from the next version of itself.
+
+      The cost R-5 names is real and is not waved away: shared strings, styles and date formats
+      have to be read by hand. That work is in Xlsx.cs and nowhere else.
+    -->
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.5.1" />
+
+    <!-- The single-byte code pages a file with no byte order mark might be in. They ship with
+         .NET 10 rather than needing a package; CodePagesEncodingProvider still has to be
+         registered before they can be asked for. -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="TokkDb.Assistant.Tests" />
+  </ItemGroup>
+
+</Project>
