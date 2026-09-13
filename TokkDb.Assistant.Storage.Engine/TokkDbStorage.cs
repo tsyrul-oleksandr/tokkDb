@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using TokkDb.Assistant.Storage;
+using TokkDb.Assistant.Trace;
 using TokkDb.Documents;
 using TokkDb.Documents.Keys;
 using TokkDb.Documents.Path.Expressions;
@@ -77,6 +78,7 @@ public sealed class TokkDbStorage : IStorage, IDisposable
 
     private readonly EngineConnection _connection;
     private readonly EngineConversations _conversations;
+    private readonly EngineTraces _traces;
 
     /// <summary>Opens or creates the database at <paramref name="databaseFilePath"/>.</summary>
     public TokkDbStorage(string databaseFilePath)
@@ -84,6 +86,7 @@ public sealed class TokkDbStorage : IStorage, IDisposable
         _connection = new EngineConnection(databaseFilePath);
         _connection.Load();
         _conversations = new EngineConversations(_connection);
+        _traces = new EngineTraces(_connection);
     }
 
     /// <summary>Takes a connection someone else opened, and does not close it.</summary>
@@ -92,11 +95,24 @@ public sealed class TokkDbStorage : IStorage, IDisposable
         _connection = connection;
         Borrowed = !ownsConnection;
         _conversations = new EngineConversations(_connection);
+        _traces = new EngineTraces(_connection);
     }
 
     private bool Borrowed { get; }
 
     public IConversationStore Conversations => _conversations;
+
+    /// <summary>
+    /// Where this database's traces and its change journal are (D-8, TR-4).
+    ///
+    /// Not on <see cref="IStorage"/>, and that is §3.1 rather than an oversight: the storage
+    /// contract depends on nothing, the trace model is its own project, and a contract that
+    /// mentioned a <see cref="DataChange"/> would drag one into the other. What makes TR-4
+    /// possible is that this recorder is on the same connection - so a change recorded inside
+    /// <see cref="InUnitOfWork(Action)"/> commits in the transaction of the mutation it
+    /// describes, with nothing arranging it.
+    /// </summary>
+    public ITraceRecorder Traces => _traces;
 
     // ---- The unit of work -----------------------------------------------------------------
 

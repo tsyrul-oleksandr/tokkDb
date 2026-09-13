@@ -239,29 +239,29 @@ internal sealed class EngineConversations : IConversationStore
 
     private static Conversation ToConversation(Ulid id, ObjectDocument document, int turns)
     {
-        var value = (ObjectDocumentValue)document.Value;
+        var value = DocumentFields.Of(document);
 
         return new Conversation(
             id,
-            Text(value, TitleField),
-            Moment(value, StartedField),
-            Moment(value, ActivityField),
+            DocumentFields.Text(value, TitleField),
+            DocumentFields.Moment(value, StartedField),
+            DocumentFields.Moment(value, ActivityField),
             turns);
     }
 
     private static ConversationTurn ToTurn(Ulid id, ObjectDocument document)
     {
-        var value = (ObjectDocumentValue)document.Value;
-        var attachments = Text(value, AttachmentsField);
+        var value = DocumentFields.Of(document);
+        var attachments = DocumentFields.Text(value, AttachmentsField);
 
         return new ConversationTurn(
             id,
-            Identity(value, ConversationField) ?? default,
-            Enum.TryParse<TurnSpeaker>(Text(value, SpeakerField), out var speaker) ? speaker : TurnSpeaker.Person,
-            Text(value, TextField),
+            DocumentFields.Identity(value, ConversationField) ?? default,
+            Enum.TryParse<TurnSpeaker>(DocumentFields.Text(value, SpeakerField), out var speaker) ? speaker : TurnSpeaker.Person,
+            DocumentFields.Text(value, TextField),
             attachments.Length == 0 ? [] : attachments.Split(AttachmentSeparator),
-            Identity(value, RequestField),
-            Moment(value, AtField));
+            DocumentFields.Identity(value, RequestField),
+            DocumentFields.Moment(value, AtField));
     }
 
     private int Count(Ulid conversationId) => Counts().GetValueOrDefault(conversationId);
@@ -272,24 +272,13 @@ internal sealed class EngineConversations : IConversationStore
 
         foreach (var (_, document) in _connection.SystemDocuments.ReadAll(SystemCollections.ConversationEntries))
         {
-            if (Identity((ObjectDocumentValue)document.Value, ConversationField) is not { } conversation) continue;
+            if (DocumentFields.Identity(DocumentFields.Of(document), ConversationField) is not { } conversation) continue;
 
             counts[conversation] = counts.GetValueOrDefault(conversation) + 1;
         }
 
         return counts;
     }
-
-    private static string Text(ObjectDocumentValue value, string field) =>
-        value.Values.GetValueOrDefault(field) is StringDocumentValue text ? text.Value : string.Empty;
-
-    private static Ulid? Identity(ObjectDocumentValue value, string field) =>
-        value.Values.GetValueOrDefault(field) is UlidDocumentValue id ? id.Value : null;
-
-    private static DateTimeOffset Moment(ObjectDocumentValue value, string field) =>
-        value.Values.GetValueOrDefault(field) is DateTimeDocumentValue moment
-            ? new DateTimeOffset(DateTime.SpecifyKind(moment.Value, DateTimeKind.Utc))
-            : default;
 
     /// <summary>
     /// A conversation always has something to be called, because UI-1 lists it before anyone has

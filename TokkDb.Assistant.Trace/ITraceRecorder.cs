@@ -13,8 +13,9 @@ namespace TokkDb.Assistant.Trace;
 /// and a confirmation has to survive a kill that arrives before any data write exists - neither
 /// of which can sit inside a transaction held open across a model call and a human pause.
 ///
-/// Nothing here has an implementation yet: step 3.0 creates the model and the interface, and 3.2
-/// and 3.3 give them their two retentions and their two durability points.
+/// Step 3.0 created the model and the interface; step 3.2 gives them their two retentions and
+/// their first implementation over the engine's reserved collections; 3.3 gives them their two
+/// durability points.
 /// </summary>
 public interface ITraceRecorder
 {
@@ -42,4 +43,25 @@ public interface ITraceRecorder
 
     /// <summary>Every change one request made, in the order it made them - which is what an undo replays backwards.</summary>
     IReadOnlyList<DataChange> Changes(Ulid requestId);
+
+    /// <summary>
+    /// Removes the diagnostics of requests that finished before <paramref name="moment"/>, and
+    /// <b>nothing else</b> (TR-7, TR-8).
+    ///
+    /// Not the change journal, which is what a purge is defined against: after one, every change
+    /// is still attributable to a request and a time, and D-17's compensation still works inside
+    /// its window. Not data, and not conversations, which are the user's and are on no window at
+    /// all. And not a request that has not finished - a request can sit in
+    /// <see cref="RequestState.WaitingForUser"/> for as long as the person takes, and its age
+    /// says nothing about whether it is still wanted.
+    ///
+    /// <see cref="Read"/> then returns null for a purged request while <see cref="Changes"/>
+    /// still returns its changes, which is the dangling identifier TR-2 asks the interface to
+    /// render as "the diagram for this change is no longer kept" rather than to fail on.
+    ///
+    /// <i>The window is step 9.2's</i>: this takes a moment rather than a policy, because a
+    /// retention default is a decision about how long, and this is the mechanism it will use.
+    /// </summary>
+    /// <returns>How many requests had their diagnostics removed.</returns>
+    int PurgeDiagnostics(DateTimeOffset moment);
 }

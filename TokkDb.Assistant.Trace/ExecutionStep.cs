@@ -84,3 +84,28 @@ public sealed record ModelCall(
 
     public int TotalTokens => PromptTokens + CompletionTokens;
 }
+
+/// <summary>
+/// The only way a <see cref="ModelCall"/> should be built, and the reason it exists is mechanical
+/// rather than tidy (TR-3, D-8).
+///
+/// <c>ModelCall</c> takes a hash, and a caller with the prompt in hand has to hash it. Every
+/// caller that does that by itself is a place where the prompt can be passed instead, and the
+/// rule "a hash of the prompt, never the prompt" is then a thing people remember rather than a
+/// thing the code does. This takes the prompt and cannot keep it.
+/// </summary>
+public static class ModelCalls
+{
+    public static ModelCall For(
+        string model,
+        string prompt,
+        int promptTokens,
+        int completionTokens,
+        TimeSpan duration)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(model);
+        ArgumentNullException.ThrowIfNull(prompt);
+
+        return new ModelCall(model, promptTokens, completionTokens, duration, Hashes.Of(prompt));
+    }
+}

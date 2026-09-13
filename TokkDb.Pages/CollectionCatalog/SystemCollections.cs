@@ -15,13 +15,15 @@ public static class SystemCollections {
 
   //The assistant's traces, and the journal of what they changed.
   //
-  //Three rather than two, and the number is a retention decision rather than a layout one. The
-  //assistant keeps four things here — diagnostics, the change journal, the state of a request,
-  //and conversations — and they do not all live as long. The diagnostics are prunable and the
-  //change journal is not, so they cannot share a collection; conversations are the user's to
-  //delete and already have _conversations and _conversationEntries; and a request's state lives
-  //on its own trace document, because a request that is waiting for an answer is exactly the
-  //request whose diagram is being looked at.
+  //Three, and the number is a retention decision rather than a layout one. The assistant keeps
+  //four things here — diagnostics, the change journal, the state of a request, and conversations
+  //— and they do not all live as long. Two things with different lifetimes cannot share a
+  //collection, because a purge removes documents and a document is either removed or it is not:
+  //the diagnostics are prunable on a stated window, the change journal is on a longer one of its
+  //own and no purge of the first may touch it, and conversations are on no window at all because
+  //they go when the user says so. A request's state is the fourth thing and needs no collection
+  //— it lives on its own trace document, because a request that is waiting for an answer is
+  //exactly the request whose diagram is being looked at.
   //
   //_traces and _traceSteps split for the reason _conversations and _conversationEntries split:
   //the steps of one request are read together and are far more numerous than the requests, so
@@ -29,7 +31,8 @@ public static class SystemCollections {
   //
   //D-4 said this list would grow — "(later: _events, _versions)" — and this is the growth. The
   //engine stores these and interprets none of them: what a step is, and what may be in one, is
-  //defined a layer up and declared through DescribeSystemCollection.
+  //defined a layer up and declared through DescribeSystemCollection — which is also where the
+  //five the assistant now owns are listed against their three retentions.
   public const string Traces = "_traces";
   public const string TraceSteps = "_traceSteps";
   public const string DataChanges = "_dataChanges";
