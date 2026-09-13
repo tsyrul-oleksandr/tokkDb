@@ -255,11 +255,16 @@ they are requirements VR-11 and VR-12 below, and they are **Must** now:
 4. Deletion is routed through one internal method that a version store can later
    intercept (VR-12).
 
-*Open, and to be decided before the evaluation (Phase 13):* whether history stores
-deltas (C2.4, the approach the design proposes) or full copies (the approach it
-rejects for duplication). Versioning is the central feature of the design, so the
-implementation has to exist before the evaluation results are produced, not merely
-before release. Nothing in D-5 forecloses either choice.
+*Settled:* the question this left open — whether history stores deltas (C2.4, the
+approach the design proposes) or full copies (the approach it rejects for duplication)
+— is decided by **V-1** of the versioning plan
+([versioning-requirements-and-plan.md](versioning-requirements-and-plan.md), §4.2).
+History stores deltas, and a version keeps its full image as a keyframe when it is a
+root, when its distance from the last keyframe reaches a bound, or when its delta is
+nearly as large as its image. Versioning is the central feature of the design, so the
+implementation has to exist before the evaluation results are produced (Phase 13), not
+merely before release. Nothing in D-5 forecloses either choice, and the same code with
+the bound set to 1 is the full-copy approach NFR-4 compares against.
 
 **D-6 — Free-space management is required now, not later.**
 Copy-on-write updates (VR-12) and real deletes (D-5) both produce dead space from the
@@ -537,6 +542,13 @@ this pass — returns its space to the free list. Under a later
 and repointing the index leaves the old record intact and readable; switching the
 retention policy is the only change needed to begin retaining versions; deletion
 happens in exactly one method, which a version store can later intercept.
+*Note:* V-1 and V-6 of the versioning plan
+([versioning-requirements-and-plan.md](versioning-requirements-and-plan.md), §4.2)
+change what `KeepVersions` retains and what `previousVersion` addresses. Under
+`KeepVersions`, history keeps each version's delta from the version before it, and a
+superseded image is kept whole only where V-1's keyframe rule selects it, so
+`previousVersion` in a live image's header addresses the history node of that image's
+own version rather than the superseded image. The header layout of VR-11 is unchanged.
 
 **VR-13 (S, D-5).** Scans shall skip superseded and deleted images without consulting
 an index.
@@ -1066,29 +1078,22 @@ they have to fit a page: growing a record into an overflow chain is ST-6 and unb
 metadata map past about 8 KB is refused with the storage layer's own error rather than
 silently truncated.
 
-### Phase 8 — Versioning — *gated on the open question in D-5*
+### Phase 8 — Versioning
 
 *Goal:* implement versioning (C2.4).
 
-First settle deltas versus full copies. The design proposes deltas
-(C2.4) and rejects full copies for duplication, so a full-copy
-history collection would leave the central versioning feature without an implementation.
-
-- Delta computation with paths, including nested objects and arrays (VR-2, VR-3).
-- Version nodes and the version tree with branching, indexed by a B+Tree
-  (VR-4, VR-5, VR-10) — the tree machinery from Phase 5 is reused.
-- `RetentionPolicy.KeepVersions` switched on; superseded images retained and linked
-  through `previousVersion` (VR-12). Because Phase 3 already wrote those headers, no
-  existing database needs rewriting.
-- Snapshot + delta strategy with a configurable interval (VR-6); time-travel and diff
-  API; logical delete; related-record point-in-time restore (VR-7, VR-8, VR-9).
-- A retention/collapse policy and an explicit administrative `PurgeHistory`, distinct
-  from user-level delete — otherwise history grows without bound and a genuine erase
-  request cannot be honoured.
-- The version view in the UI (UI-1); benchmarks for NFR-4 and VR-10.
-
-*Exit:* the reference INSERT/UPDATE/DELETE scenario (VR-7) is reproduced in the application,
-including a branch created by restore-and-edit.
+The open question is settled (D-5, V-1), and the phase is planned in its own document,
+[versioning-requirements-and-plan.md](versioning-requirements-and-plan.md), whose
+requirement groups DL, HS, WV, RH, RB, RP, AJ and NF refine VR-1 to VR-13, NFR-2, NFR-4,
+NFR-5 and NFR-8, and whose §11 traces each of them back to this document. It runs in
+ten phases: Phase 0, before anything changes; Phase 1, the delta (layer 0); Phase 2,
+version store foundations (layer 1); Phase 3, recording versions (layer 1); Phase 4,
+reading history (layer 2); Phase 5, measure, then decide the default; Phase 6, restore
+(layer 3); Phase 7, retention and erasure (layer 4); Phase 8, guarantees and the whole
+engine; and Phase 9, the assistant (layer 5). Its exit is that plan's: its guarantees
+hold and its scenarios pass, among them the §2.4 scenario of VR-7 with a branch created
+by restore-and-edit. The version view (UI-1) is not in it; that plan records it as a
+future decision.
 
 ### Phase 9 — Event log
 
