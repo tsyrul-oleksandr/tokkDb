@@ -397,7 +397,6 @@ FodyWeavers.xsd
 # JetBrains Rider
 *.sln.iml
 .idea/
-/docs
 
 # Phase 0 spike code (docs/assistant-requirements-and-plan.md section 9). Throwaway, and
 # deliberately outside TokkDb.slnx.

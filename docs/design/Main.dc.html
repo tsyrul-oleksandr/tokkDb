@@ -1,0 +1,222 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap');
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #111111; color: #CCCCCC;
+      font-family: 'Open Sans', -apple-system, 'Segoe UI', system-ui, sans-serif;
+      font-size: 13px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+    a { color: #A79BD8; text-decoration: none; }
+    a:hover { color: #C5BCEA; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #111111; overflow: hidden;">
+
+  <!-- title bar -->
+  <div style="height: 48px; flex-shrink: 0; display: flex; align-items: center; gap: 16px; padding: 0 16px; background: #202023; border-bottom: 1px solid #303035;">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#A79BD8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5v9c0 1.7 3.6 3 8 3s8-1.3 8-3v-9"/><ellipse cx="12" cy="7.5" rx="8" ry="3"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+      <span style="color: #FFFFFF; font-weight: 600; font-size: 13px; letter-spacing: 0.2px;">Storage</span>
+    </div>
+
+    <!-- the two surfaces -->
+    <div style="display: flex; gap: 2px; padding: 2px; background: #111111; border-radius: 7px; border: 1px solid #303035;">
+      <div style="padding: 5px 14px; border-radius: 5px; background: #303035; color: #FFFFFF; font-size: 12px; font-weight: 600;">Chat</div>
+      <div style="padding: 5px 14px; border-radius: 5px; color: #888888; font-size: 12px;">Browse</div>
+    </div>
+
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; align-items: center; gap: 6px; color: #777777; font-size: 11px;">
+      <span style="width: 6px; height: 6px; border-radius: 50%; background: #7FB069;"></span>
+      <span>qwen3.5:4b · on this machine</span>
+    </div>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#888888" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+
+    <!-- conversations -->
+    <div style="width: 232px; flex-shrink: 0; background: #202023; border-right: 1px solid #303035; display: flex; flex-direction: column;">
+      <div style="padding: 12px;">
+        <div style="display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px; border-radius: 7px; border: 1px solid #38383D; color: #CCCCCC; font-size: 12px; font-weight: 600;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#CCCCCC" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          New chat
+        </div>
+      </div>
+      <div style="padding: 4px 8px 8px; display: flex; flex-direction: column; gap: 2px;">
+        <div style="padding: 8px 10px; border-radius: 7px; background: #303035;">
+          <div style="color: #FFFFFF; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Here are last year's conferences</div>
+          <div style="color: #777777; font-size: 11px; margin-top: 2px;">just now</div>
+        </div>
+        <div style="padding: 8px 10px; border-radius: 7px;">
+          <div style="color: #CCCCCC; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">How much went on travel?</div>
+          <div style="color: #666666; font-size: 11px; margin-top: 2px;">Tuesday</div>
+        </div>
+        <div style="padding: 8px 10px; border-radius: 7px;">
+          <div style="color: #CCCCCC; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Fix the Lviv amount</div>
+          <div style="color: #666666; font-size: 11px; margin-top: 2px;">Tuesday</div>
+        </div>
+        <div style="padding: 8px 10px; border-radius: 7px;">
+          <div style="color: #CCCCCC; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Papers I still owe reviews on</div>
+          <div style="color: #666666; font-size: 11px; margin-top: 2px;">5 Sept</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- conversation -->
+    <div style="width: 584px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid #303035;">
+      <div style="flex-grow: 1; padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; min-height: 0;">
+
+        <div style="align-self: flex-end; max-width: 420px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end;">
+          <div style="background: #303035; color: #FFFFFF; padding: 12px 14px; border-radius: 7px;">Here are last year's conferences</div>
+          <div style="display: flex; align-items: center; gap: 8px; background: #202023; border: 1px solid #38383D; border-radius: 7px; padding: 8px 12px;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7FB069" stroke-width="1.6" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>
+            <div>
+              <div style="color: #CCCCCC; font-size: 12px;">conferences-2025.xlsx</div>
+              <div style="color: #777777; font-size: 11px;">22 rows, 4 headings</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="max-width: 470px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="color: #CCCCCC;">Saved 22 conferences. One was already there, so I left it alone.</div>
+          <div style="color: #CCCCCC;">Your conferences didn't keep the city before — they do now.</div>
+
+          <div style="background: #202023; border: 1px solid #303035; border-radius: 7px; overflow: hidden;">
+            <div style="padding: 10px 14px; border-bottom: 1px solid #303035; display: flex; align-items: center; justify-content: space-between;">
+              <span style="color: #FFFFFF; font-size: 12px; font-weight: 600;">Conferences</span>
+              <span style="color: #777777; font-size: 11px;">47 of them now</span>
+            </div>
+            <div style="padding: 10px 14px; display: flex; flex-direction: column; gap: 7px;">
+              <div style="display: flex; gap: 8px; align-items: baseline;"><span style="color: #7FB069; font-size: 11px; width: 52px; flex-shrink: 0;">added</span><span style="color: #CCCCCC; font-size: 12px;">21 conferences</span></div>
+              <div style="display: flex; gap: 8px; align-items: baseline;"><span style="color: #A79BD8; font-size: 11px; width: 52px; flex-shrink: 0;">new</span><span style="color: #CCCCCC; font-size: 12px;">City — now kept for every conference</span></div>
+              <div style="display: flex; gap: 8px; align-items: baseline;"><span style="color: #888888; font-size: 11px; width: 52px; flex-shrink: 0;">skipped</span><span style="color: #999999; font-size: 12px;">1 — the same as one you already had</span></div>
+            </div>
+            <div style="padding: 9px 14px; border-top: 1px solid #303035; color: #A79BD8; font-size: 12px;">Open them in Browse →</div>
+          </div>
+        </div>
+
+        <div style="flex-grow: 1;"></div>
+      </div>
+
+      <div style="padding: 0 24px 20px;">
+        <div style="border: 1px solid #38383D; border-radius: 7px; background: #202023; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="color: #666666;">Say what you want, or drop a file here</div>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#888888" stroke-width="1.6" stroke-linecap="round"><path d="M21.4 11.05 12.25 20.2a5 5 0 0 1-7.07-7.07l9.19-9.19a3.33 3.33 0 1 1 4.71 4.71l-9.2 9.19a1.67 1.67 0 1 1-2.35-2.36l8.49-8.48"/></svg>
+            <div style="flex-grow: 1;"></div>
+            <div style="width: 28px; height: 28px; border-radius: 7px; background: #6B5FA8; display: flex; align-items: center; justify-content: center;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- what happened -->
+    <div style="flex-grow: 1; display: flex; flex-direction: column; background: #111111; min-width: 0;">
+      <div style="height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid #303035;">
+        <span style="color: #FFFFFF; font-size: 12px; font-weight: 600;">What happened</span>
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <span style="color: #777777; font-size: 11px;">2.8s · 4 thinking steps</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#888888" stroke-width="1.8" stroke-linecap="round"><path d="M13 5l7 7-7 7"/></svg>
+        </div>
+      </div>
+
+      <div style="padding: 16px 12px; flex-grow: 1;">
+        <svg width="595" height="430" viewBox="0 0 595 430" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="ah" markerWidth="7" markerHeight="7" refX="6" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="#6B5FA8"/></marker>
+            <marker id="ahs" markerWidth="7" markerHeight="7" refX="6" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="#A79BD8"/></marker>
+            <marker id="ahg" markerWidth="7" markerHeight="7" refX="6" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="#5F7A52"/></marker>
+          </defs>
+
+          <!-- participants -->
+          <g font-family="Open Sans, sans-serif" font-size="10.5" text-anchor="middle">
+            <rect x="14" y="0" width="84" height="26" rx="7" fill="#252529" stroke="#38383D"/><text x="56" y="17" fill="#FFFFFF" font-weight="600">You</text>
+            <rect x="118" y="0" width="100" height="26" rx="7" fill="#252529" stroke="#6B5FA8"/><text x="168" y="17" fill="#A79BD8" font-weight="600">Orchestrator</text>
+            <rect x="238" y="0" width="84" height="26" rx="7" fill="#252529" stroke="#38383D"/><text x="280" y="17" fill="#CCCCCC" font-weight="600">Reader</text>
+            <rect x="350" y="0" width="84" height="26" rx="7" fill="#252529" stroke="#38383D"/><text x="392" y="17" fill="#CCCCCC" font-weight="600">Mapper</text>
+            <rect x="462" y="0" width="84" height="26" rx="7" fill="#252529" stroke="#38383D"/><text x="504" y="17" fill="#CCCCCC" font-weight="600">Storage</text>
+          </g>
+
+          <!-- lifelines -->
+          <g stroke="#303035" stroke-width="1" stroke-dasharray="3 4">
+            <line x1="56" y1="26" x2="56" y2="420"/><line x1="168" y1="26" x2="168" y2="420"/>
+            <line x1="280" y1="26" x2="280" y2="420"/><line x1="392" y1="26" x2="392" y2="420"/>
+            <line x1="504" y1="26" x2="504" y2="420"/>
+          </g>
+
+          <g font-family="Open Sans, sans-serif" font-size="10">
+            <line x1="56" y1="62" x2="164" y2="62" stroke="#6B5FA8" stroke-width="1.4" marker-end="url(#ah)"/>
+            <text x="62" y="56" fill="#999999">conferences-2025.xlsx</text>
+
+            <line x1="168" y1="106" x2="276" y2="106" stroke="#6B5FA8" stroke-width="1.4" marker-end="url(#ah)"/>
+            <text x="174" y="100" fill="#999999">what is in this file?</text>
+
+            <line x1="280" y1="146" x2="172" y2="146" stroke="#6B5FA8" stroke-width="1.4" marker-end="url(#ah)"/>
+            <text x="186" y="140" fill="#999999">4 headings, 22 rows, types</text>
+
+            <line x1="168" y1="190" x2="388" y2="190" stroke="#6B5FA8" stroke-width="1.4" marker-end="url(#ah)"/>
+            <text x="174" y="184" fill="#999999">where does this belong?</text>
+
+            <line x1="392" y1="230" x2="172" y2="230" stroke="#6B5FA8" stroke-width="1.4" marker-end="url(#ah)"/>
+            <text x="200" y="224" fill="#999999">Conferences, and keep City too</text>
+
+            <!-- selected step -->
+            <rect x="150" y="256" width="374" height="46" rx="7" fill="#252529" stroke="#A79BD8" stroke-width="1.2"/>
+            <line x1="176" y1="288" x2="496" y2="288" stroke="#A79BD8" stroke-width="1.6" marker-end="url(#ahs)"/>
+            <text x="178" y="277" fill="#FFFFFF" font-weight="600">start keeping City, then save 22</text>
+
+            <line x1="504" y1="336" x2="176" y2="336" stroke="#5F7A52" stroke-width="1.4" marker-end="url(#ahg)"/>
+            <text x="300" y="330" fill="#7FB069">21 saved, 1 already there</text>
+
+            <line x1="164" y1="380" x2="60" y2="380" stroke="#6B5FA8" stroke-width="1.4" marker-end="url(#ah)"/>
+            <text x="70" y="374" fill="#999999">what I did</text>
+          </g>
+        </svg>
+      </div>
+
+      <!-- detail for the selected step -->
+      <div style="flex-shrink: 0; border-top: 1px solid #303035; background: #202023; padding: 12px 16px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+          <span style="color: #FFFFFF; font-size: 12px; font-weight: 600;">Start keeping City, then save 22</span>
+          <div style="display: flex; gap: 2px; padding: 2px; background: #111111; border-radius: 7px; border: 1px solid #303035;">
+            <span style="padding: 3px 10px; border-radius: 5px; background: #303035; color: #FFFFFF; font-size: 11px;">What changed</span>
+            <span style="padding: 3px 10px; border-radius: 5px; color: #888888; font-size: 11px;">Details</span>
+          </div>
+        </div>
+        <div style="display: flex; gap: 24px; font-size: 11px;">
+          <div style="display: flex; flex-direction: column; gap: 5px;">
+            <span style="color: #666666;">before</span>
+            <span style="color: #999999;">Name · Date · Cost</span>
+            <span style="color: #999999;">26 conferences</span>
+          </div>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6B5FA8" stroke-width="2" stroke-linecap="round" style="align-self: center;"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          <div style="display: flex; flex-direction: column; gap: 5px;">
+            <span style="color: #666666;">after</span>
+            <span style="color: #CCCCCC;">Name · Date · Cost · <span style="color: #A79BD8;">City</span></span>
+            <span style="color: #CCCCCC;">47 conferences</span>
+          </div>
+          <div style="flex-grow: 1;"></div>
+          <div style="display: flex; flex-direction: column; gap: 5px; text-align: right;">
+            <span style="color: #666666;">took</span>
+            <span style="color: #999999;">0.14s</span>
+            <span style="color: #999999;">one save, all or nothing</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

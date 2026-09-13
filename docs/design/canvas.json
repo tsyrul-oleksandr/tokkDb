@@ -1,0 +1,55 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1440, "h": 900, "title": "Chat — the working surface" },
+    { "file": "Overview.dc.html", "x": 1560, "y": 0, "w": 1440, "h": 900, "title": "Browse — everything stored" },
+    { "file": "Records.dc.html", "x": 3120, "y": 0, "w": 1440, "h": 900, "title": "Browse — one thing, sorted and narrowed" },
+    { "file": "Record.dc.html", "x": 0, "y": 1060, "w": 1440, "h": 900, "title": "Browse — one entry and what it connects to" },
+    { "file": "WhatItKeeps.dc.html", "x": 1560, "y": 1060, "w": 1440, "h": 900, "title": "Browse — what this keeps" },
+    { "file": "Confirm.dc.html", "x": 3120, "y": 1060, "w": 1440, "h": 900, "title": "Losing something — the question first" }
+  ],
+  "annotations": [
+    {
+      "id": "vocabulary",
+      "x": 0,
+      "y": -220,
+      "w": 640,
+      "text": "Vocabulary rule (UI-2, BR-6)\n\nNothing on any of these screens requires knowing what a collection, column, schema, index, query, constraint or nullable is. Those words do not appear.\n\n\"things you've stored\" · \"what a conference keeps\" · \"some words\" · \"a day\" · \"an amount of money\" · \"always needed\" · \"no two the same\" · \"often left empty\""
+    },
+    {
+      "id": "two-surfaces",
+      "x": 700,
+      "y": -220,
+      "w": 620,
+      "text": "Two surfaces, one switch (D-13)\n\nChat is where work happens and nothing structural is ever named. Browse is where everything is visible.\n\nNobody needs Browse to use the application. It is for looking, checking and reassurance — a person who cannot see what a system did with their data does not trust it."
+    },
+    {
+      "id": "zero-tokens",
+      "x": 3120,
+      "y": -220,
+      "w": 620,
+      "text": "Everything in Browse costs nothing (BR-4, scenario S-8)\n\nSorting, narrowing, opening an entry and reading what it keeps all go straight to storage as a declarative query. No model is called, so the whole of S-8 records zero tokens.\n\nThe footer of the table says so out loud."
+    },
+    {
+      "id": "diagram-note",
+      "x": 0,
+      "y": 960,
+      "w": 620,
+      "text": "The diagram (TR-5, TR-6, D-9)\n\nDrawn natively — a GraphicsView over Microsoft.Maui.Graphics, with the layout computed in plain testable C#.\n\nParticipants across the top, lifelines down, one call per row. It grows while the request runs. The selected block opens the panel below it: a data change shows before beside after, a model call shows tokens and timing."
+    },
+    {
+      "id": "destructive-note",
+      "x": 3120,
+      "y": 2020,
+      "w": 620,
+      "text": "Additive happens, destructive asks (D-7)\n\nAdding City to every conference needed no permission — it is in the Chat artboard as something that simply happened.\n\nRemoving notes is a loss, so it is stated as a loss: how many, three real examples, what survives, and that it cannot be undone. Counts and examples, never schema terms (UI-4).\n\nThe last line is honest about versioning: getting this back is a later feature (deltas), not one that exists."
+    },
+    {
+      "id": "palette",
+      "x": 1560,
+      "y": 2020,
+      "w": 620,
+      "text": "Lifted from the existing app, not invented\n\nOpen Sans · 7px radii · 13px body, 12/11 secondary · 8px gaps · 12,8 and 14,10 paddings.\n\n#111111 window · #202023 panels · #252529 raised · #303035 hover and lines · #38383D borders · #A79BD8 and #6B5FA8 violet from MAUI's #512BD4 · #E57373 and #C0392B for loss."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

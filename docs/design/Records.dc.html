@@ -1,0 +1,147 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap');
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #111111; color: #CCCCCC;
+      font-family: 'Open Sans', -apple-system, 'Segoe UI', system-ui, sans-serif;
+      font-size: 13px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+    a { color: #A79BD8; text-decoration: none; }
+    a:hover { color: #C5BCEA; }
+    .r { display: grid; grid-template-columns: 300px 110px 120px 110px minmax(0, 1fr); gap: 16px;
+      padding: 10px 20px; border-bottom: 1px solid #202023; align-items: center; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #111111; overflow: hidden;">
+
+  <div style="height: 48px; flex-shrink: 0; display: flex; align-items: center; gap: 16px; padding: 0 16px; background: #202023; border-bottom: 1px solid #303035;">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#A79BD8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5v9c0 1.7 3.6 3 8 3s8-1.3 8-3v-9"/><ellipse cx="12" cy="7.5" rx="8" ry="3"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+      <span style="color: #FFFFFF; font-weight: 600; font-size: 13px; letter-spacing: 0.2px;">Storage</span>
+    </div>
+    <div style="display: flex; gap: 2px; padding: 2px; background: #111111; border-radius: 7px; border: 1px solid #303035;">
+      <div style="padding: 5px 14px; border-radius: 5px; color: #888888; font-size: 12px;">Chat</div>
+      <div style="padding: 5px 14px; border-radius: 5px; background: #303035; color: #FFFFFF; font-size: 12px; font-weight: 600;">Browse</div>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; align-items: center; gap: 8px; background: #111111; border: 1px solid #303035; border-radius: 7px; padding: 6px 12px; width: 280px;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#777777" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <span style="color: #666666; font-size: 12px;">Find in conferences</span>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+
+    <div style="width: 232px; flex-shrink: 0; background: #202023; border-right: 1px solid #303035; padding: 14px 8px; display: flex; flex-direction: column; gap: 2px;">
+      <div style="padding: 0 10px 10px; color: #666666; font-size: 11px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase;">Everything stored</div>
+      <div style="padding: 8px 10px; border-radius: 7px; background: #303035; display: flex; align-items: center; justify-content: space-between;"><span style="color: #FFFFFF; font-size: 12px; font-weight: 600;">Conferences</span><span style="color: #A79BD8; font-size: 11px;">47</span></div>
+      <div style="padding: 8px 10px; border-radius: 7px; display: flex; align-items: center; justify-content: space-between;"><span style="color: #CCCCCC; font-size: 12px;">Expenses</span><span style="color: #666666; font-size: 11px;">213</span></div>
+      <div style="padding: 8px 10px; border-radius: 7px; display: flex; align-items: center; justify-content: space-between;"><span style="color: #CCCCCC; font-size: 12px;">Contacts</span><span style="color: #666666; font-size: 11px;">88</span></div>
+      <div style="padding: 8px 10px; border-radius: 7px; display: flex; align-items: center; justify-content: space-between;"><span style="color: #CCCCCC; font-size: 12px;">Papers</span><span style="color: #666666; font-size: 11px;">34</span></div>
+      <div style="padding: 8px 10px; border-radius: 7px; display: flex; align-items: center; justify-content: space-between;"><span style="color: #CCCCCC; font-size: 12px;">Trips</span><span style="color: #666666; font-size: 11px;">19</span></div>
+      <div style="padding: 8px 10px; border-radius: 7px; display: flex; align-items: center; justify-content: space-between;"><span style="color: #CCCCCC; font-size: 12px;">Equipment</span><span style="color: #666666; font-size: 11px;">7</span></div>
+    </div>
+
+    <div style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;">
+
+      <div style="padding: 22px 20px 0; display: flex; flex-direction: column; gap: 14px;">
+        <div style="display: flex; align-items: flex-end; justify-content: space-between;">
+          <div>
+            <div style="color: #FFFFFF; font-size: 18px; font-weight: 600;">Conferences</div>
+            <div style="color: #888888; font-size: 12px; margin-top: 3px;">Where you went, when, and what it cost.</div>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 6px; border: 1px solid #303035; border-radius: 7px; padding: 6px 12px; color: #CCCCCC; font-size: 12px;">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#A79BD8" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>
+              What this keeps
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; border: 1px solid #303035; border-radius: 7px; padding: 6px 12px; color: #CCCCCC; font-size: 12px;">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#888888" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+              Save as a file
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="display: flex; align-items: center; gap: 7px; background: #252529; border: 1px solid #6B5FA8; border-radius: 7px; padding: 5px 10px;">
+            <span style="color: #CCCCCC; font-size: 12px;">Only 2025</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#A79BD8" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px; border: 1px dashed #38383D; border-radius: 7px; padding: 5px 10px; color: #777777; font-size: 12px;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#777777" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            Narrow it down
+          </div>
+          <div style="flex-grow: 1;"></div>
+          <span style="color: #777777; font-size: 12px;">22 of 47 · most expensive first</span>
+        </div>
+      </div>
+
+      <div style="margin: 14px 20px 0; border: 1px solid #303035; border-radius: 7px; overflow: hidden; flex-grow: 1; display: flex; flex-direction: column; min-height: 0;">
+
+        <div class="r" style="background: #202023; border-bottom: 1px solid #303035; padding-top: 11px; padding-bottom: 11px;">
+          <span style="color: #999999; font-size: 11px; font-weight: 600; letter-spacing: 0.4px;">CONFERENCE</span>
+          <span style="color: #999999; font-size: 11px; font-weight: 600; letter-spacing: 0.4px;">DATE</span>
+          <span style="color: #999999; font-size: 11px; font-weight: 600; letter-spacing: 0.4px;">CITY</span>
+          <span style="color: #FFFFFF; font-size: 11px; font-weight: 600; letter-spacing: 0.4px; display: flex; align-items: center; gap: 5px;">COST
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#A79BD8" stroke-width="2.6" stroke-linecap="round"><path d="M6 15l6-6 6 6"/></svg>
+          </span>
+          <span style="color: #999999; font-size: 11px; font-weight: 600; letter-spacing: 0.4px;">NOTES</span>
+        </div>
+
+        <div style="flex-grow: 1; overflow: hidden;">
+          <div class="r" style="background: #252529;">
+            <span style="color: #FFFFFF; font-weight: 600;">DH Nordic 2025</span><span style="color: #999999;">14 Mar 2025</span><span style="color: #CCCCCC;">Lviv</span><span style="color: #CCCCCC;">24 500 ₴</span><span style="color: #777777; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">keynote went well</span>
+          </div>
+          <div class="r">
+            <span style="color: #CCCCCC;">Digital Humanities 2025</span><span style="color: #999999;">8 Jul 2025</span><span style="color: #CCCCCC;">Kyiv</span><span style="color: #CCCCCC;">18 200 ₴</span><span style="color: #777777; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">poster, not a talk</span>
+          </div>
+          <div class="r">
+            <span style="color: #CCCCCC;">TEI Members' Meeting</span><span style="color: #999999;">2 Oct 2025</span><span style="color: #CCCCCC;">Vienna</span><span style="color: #CCCCCC;">16 900 ₴</span><span style="color: #666666;">—</span>
+          </div>
+          <div class="r">
+            <span style="color: #CCCCCC;">Text Encoding Workshop</span><span style="color: #999999;">21 May 2025</span><span style="color: #CCCCCC;">Kyiv</span><span style="color: #CCCCCC;">12 400 ₴</span><span style="color: #777777; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">two days, worth repeating</span>
+          </div>
+          <div class="r">
+            <span style="color: #CCCCCC;">ADHO Regional</span><span style="color: #999999;">3 Apr 2025</span><span style="color: #CCCCCC;">Kraków</span><span style="color: #CCCCCC;">11 750 ₴</span><span style="color: #666666;">—</span>
+          </div>
+          <div class="r">
+            <span style="color: #CCCCCC;">Corpus Linguistics UA</span><span style="color: #999999;">19 Sep 2025</span><span style="color: #CCCCCC;">Kharkiv</span><span style="color: #CCCCCC;">9 300 ₴</span><span style="color: #777777; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">met Olena here</span>
+          </div>
+          <div class="r">
+            <span style="color: #CCCCCC;">Open Science Days</span><span style="color: #999999;">11 Feb 2025</span><span style="color: #CCCCCC;">Lviv</span><span style="color: #CCCCCC;">8 500 ₴</span><span style="color: #666666;">—</span>
+          </div>
+          <div class="r">
+            <span style="color: #CCCCCC;">Archives &amp; AI</span><span style="color: #999999;">27 Nov 2025</span><span style="color: #CCCCCC;">Kyiv</span><span style="color: #CCCCCC;">7 100 ₴</span><span style="color: #777777; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">invited</span>
+          </div>
+          <div class="r">
+            <span style="color: #CCCCCC;">Library Tech Meetup</span><span style="color: #999999;">5 Jun 2025</span><span style="color: #CCCCCC;">Odesa</span><span style="color: #CCCCCC;">4 200 ₴</span><span style="color: #666666;">—</span>
+          </div>
+          <div class="r">
+            <span style="color: #CCCCCC;">Student Symposium</span><span style="color: #999999;">16 Jan 2025</span><span style="color: #CCCCCC;">Lviv</span><span style="color: #CCCCCC;">2 800 ₴</span><span style="color: #777777; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">volunteered</span>
+          </div>
+          <div class="r" style="border-bottom: none;">
+            <span style="color: #CCCCCC;">Winter School on NLP</span><span style="color: #999999;">9 Jan 2025</span><span style="color: #CCCCCC;">Lviv</span><span style="color: #CCCCCC;">2 100 ₴</span><span style="color: #666666;">—</span>
+          </div>
+        </div>
+
+        <div style="flex-shrink: 0; padding: 10px 20px; background: #202023; border-top: 1px solid #303035; display: flex; align-items: center; justify-content: space-between;">
+          <span style="color: #777777; font-size: 11px;">Showing 1–11 of 22 · the rest load as you scroll</span>
+          <span style="color: #666666; font-size: 11px;">no thinking needed for this — nothing was asked of a model</span>
+        </div>
+      </div>
+
+      <div style="height: 20px; flex-shrink: 0;"></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
