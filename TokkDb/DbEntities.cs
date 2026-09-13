@@ -77,18 +77,52 @@ public class DbEntities<T> {
   //reads the index and the pages its entries address; one over an unindexed column scans, and
   //says so in the report rather than looking the same as the other.
   public DbQueryResult<T> Query(NormalizedQuery query, IReadOnlyList<Ulid> ids = null) {
-    var result = _queries.Run(_entityName, query, ids);
+    return ToResult(_queries.Run(_entityName, query, ids));
+  }
+
+  //What the query would do, without doing it.
+  public QueryPlan Explain(NormalizedQuery query, IReadOnlyList<Ulid> ids = null) {
+    return _queries.Plan(_entityName, query, ids);
+  }
+
+  //The entity query builder (Q-1): a predicate, an order, Skip and Take, and relation steps,
+  //collected into one immutable request. See DbQuery.
+  public DbQuery<T> Query() {
+    return new DbQuery<T>(this);
+  }
+
+  //QM-2: a plan Explain returned, executed as it is rather than planned again — or refused with a
+  //StalePlanException when the catalogue has changed since it was made.
+  public DbQueryResult<T> Run(QueryRequestPlan plan) {
+    ArgumentNullException.ThrowIfNull(plan);
+    if (plan.CollectionName != _entityName) {
+      throw new ArgumentException(
+        $"The plan is for collection {plan.CollectionName}, and these entities are {_entityName}.", nameof(plan));
+    }
+    return ToResult(_queries.Run(plan));
+  }
+
+  //A request planned and run under one catalogue lease. What DbQuery.Run does, and what a caller
+  //holding a stale plan does to run its request again: entities.Run(plan.Request).
+  public DbQueryResult<T> Run(QueryRequest request) {
+    ArgumentNullException.ThrowIfNull(request);
+    return ToResult(_queries.Run(_entityName, request));
+  }
+
+  public QueryRequestPlan Explain(QueryRequest request) {
+    ArgumentNullException.ThrowIfNull(request);
+    return _queries.Plan(_entityName, request);
+  }
+
+  //Deserialized after the query has given its catalogue lease back: turning a stored record into
+  //a T reads no page and needs no catalogue.
+  private DbQueryResult<T> ToResult(QueryResult result) {
     return new DbQueryResult<T>(
       result.Matches
         .Select(match => new DbRecord<T>(match.Record.Header.RecordId,
           _serializer.Deserialize(match.Record.Document)))
         .ToList(),
       result.Report);
-  }
-
-  //What the query would do, without doing it.
-  public QueryPlan Explain(NormalizedQuery query, IReadOnlyList<Ulid> ids = null) {
-    return _queries.Plan(_entityName, query, ids);
   }
 
   //The counterpart of Update and Delete, which already address a record by its identity.
