@@ -19,9 +19,6 @@ public sealed class TokkDbStorageContractTests : StorageContractTests
 {
     private readonly List<TemporaryDatabase> _databases = [];
 
-    /// <summary>A unique column is enforced by an index, so this storage has one to seek.</summary>
-    protected override bool SeeksIndexes => true;
-
     protected override IStorage NewStorage()
     {
         var database = new TemporaryDatabase("contract");

@@ -413,8 +413,8 @@ public sealed class TokkDbStorageTests : IDisposable
         // Read correctly, and still on the older side of the change.
         Assert.Equal(100L, storage.GetAll("readings").OrderBy(static r => r.Id).First()["value"]);
 
-        Assert.Equal(30, storage.Converge("readings"));
-        Assert.Equal(0, storage.Converge("readings"));
+        Assert.Equal(30, storage.Converge("readings").RecordsBroughtUp);
+        Assert.Equal(0, storage.Converge("readings").RecordsBroughtUp);
 
         // And the same answers afterwards, with nothing left to replay.
         Assert.Equal(
@@ -522,9 +522,9 @@ public sealed class TokkDbStorageTests : IDisposable
         var scan = storage.ExecuteQuery(new StorageQuery("expenses",
             [new QueryCondition("event", QueryOperator.Equals, "event 0631")]));
 
-        Assert.Equal(QueryAccessPathKind.IndexSeek, seek.AccessPath.Kind);
-        Assert.Equal("receipt_no", seek.AccessPath.ColumnName);
-        Assert.Equal(QueryAccessPathKind.FullScan, scan.AccessPath.Kind);
+        Assert.Equal(QueryAccess.IndexSeek, seek.Execution.Access);
+        Assert.Equal("receipt_no", seek.Execution.ColumnName);
+        Assert.Equal(QueryAccess.Scan, scan.Execution.Access);
 
         // Both find the one record they were asked for.
         Assert.Equal("event 0631", Assert.Single(seek.Records)["event"]);
@@ -532,13 +532,13 @@ public sealed class TokkDbStorageTests : IDisposable
 
         // The seek looks at a handful of records; the scan looks at all thousand.
         Assert.True(
-            seek.Cost.RecordsExamined < 10,
-            $"the seek examined {seek.Cost.RecordsExamined} records");
-        Assert.Equal(1_000, scan.Cost.RecordsExamined);
+            seek.Execution.RecordsExamined < 10,
+            $"the seek examined {seek.Execution.RecordsExamined} records");
+        Assert.Equal(1_000, scan.Execution.RecordsExamined);
 
         Assert.True(
-            seek.Cost.PagesRead * 4 < scan.Cost.PagesRead,
-            $"the seek read {seek.Cost.PagesRead} pages against the scan's {scan.Cost.PagesRead}");
+            seek.Execution.PagesRead * 4 < scan.Execution.PagesRead,
+            $"the seek read {seek.Execution.PagesRead} pages against the scan's {scan.Execution.PagesRead}");
     }
 
     /// <summary>

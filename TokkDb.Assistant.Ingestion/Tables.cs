@@ -1,4 +1,3 @@
-using TokkDb.Assistant.Storage;
 
 namespace TokkDb.Assistant.Ingestion;
 
@@ -54,8 +53,8 @@ public sealed record TableReading(
 public sealed record ColumnProfile(
     string Name,
     int Position,
-    ColumnType Inferred,
-    ColumnType Majority,
+    ValueKind Inferred,
+    ValueKind Majority,
     double MajorityShare,
     int ValueCount,
     int BlankCount,
@@ -65,8 +64,41 @@ public sealed record ColumnProfile(
     IReadOnlyList<string> Examples,
     int AmbiguousCount,
     int ExceptionCount,
-    IReadOnlyList<ColumnException> Exceptions)
+    IReadOnlyList<ColumnException> Exceptions,
+    IReadOnlyList<TypeEvidence> Evidence,
+    ColumnAmbiguity? Ambiguity = null)
 {
+    /// <summary>
+    /// How much of the column the inferred type <b>describes</b>, rather than merely holds
+    /// (IN-1a).
+    ///
+    /// The distinction is the whole point of the number. Text holds every column there has ever
+    /// been, so "this column is text" is always safe and often uninformative: a column of names
+    /// is text and is described by it, and a column that is 98% whole numbers is text only
+    /// because two values forced it. Both are correct and they are not the same claim, so this
+    /// says which - 1.0 for the names, 0.02 for the other, with the two values that did it in
+    /// <see cref="Exceptions"/>.
+    ///
+    /// It is the share of values the inferred type <b>describes</b> rather than merely holds. A
+    /// whole number is described by a column of numbers and a day by a column of moments, because
+    /// those widenings lose nothing about the value; widening to text is the one that does, and
+    /// it is the one this number is about.
+    /// </summary>
+    public double Confidence => ValueCount == 0
+        ? 0
+        : (double)Evidence.Where(entry => Describes(Inferred, entry.Kind)).Sum(static entry => entry.Count)
+          / ValueCount;
+
+    /// <summary>
+    /// Whether a column of <paramref name="inferred"/> says what a value of <paramref name="kind"/>
+    /// is, rather than only being able to hold it. The two lossless widenings are a whole number
+    /// in a column of numbers and a day in a column of moments.
+    /// </summary>
+    private static bool Describes(ValueKind inferred, ValueKind kind) =>
+        inferred == kind
+        || (inferred is ValueKind.Decimal && kind is ValueKind.Integer)
+        || (inferred is ValueKind.Timestamp && kind is ValueKind.Date);
+
     /// <summary>
     /// What the column decided its values mean - which character its numbers put the fraction
     /// after, which way round its dates are - so that reading a cell later gives the same answer
@@ -101,6 +133,48 @@ public sealed record ColumnProfile(
     /// is the difference between a decision the user can correct and one they never hear about.
     /// </summary>
     public bool HadAmbiguousValues => AmbiguousCount > 0;
+}
+
+/// <summary>
+/// How many of a column's values read as one type, with a few of them quoted (IN-1a).
+///
+/// Evidence rather than a verdict. "This is text" cannot be argued with; "seventeen of these
+/// parsed as whole numbers, three did not, and here are the three" can be, which is what a
+/// person needs in order to say the column was misread and what a mapping step needs in order to
+/// propose a retype with something to show for it.
+/// </summary>
+public sealed record TypeEvidence(ValueKind Kind, int Count, IReadOnlyList<string> Examples);
+
+/// <summary>Which of the two questions a value could not answer for itself.</summary>
+public enum AmbiguityKind
+{
+    /// <summary>Whether a separator started a fraction or grouped thousands: <c>1,234</c>.</summary>
+    DecimalSeparator = 1,
+
+    /// <summary>Which of the first two numbers is the day: <c>03/04/2026</c>.</summary>
+    DateOrder
+}
+
+/// <summary>
+/// A question the column had to answer for its values, where the values could not answer it
+/// themselves (IN-1a).
+///
+/// <b>Reported rather than resolved silently.</b> Every one of these was read one way, because
+/// a parser has to produce something, and the reading is in the profile like any other. What
+/// this adds is that it could have gone the other way, how many values it affected, and what the
+/// other way would have meant - so the assistant can say "I read these as days before months;
+/// say if they are the other way round" instead of quietly being wrong about a year of dates.
+/// </summary>
+public sealed record ColumnAmbiguity(
+    AmbiguityKind Kind,
+    int Count,
+    string ReadAs,
+    string OrElse,
+    IReadOnlyList<string> Examples)
+{
+    public string Describe() =>
+        $"{Count} of the values could be read two ways: they were read as {ReadAs}, and they could " +
+        $"be {OrElse}" + (Examples.Count == 0 ? "." : $" ({string.Join(", ", Examples)}).");
 }
 
 /// <summary>

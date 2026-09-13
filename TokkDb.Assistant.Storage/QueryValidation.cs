@@ -17,7 +17,9 @@ internal sealed record ValidatedQuery(
     CollectionDefinition Definition,
     StorageQuery Query,
     IReadOnlyList<ValidatedCondition> Where,
-    IReadOnlyList<(ColumnDefinition Column, bool Descending)> OrderBy);
+    IReadOnlyList<(ColumnDefinition Column, bool Descending)> OrderBy,
+    IReadOnlyList<ColumnDefinition> Select,
+    IReadOnlyList<(QueryAggregate Aggregate, ColumnDefinition? Column)> Aggregates);
 
 internal static class QueryValidation
 {
@@ -33,6 +35,8 @@ internal static class QueryValidation
         var errors = new List<StorageError>();
         var where = new List<ValidatedCondition>(query.Where.Count);
         var order = new List<(ColumnDefinition, bool)>(query.OrderBy.Count);
+        var select = new List<ColumnDefinition>(query.Select.Count);
+        var aggregates = new List<(QueryAggregate, ColumnDefinition?)>(query.Aggregates.Count);
 
         foreach (var condition in query.Where)
         {
@@ -93,12 +97,57 @@ internal static class QueryValidation
             order.Add((column, sort.Descending));
         }
 
+        foreach (var column in query.Select)
+        {
+            var resolved = definition.Column(column);
+            if (resolved is null)
+            {
+                errors.Add(new UnknownColumn(definition.Name, column));
+                continue;
+            }
+
+            select.Add(resolved);
+        }
+
+        foreach (var aggregate in query.Aggregates)
+        {
+            if (aggregate.ColumnName is null)
+            {
+                aggregates.Add((aggregate, null));
+                continue;
+            }
+
+            var column = definition.Column(aggregate.ColumnName);
+            if (column is null)
+            {
+                errors.Add(new UnknownColumn(definition.Name, aggregate.ColumnName));
+                continue;
+            }
+
+            if (!Suits(aggregate.Function, column.Type))
+            {
+                errors.Add(new AggregateNotSuitable(
+                    definition.Name, column.Name, aggregate.Function, column.Type));
+                continue;
+            }
+
+            aggregates.Add((aggregate, column));
+        }
+
+        // A cursor was issued for one ordering and means nothing under another (BR-3a). Counting
+        // the values is enough to tell: a query ordered by two columns cannot continue from a
+        // marker that carries one.
+        if (query.After is { } cursor && cursor.SortValues.Count != query.OrderBy.Count)
+        {
+            errors.Add(new CursorDoesNotFit(definition.Name, query.OrderBy.Count, cursor.SortValues.Count));
+        }
+
         if (errors.Count > 0)
         {
             throw new StorageValidationException(errors);
         }
 
-        return new ValidatedQuery(definition, query, where, order);
+        return new ValidatedQuery(definition, query, where, order, select, aggregates);
     }
 
     private static bool Suits(QueryOperator @operator, ColumnType type) => @operator switch
@@ -113,6 +162,18 @@ internal static class QueryValidation
 
         QueryOperator.StartsWith or QueryOperator.EndsWith or QueryOperator.Contains => type is ColumnType.Text,
 
+        _ => false
+    };
+
+    /// <summary>
+    /// Adding needs numbers; the extremes need an order. There is no sum of a date and no mean
+    /// of a name, and a storage that answered either would be inventing a number.
+    /// </summary>
+    private static bool Suits(AggregateFunction function, ColumnType type) => function switch
+    {
+        AggregateFunction.Count => true,
+        AggregateFunction.Sum or AggregateFunction.Average => type is ColumnType.Integer or ColumnType.Decimal,
+        AggregateFunction.Minimum or AggregateFunction.Maximum => type is not ColumnType.Boolean,
         _ => false
     };
 

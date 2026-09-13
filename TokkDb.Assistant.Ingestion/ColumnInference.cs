@@ -1,5 +1,4 @@
 using System.Globalization;
-using TokkDb.Assistant.Storage;
 
 namespace TokkDb.Assistant.Ingestion;
 
@@ -45,10 +44,10 @@ internal static class ColumnInference
         {
             // Nothing to go on. Text holds anything, including everything that might arrive later.
             return new ColumnProfile(
-                name, position, ColumnType.Text, ColumnType.Text, MajorityShare: 1,
+                name, position, ValueKind.Text, ValueKind.Text, MajorityShare: 1,
                 ValueCount: 0, BlankCount: blanks, DistinctCount: 0,
                 Minimum: null, Maximum: null, Examples: [], AmbiguousCount: 0, ExceptionCount: 0,
-                Exceptions: []);
+                Exceptions: [], Evidence: []);
         }
 
         // First pass: read each value alone, and note what the column settles between them.
@@ -74,19 +73,23 @@ internal static class ColumnInference
         }
 
         // Second pass: read them again, knowing what the column says.
-        var kinds = new ColumnType[present.Length];
+        var kinds = new ValueKind[present.Length];
         var typed = new object?[present.Length];
-        var ambiguous = 0;
+
+        var unsettledNumbers = new List<string>();
+        var unsettledDates = new List<string>();
+        var readAsThousands = 0;
 
         for (var i = 0; i < present.Length; i++)
         {
             var text = present[i].Text;
 
-            if (numbers[i].Ambiguous || moments[i].Ambiguous) ambiguous++;
+            if (numbers[i].Ambiguous) unsettledNumbers.Add(text);
+            if (moments[i].Ambiguous) unsettledDates.Add(text);
 
             if (Booleans.Read(text) is { } flag)
             {
-                kinds[i] = ColumnType.Boolean;
+                kinds[i] = ValueKind.Boolean;
                 typed[i] = flag;
                 continue;
             }
@@ -97,9 +100,13 @@ internal static class ColumnInference
 
             if (number.IsNumber)
             {
+                // Which way an ambiguous value actually went, so that the column can say so
+                // rather than the report having to work it out again from the conventions.
+                if (numbers[i].Ambiguous && number.IsWhole) readAsThousands++;
+
                 kinds[i] = number.IsWhole && number.Value == decimal.Truncate(number.Value)
-                    ? ColumnType.Integer
-                    : ColumnType.Decimal;
+                    ? ValueKind.Integer
+                    : ValueKind.Decimal;
                 typed[i] = number.Value;
                 continue;
             }
@@ -110,12 +117,12 @@ internal static class ColumnInference
 
             if (moment.IsMoment)
             {
-                kinds[i] = moment.HasTime ? ColumnType.Timestamp : ColumnType.Date;
+                kinds[i] = moment.HasTime ? ValueKind.Timestamp : ValueKind.Date;
                 typed[i] = moment.Value;
                 continue;
             }
 
-            kinds[i] = ColumnType.Text;
+            kinds[i] = ValueKind.Text;
             typed[i] = text;
         }
 
@@ -124,7 +131,7 @@ internal static class ColumnInference
             .OrderByDescending(static group => group.Count())
             // A tie goes to the narrower reading. Text holds everything, so calling it the
             // majority says nothing about the column; saying most of it is whole numbers does.
-            .ThenBy(static group => group.Key is ColumnType.Text ? 1 : 0)
+            .ThenBy(static group => group.Key is ValueKind.Text ? 1 : 0)
             .ThenBy(static group => (int)group.Key)
             .First();
 
@@ -142,6 +149,19 @@ internal static class ColumnInference
 
         var (minimum, maximum) = Extremes(inferred, kinds, typed, present);
 
+        var evidence = kinds
+            .Select((kind, i) => (Kind: kind, present[i].Text))
+            .GroupBy(static entry => entry.Kind)
+            .Select(static group => new TypeEvidence(
+                group.Key,
+                group.Count(),
+                [.. group.Select(static entry => entry.Text).Distinct(StringComparer.Ordinal).Take(MaxExamples)]))
+            .OrderByDescending(static entry => entry.Count)
+            .ThenBy(static entry => (int)entry.Kind)
+            .ToArray();
+
+        var ambiguous = unsettledNumbers.Count + unsettledDates.Count;
+
         return new ColumnProfile(
             name,
             position,
@@ -156,10 +176,59 @@ internal static class ColumnInference
             [.. distinct.Take(MaxExamples)],
             ambiguous,
             exceptions.Length,
-            [.. exceptions.Take(MaxExceptionsKept).Select(static entry => new ColumnException(entry.LineNumber, entry.Text))])
+            [.. exceptions.Take(MaxExceptionsKept).Select(static entry => new ColumnException(entry.LineNumber, entry.Text))],
+            evidence,
+            Ambiguity(inferred, unsettledNumbers, unsettledDates, readAsThousands, mark, order))
         {
             Conventions = new ColumnConventions(mark, order)
         };
+    }
+
+    /// <summary>
+    /// What the column had to <b>guess</b>, said out loud (IN-1a).
+    ///
+    /// Two conditions, and the second is the one worth stating. The question has to bear on the
+    /// type the column ended up with - the same guess in a column that turned out to be text
+    /// changes nothing, because the values are stored as they were written either way. And the
+    /// column has to have had nothing to settle it with: a date column holding a thirteenth knows
+    /// which number is the day, so every other value in it was read rather than guessed, and
+    /// there is nothing to report. An ambiguity that the column resolved from its own values is
+    /// how this is supposed to work, not a caveat on the answer.
+    /// </summary>
+    private static ColumnAmbiguity? Ambiguity(
+        ValueKind inferred,
+        IReadOnlyList<string> numbers,
+        IReadOnlyList<string> dates,
+        int readAsThousands,
+        DecimalMark mark,
+        DateOrder order)
+    {
+        if (inferred is ValueKind.Date or ValueKind.Timestamp && dates.Count > 0 && order is DateOrder.Unknown)
+        {
+            // Nothing in the column settled it, so every one of these was read the way
+            // SettleUnaided reads them, which is days first.
+            return new ColumnAmbiguity(
+                AmbiguityKind.DateOrder,
+                dates.Count,
+                "the day before the month",
+                "the month before the day",
+                [.. dates.Distinct(StringComparer.Ordinal).Take(MaxExamples)]);
+        }
+
+        if (inferred is ValueKind.Integer or ValueKind.Decimal && numbers.Count > 0
+            && mark is DecimalMark.Unknown)
+        {
+            var grouped = readAsThousands * 2 >= numbers.Count;
+
+            return new ColumnAmbiguity(
+                AmbiguityKind.DecimalSeparator,
+                numbers.Count,
+                grouped ? "thousands, with the separator grouping the digits" : "fractions",
+                grouped ? "fractions" : "thousands, with the separator grouping the digits",
+                [.. numbers.Distinct(StringComparer.Ordinal).Take(MaxExamples)]);
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -174,12 +243,12 @@ internal static class ColumnInference
 
         return profile.Inferred switch
         {
-            ColumnType.Text => trimmed,
-            ColumnType.Boolean => Booleans.Read(trimmed),
-            ColumnType.Integer => AsNumber(profile, trimmed) is { } whole ? (long)whole : null,
-            ColumnType.Decimal => AsNumber(profile, trimmed),
-            ColumnType.Date => AsMoment(profile, trimmed) is { } day ? DateOnly.FromDateTime(day) : null,
-            ColumnType.Timestamp => AsMoment(profile, trimmed) is { } moment
+            ValueKind.Text => trimmed,
+            ValueKind.Boolean => Booleans.Read(trimmed),
+            ValueKind.Integer => AsNumber(profile, trimmed) is { } whole ? (long)whole : null,
+            ValueKind.Decimal => AsNumber(profile, trimmed),
+            ValueKind.Date => AsMoment(profile, trimmed) is { } day ? DateOnly.FromDateTime(day) : null,
+            ValueKind.Timestamp => AsMoment(profile, trimmed) is { } moment
                 ? DateTime.SpecifyKind(moment, DateTimeKind.Utc)
                 : null,
             _ => null
@@ -213,23 +282,23 @@ internal static class ColumnInference
     /// expected and a date fits where a moment is; nothing else widens, so a column holding two
     /// kinds that are not one of those pairs is text - which holds everything and loses nothing.
     /// </summary>
-    private static ColumnType Narrowest(IReadOnlyList<ColumnType> kinds)
+    private static ValueKind Narrowest(IReadOnlyList<ValueKind> kinds)
     {
         var distinct = kinds.Distinct().ToArray();
 
         if (distinct.Length == 1) return distinct[0];
 
-        if (distinct.All(static kind => kind is ColumnType.Integer or ColumnType.Decimal))
+        if (distinct.All(static kind => kind is ValueKind.Integer or ValueKind.Decimal))
         {
-            return ColumnType.Decimal;
+            return ValueKind.Decimal;
         }
 
-        if (distinct.All(static kind => kind is ColumnType.Date or ColumnType.Timestamp))
+        if (distinct.All(static kind => kind is ValueKind.Date or ValueKind.Timestamp))
         {
-            return ColumnType.Timestamp;
+            return ValueKind.Timestamp;
         }
 
-        return ColumnType.Text;
+        return ValueKind.Text;
     }
 
     /// <summary>
@@ -239,12 +308,12 @@ internal static class ColumnInference
     /// its maximum as the one that starts with a nine.
     /// </summary>
     private static (string? Minimum, string? Maximum) Extremes(
-        ColumnType inferred,
-        IReadOnlyList<ColumnType> kinds,
+        ValueKind inferred,
+        IReadOnlyList<ValueKind> kinds,
         IReadOnlyList<object?> typed,
         IReadOnlyList<(int LineNumber, string Text)> present)
     {
-        if (inferred is ColumnType.Text)
+        if (inferred is ValueKind.Text)
         {
             var ordered = present.Select(static cell => cell.Text).Order(StringComparer.Ordinal).ToArray();
             return (ordered[0], ordered[^1]);

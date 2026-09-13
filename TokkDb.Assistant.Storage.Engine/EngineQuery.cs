@@ -89,22 +89,30 @@ internal static class EngineQuery
     };
 
     /// <summary>
-    /// The engine's access path, as the contract describes one. The engine's own description is
-    /// carried through rather than rewritten, because it is what the engine's diagnostics say
-    /// and two spellings of the same plan in two places would eventually disagree.
+    /// The engine's access path and report, as the contract describes one (SC-7a).
+    ///
+    /// The engine's own description is carried through rather than rewritten, because it is what
+    /// the engine's diagnostics say and two spellings of the same plan in two places would
+    /// eventually disagree. The vocabulary around it is the contract's: an index seek, a range
+    /// walk, a scan, and the records the answer could not consider.
     /// </summary>
-    public static QueryAccessPath ToAccessPath(AccessPath path) => path switch
+    public static QueryExecutionInfo ToExecutionInfo(
+        AccessPath path,
+        int examined,
+        int returned,
+        int excluded,
+        long pages,
+        TimeSpan elapsed)
     {
-        IndexSeekPath seek => new QueryAccessPath(
-            QueryAccessPathKind.IndexSeek, seek.CollectionName, seek.ColumnName, seek.Describe()),
+        var (access, column) = path switch
+        {
+            IndexSeekPath seek => (QueryAccess.IndexSeek, seek.ColumnName),
+            IndexRangePath range => (QueryAccess.RangeWalk, range.ColumnName),
+            PrimaryKeyPath => (QueryAccess.IdentityLookup, null),
+            _ => (QueryAccess.Scan, null)
+        };
 
-        IndexRangePath range => new QueryAccessPath(
-            QueryAccessPathKind.IndexRange, range.CollectionName, range.ColumnName, range.Describe()),
-
-        PrimaryKeyPath identity => new QueryAccessPath(
-            QueryAccessPathKind.IdentityLookup, identity.CollectionName, null, identity.Describe()),
-
-        _ => new QueryAccessPath(
-            QueryAccessPathKind.FullScan, path.CollectionName, null, path.Describe())
-    };
+        return new QueryExecutionInfo(
+            access, path.CollectionName, column, path.Describe(), examined, returned, excluded, pages, elapsed);
+    }
 }

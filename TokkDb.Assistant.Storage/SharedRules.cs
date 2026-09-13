@@ -45,8 +45,38 @@ internal static class SharedRules
     public static Dictionary<string, object?> ForCreate(
         CollectionDefinition definition,
         IReadOnlyDictionary<string, object?> offered,
-        Func<ColumnDefinition, object, Ulid?> holderOf) =>
-        Judge(definition, offered, existing: null, holderOf);
+        Func<ColumnDefinition, object, Ulid?> holderOf)
+    {
+        var errors = new List<StorageError>();
+        var judged = Judge(definition, offered, existing: null, holderOf, errors);
+
+        if (errors.Count > 0) throw new StorageValidationException(errors);
+
+        return judged;
+    }
+
+    /// <summary>
+    /// The same judgement without the throw and without the uniqueness question, for a caller
+    /// that is about to judge a thousand rows and has to know which of them are worth opening a
+    /// transaction for.
+    ///
+    /// IN-9a requires every row to be classified <b>before</b> the write transaction opens, so
+    /// that the only things that can fail inside it are genuine faults. Uniqueness is left out
+    /// because it is the one question that cannot be answered a row at a time without a lookup a
+    /// row at a time: the importer asks it for every row at once, in one ordered pass (SC-9).
+    /// </summary>
+    public static bool TryForCreate(
+        CollectionDefinition definition,
+        IReadOnlyDictionary<string, object?> offered,
+        out Dictionary<string, object?> judged,
+        out IReadOnlyList<StorageError> errors)
+    {
+        var found = new List<StorageError>();
+        judged = Judge(definition, offered, existing: null, static (_, _) => null, found);
+        errors = found;
+
+        return found.Count == 0;
+    }
 
     /// <summary>
     /// Judges the values an update carries, against the record it would replace.
@@ -56,16 +86,54 @@ internal static class SharedRules
         CollectionDefinition definition,
         StorageRecord offered,
         StorageRecord existing,
-        Func<ColumnDefinition, object, Ulid?> holderOf) =>
-        Judge(definition, offered.Fields, existing, holderOf);
+        Func<ColumnDefinition, object, Ulid?> holderOf)
+    {
+        var errors = new List<StorageError>();
+        var judged = Judge(definition, offered.Fields, existing, holderOf, errors);
+
+        if (errors.Count > 0) throw new StorageValidationException(errors);
+
+        return judged;
+    }
+
+    /// <summary>
+    /// SC-8's other half: a reference has to refer to something.
+    ///
+    /// Separate from <see cref="ForCreate"/> and <see cref="ForUpdate"/> because it is the one
+    /// judgement that needs a second collection, and because it costs a read per reference -
+    /// which the caller may want to do differently. The engine enforces this itself on the way in
+    /// and throws its own exception; the check is made here as well so that both implementations
+    /// refuse it the same way, with a typed error naming the column and the value.
+    /// </summary>
+    /// <exception cref="StorageValidationException">A value refers to a record that is not there.</exception>
+    public static void CheckReferences(
+        CollectionDefinition definition,
+        IReadOnlyDictionary<string, object?> judged,
+        IEnumerable<RelationDefinition> relationsFrom,
+        Func<RelationDefinition, object, bool> exists)
+    {
+        List<StorageError>? errors = null;
+
+        foreach (var relation in relationsFrom)
+        {
+            if (!judged.TryGetValue(relation.FromColumn, out var value) || value is null) continue;
+            if (exists(relation, value)) continue;
+
+            errors ??= [];
+            errors.Add(new ReferenceMissing(
+                definition.Name, relation.FromColumn, value, relation.Name, relation.ToCollection));
+        }
+
+        if (errors is not null) throw new StorageValidationException(errors);
+    }
 
     private static Dictionary<string, object?> Judge(
         CollectionDefinition definition,
         IReadOnlyDictionary<string, object?> offered,
         StorageRecord? existing,
-        Func<ColumnDefinition, object, Ulid?> holderOf)
+        Func<ColumnDefinition, object, Ulid?> holderOf,
+        List<StorageError> errors)
     {
-        var errors = new List<StorageError>();
         var judged = new Dictionary<string, object?>(StorageNames.Comparer);
 
         // A column the collection does not have is reported before anything else, because a
@@ -84,6 +152,19 @@ internal static class SharedRules
             if (!offered.TryGetValue(column.Name, out var raw))
             {
                 JudgeAbsent(definition, column, existing, judged, errors);
+                continue;
+            }
+
+            // SC-3, second sentence: the refusal is about the field being written, not about
+            // the record. A record that still holds an unconverted value in some column (SC-6b)
+            // is writable, and a write that hands that value back unchanged is not refused for
+            // it - otherwise a person could never correct the other columns of a record that has
+            // one cell needing attention, which is exactly when they most want to.
+            if (existing is not null
+                && existing.NeedsAttention.Contains(column.Name)
+                && Equals(existing[column.Name], raw))
+            {
+                judged[column.Name] = raw;
                 continue;
             }
 
@@ -116,11 +197,6 @@ internal static class SharedRules
             }
 
             judged[column.Name] = value;
-        }
-
-        if (errors.Count > 0)
-        {
-            throw new StorageValidationException(errors);
         }
 
         return judged;

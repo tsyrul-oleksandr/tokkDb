@@ -42,6 +42,31 @@ public sealed class ContractShapeTests
             PublicProperties(typeof(CollectionDefinition)));
     }
 
+    /// <summary>
+    /// D-16, pinned. The narrow face is what a model emits, so every field on it is a field a
+    /// model has to learn and a cost paid in accuracy rather than in code - which is why the
+    /// internal model can grow and this must not.
+    ///
+    /// If this test fails because something was added here, the question to ask is whether the
+    /// feature could have gone on <see cref="StorageQuery"/> instead, where C# writes it and no
+    /// model has to get it right. Almost always it could.
+    /// </summary>
+    [Fact]
+    public void What_a_model_may_write_is_a_fixed_and_deliberately_small_shape()
+    {
+        Assert.Equal(
+            ["Collection", "Limit", "NewestFirst", "OrderBy", "Where"],
+            PublicProperties(typeof(ModelQuery)));
+
+        Assert.Equal(
+            ["Column", "Operator", "Values"],
+            PublicProperties(typeof(ModelCondition)));
+
+        // Ten operators, said in words a person uses. Adding one is the same decision as adding
+        // a field: it is another thing a 4B model has to choose correctly.
+        Assert.Equal(10, Enum.GetValues<ModelOperator>().Length);
+    }
+
     [Fact]
     public void A_column_definition_carries_exactly_the_logical_members()
     {
@@ -53,8 +78,12 @@ public sealed class ContractShapeTests
     [Fact]
     public void A_record_carries_its_identity_its_collection_and_its_values_and_nothing_else()
     {
+        // NeedsAttention is on the list because SC-6b puts it there: a value that will not
+        // convert is kept and *flagged*, and the flag is part of what a record is rather than
+        // something a caller looks up elsewhere. It names columns, which the contract already
+        // names everywhere else, so nothing physical arrives with it.
         Assert.Equal(
-            ["CollectionName", "Fields", "Id"],
+            ["CollectionName", "Fields", "Id", "IsPending", "NeedsAttention"],
             PublicProperties(typeof(StorageRecord)));
     }
 

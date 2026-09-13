@@ -1,6 +1,5 @@
 using System.Text;
 using TokkDb.Assistant.Ingestion;
-using TokkDb.Assistant.Storage;
 
 namespace TokkDb.Assistant.Tests;
 
@@ -87,7 +86,7 @@ public sealed class ReadingFilesTests
 
         Assert.Equal(delimiter, table.Reading.Delimiter);
         Assert.Equal(["Event", "City", "Amount"], table.Columns);
-        Assert.Equal(ColumnType.Decimal, table.Profiles[2].Inferred);
+        Assert.Equal(ValueKind.Decimal, table.Profiles[2].Inferred);
     }
 
     /// <summary>
@@ -103,7 +102,7 @@ public sealed class ReadingFilesTests
         Assert.Null(table.Reading.Delimiter);
         Assert.Equal(["Rate"], table.Columns);
         Assert.Equal(3, table.RowCount);
-        Assert.Equal(ColumnType.Decimal, Assert.Single(table.Profiles).Inferred);
+        Assert.Equal(ValueKind.Decimal, Assert.Single(table.Profiles).Inferred);
     }
 
     /// <summary>
@@ -124,7 +123,7 @@ public sealed class ReadingFilesTests
         Assert.Equal(';', table.Reading.Delimiter);
 
         var amount = table.Profiles[2];
-        Assert.Equal(ColumnType.Decimal, amount.Inferred);
+        Assert.Equal(ValueKind.Decimal, amount.Inferred);
         Assert.Equal("600.00", amount.Minimum);
         Assert.Equal("1234.56", amount.Maximum);
     }
@@ -151,8 +150,8 @@ public sealed class ReadingFilesTests
 
         // And every row is kept, rather than the first one being eaten as names.
         Assert.Equal(2, table.RowCount);
-        Assert.Equal(ColumnType.Date, table.Profiles[0].Inferred);
-        Assert.Equal(ColumnType.Decimal, table.Profiles[1].Inferred);
+        Assert.Equal(ValueKind.Date, table.Profiles[0].Inferred);
+        Assert.Equal(ValueKind.Decimal, table.Profiles[1].Inferred);
     }
 
     [Fact]
@@ -203,7 +202,7 @@ public sealed class ReadingFilesTests
 
         var nights = table.Profiles[1];
 
-        Assert.Equal(ColumnType.Integer, nights.Inferred);
+        Assert.Equal(ValueKind.Integer, nights.Inferred);
         Assert.Equal(3, nights.ValueCount);
         Assert.Equal(1, nights.BlankCount);
         Assert.Equal(2, nights.DistinctCount);
@@ -218,7 +217,7 @@ public sealed class ReadingFilesTests
         var table = Read("Event,Note\nEuroPython,\nDevDays,");
 
         var note = table.Profiles[1];
-        Assert.Equal(ColumnType.Text, note.Inferred);
+        Assert.Equal(ValueKind.Text, note.Inferred);
         Assert.Equal(0, note.ValueCount);
         Assert.Equal(2, note.BlankCount);
         Assert.Null(note.Minimum);
@@ -234,8 +233,8 @@ public sealed class ReadingFilesTests
         var table = Read("Event,Nights\n" + string.Join('\n', rows));
         var nights = table.Profiles[1];
 
-        Assert.Equal(ColumnType.Text, nights.Inferred);
-        Assert.Equal(ColumnType.Integer, nights.Majority);
+        Assert.Equal(ValueKind.Text, nights.Inferred);
+        Assert.Equal(ValueKind.Integer, nights.Majority);
         Assert.Equal(10, nights.ExceptionCount);
         Assert.Equal(ColumnInference.MaxExceptionsKept, nights.Exceptions.Count);
     }
@@ -248,7 +247,7 @@ public sealed class ReadingFilesTests
     {
         var table = Read($"Event,Reimbursed\nEuroPython,{written}\nDevDays,no");
 
-        Assert.Equal(ColumnType.Boolean, table.Profiles[1].Inferred);
+        Assert.Equal(ValueKind.Boolean, table.Profiles[1].Inferred);
         Assert.Equal(expected, table.Profiles[1].Read(written));
     }
 
@@ -261,7 +260,7 @@ public sealed class ReadingFilesTests
     {
         var table = Read("Event,Nights\nEuroPython,1\nDevDays,0\nPyCon,1");
 
-        Assert.Equal(ColumnType.Integer, table.Profiles[1].Inferred);
+        Assert.Equal(ValueKind.Integer, table.Profiles[1].Inferred);
     }
 
     [Fact]
@@ -274,7 +273,7 @@ public sealed class ReadingFilesTests
             DevDays,2026-07-21 09:30:00
             """);
 
-        Assert.Equal(ColumnType.Timestamp, table.Profiles[1].Inferred);
+        Assert.Equal(ValueKind.Timestamp, table.Profiles[1].Inferred);
     }
 
     [Fact]
@@ -289,7 +288,7 @@ public sealed class ReadingFilesTests
             """);
 
         var paid = table.Profiles[1];
-        Assert.Equal(ColumnType.Date, paid.Inferred);
+        Assert.Equal(ValueKind.Date, paid.Inferred);
         Assert.Equal(new DateOnly(2026, 4, 3), paid.Read("03/04/2026"));
         Assert.Equal("2026-04-03", paid.Minimum);
         Assert.Equal("2026-07-20", paid.Maximum);
@@ -306,7 +305,7 @@ public sealed class ReadingFilesTests
             """);
 
         var paid = table.Profiles[1];
-        Assert.Equal(ColumnType.Date, paid.Inferred);
+        Assert.Equal(ValueKind.Date, paid.Inferred);
         Assert.True(paid.HadAmbiguousValues);
         Assert.Equal(2, paid.AmbiguousCount);
         Assert.Equal(new DateOnly(2026, 4, 3), paid.Read("03/04/2026"));

@@ -27,7 +27,7 @@ namespace TokkDb.Assistant.Tests;
 /// </item>
 /// </list>
 /// </summary>
-public abstract class StorageContractTests : IDisposable
+public abstract partial class StorageContractTests : IDisposable
 {
     private readonly List<IStorage> _created = [];
 
@@ -35,17 +35,6 @@ public abstract class StorageContractTests : IDisposable
 
     /// <summary>The one thing an implementation has to supply: an empty storage.</summary>
     protected abstract IStorage NewStorage();
-
-    /// <summary>
-    /// Whether this storage has indexes to seek. The in-memory one does not and cannot pretend
-    /// to; the engine-backed one does, and SC-7's acceptance condition is about it.
-    ///
-    /// A capability the suite knows about, rather than a test the in-memory implementation
-    /// quietly skips: both are asserted below, each against what its storage can honestly do, so
-    /// an implementation that stopped using its indexes would fail here rather than pass by
-    /// default.
-    /// </summary>
-    protected virtual bool SeeksIndexes => false;
 
     /// <summary>The storage under test. One per test, because xUnit builds the class per test.</summary>
     protected IStorage Storage => _storage ??= Track(NewStorage());
@@ -377,9 +366,9 @@ public abstract class StorageContractTests : IDisposable
         var storage = GivenExpenses();
         var record = storage.Create(Expenses, AnExpense());
 
-        Assert.True(storage.Delete(Expenses, record.Id));
+        Assert.True(storage.Delete(Expenses, record.Id).Removed);
         Assert.Null(storage.GetById(Expenses, record.Id));
-        Assert.False(storage.Delete(Expenses, record.Id));
+        Assert.False(storage.Delete(Expenses, record.Id).Removed);
         Assert.Empty(storage.GetAll(Expenses));
     }
 
@@ -691,7 +680,7 @@ public abstract class StorageContractTests : IDisposable
         var storage = GivenExpenses();
         var holder = storage.Create(Expenses, AnExpense("EuroPython", receipt: "R-0001"));
 
-        Assert.True(storage.Delete(Expenses, holder.Id));
+        Assert.True(storage.Delete(Expenses, holder.Id).Removed);
 
         var replacement = storage.Create(Expenses, AnExpense("DevDays", receipt: "R-0001"));
         Assert.Equal("R-0001", replacement["receipt_no"]);
@@ -1068,12 +1057,17 @@ public abstract class StorageContractTests : IDisposable
     }
 
     /// <summary>
-    /// The loss D-7 has the application count and ask about, and the reason a retype is not
-    /// refused when it cannot convert: a value with no meaning under the new type is in the same
-    /// position as a record written before the column existed.
+    /// SC-6b, which reverses what an earlier draft of this contract said. A value with no meaning
+    /// under the new type is <b>kept, flagged and surfaced</b> - not dropped, and not allowed to
+    /// make the record unreadable.
+    ///
+    /// The reason is that lazy migration has to do something on read and SC-3 forbids the two
+    /// easy answers: throwing makes the record unreadable, and discarding loses the only copy of
+    /// a value a person has to see in order to decide what it should be. Keeping it is the only
+    /// answer left that keeps both promises.
     /// </summary>
     [Fact]
-    public void A_value_that_cannot_be_read_as_the_new_type_becomes_nothing()
+    public void A_value_that_cannot_be_read_as_the_new_type_is_kept_and_flagged()
     {
         var storage = Storage;
         storage.CreateCollection(new CollectionDefinition("readings", columns:
@@ -1093,15 +1087,171 @@ public abstract class StorageContractTests : IDisposable
 
         storage.RetypeColumn("readings", "value", ColumnType.Integer);
 
-        Assert.Equal(840L, storage.GetById("readings", number.Id)!["value"]);
-        Assert.Null(storage.GetById("readings", words.Id)!["value"]);
+        var converted = storage.GetById("readings", number.Id)!;
+        Assert.Equal(840L, converted["value"]);
+        Assert.False(converted.IsPending);
+
+        var kept = storage.GetById("readings", words.Id)!;
+        Assert.Equal("about eight hundred", kept["value"]);
+        Assert.Contains("value", kept.NeedsAttention);
+
+        // The rest of the record reads normally: one cell needing attention does not cost the
+        // record it is in.
+        Assert.Equal("not a number", kept["label"]);
+    }
+
+    /// <summary>
+    /// SC-3's second sentence, which follows from SC-6b. The refusal is about the field being
+    /// written, not about the record: a record still holding an unconverted value is writable,
+    /// and a write that does not touch that column is never refused because of it - otherwise a
+    /// person could never correct the rest of a record that has one cell needing attention.
+    /// </summary>
+    [Fact]
+    public void A_record_with_a_value_needing_attention_can_still_be_written_to()
+    {
+        var storage = Storage;
+        storage.CreateCollection(new CollectionDefinition("readings", columns:
+        [
+            new ColumnDefinition("label", ColumnType.Text, required: true),
+            new ColumnDefinition("value", ColumnType.Text)
+        ]));
+
+        var record = storage.Create("readings", new Dictionary<string, object?>
+        {
+            ["label"] = "not a number", ["value"] = "about eight hundred"
+        });
+
+        storage.RetypeColumn("readings", "value", ColumnType.Integer);
+
+        var held = storage.GetById("readings", record.Id)!;
+        Assert.True(storage.Update(held.With("label", "still not a number")));
+
+        var written = storage.GetById("readings", record.Id)!;
+        Assert.Equal("still not a number", written["label"]);
+        Assert.Equal("about eight hundred", written["value"]);
+        Assert.Contains("value", written.NeedsAttention);
+
+        // And the value can be put right, at which point it stops needing attention.
+        Assert.True(storage.Update(written.With("value", 800L)));
+
+        var corrected = storage.GetById("readings", record.Id)!;
+        Assert.Equal(800L, corrected["value"]);
+        Assert.False(corrected.IsPending);
+    }
+
+    /// <summary>
+    /// SC-6c. A query over a column where something is still of the old type answers with what it
+    /// found <b>and says what it could not consider</b>. An answer that looks complete while
+    /// omitting records is the failure this contract works hardest to prevent.
+    /// </summary>
+    [Fact]
+    public void A_query_over_a_column_with_values_of_another_type_says_what_it_could_not_consider()
+    {
+        var storage = Storage;
+        storage.CreateCollection(new CollectionDefinition("readings", columns:
+            [new ColumnDefinition("value", ColumnType.Text)]));
+
+        foreach (var written in new[] { "100", "700", "900", "about eight hundred", "n/a", "-" })
+        {
+            storage.Create("readings", new Dictionary<string, object?> { ["value"] = written });
+        }
+
+        storage.RetypeColumn("readings", "value", ColumnType.Integer);
+        storage.Converge("readings");
+
+        var result = storage.ExecuteQuery(new StorageQuery("readings",
+            [new QueryCondition("value", QueryOperator.GreaterThan, 500L)]));
+
+        Assert.Equal([700L, 900L], result.Records.Select(static record => record["value"]).Order());
+
+        Assert.Equal(3, result.Execution.RecordsExcludedByType);
+        Assert.True(result.Execution.IsIncomplete);
+        Assert.Equal(3, storage.CountNeedingAttention("readings", "value"));
+    }
+
+    [Fact]
+    public void A_query_over_a_column_with_nothing_pending_reports_nothing_extra()
+    {
+        var storage = GivenExpenses();
+        storage.Create(Expenses, AnExpense());
+
+        var result = storage.ExecuteQuery(new StorageQuery(Expenses,
+            [new QueryCondition("amount_eur", QueryOperator.GreaterThan, 1m)]));
+
+        Assert.Equal(0, result.Execution.RecordsExcludedByType);
+        Assert.False(result.Execution.IsIncomplete);
+    }
+
+    /// <summary>
+    /// SC-6b's other half: converge reports what it could not convert rather than silently
+    /// finishing, and reports the same set the second time it is run.
+    /// </summary>
+    [Fact]
+    public void Converge_reports_what_it_could_not_convert_and_says_the_same_thing_twice()
+    {
+        var storage = Storage;
+        storage.CreateCollection(new CollectionDefinition("readings", columns:
+            [new ColumnDefinition("value", ColumnType.Text)]));
+
+        storage.Create("readings", new Dictionary<string, object?> { ["value"] = "840" });
+        var stubborn = storage.Create("readings", new Dictionary<string, object?> { ["value"] = "n/a" });
+
+        storage.RetypeColumn("readings", "value", ColumnType.Integer);
+
+        var first = storage.Converge("readings");
+        var second = storage.Converge("readings");
+
+        var left = Assert.Single(first.CouldNotConvert);
+        Assert.Equal(stubborn.Id, left.RecordId);
+        Assert.Equal("value", left.ColumnName);
+        Assert.Equal("n/a", left.Value);
+        Assert.Equal(ColumnType.Text, left.Recorded);
+
+        Assert.Equal(first.CouldNotConvert.Count, second.CouldNotConvert.Count);
+        Assert.Equal(0, second.RecordsBroughtUp);
+    }
+
+    /// <summary>
+    /// SC-6a: widening is lossless and needs no evidence; every other direction reports the
+    /// stored values that will not convert, with the records they are in, before the change is
+    /// proposed.
+    /// </summary>
+    [Fact]
+    public void What_a_retype_would_cost_is_counted_before_it_is_proposed()
+    {
+        var storage = Storage;
+        storage.CreateCollection(new CollectionDefinition("readings", columns:
+            [new ColumnDefinition("value", ColumnType.Text)]));
+
+        var kept = new List<Ulid>();
+        foreach (var written in new[] { "1", "2", "3", "one", "two", "three" })
+        {
+            var record = storage.Create("readings", new Dictionary<string, object?> { ["value"] = written });
+            if (written.Length > 1) kept.Add(record.Id);
+        }
+
+        var narrowing = storage.InspectRetype("readings", "value", ColumnType.Integer);
+
+        Assert.False(narrowing.IsLossless);
+        Assert.Equal(6, narrowing.ValuesInspected);
+        Assert.Equal(3, narrowing.LossCount);
+        Assert.Equal(kept.Order(), narrowing.WillNotConvert.Select(static value => value.RecordId).Order());
+
+        // Widening asks nothing, because nothing can be lost.
+        storage.CreateCollection(new CollectionDefinition("counts", columns:
+            [new ColumnDefinition("value", ColumnType.Integer)]));
+        storage.Create("counts", new Dictionary<string, object?> { ["value"] = 840L });
+
+        var widening = storage.InspectRetype("counts", "value", ColumnType.Decimal);
+
+        Assert.True(widening.IsLossless);
+        Assert.Empty(widening.WillNotConvert);
     }
 
     [Theory]
     [InlineData(ColumnType.Integer, 840L, ColumnType.Text, "840")]
     [InlineData(ColumnType.Boolean, true, ColumnType.Text, "True")]
     [InlineData(ColumnType.Text, "True", ColumnType.Boolean, true)]
-    [InlineData(ColumnType.Text, "yes", ColumnType.Boolean, null)]
     [InlineData(ColumnType.Text, "840", ColumnType.Integer, 840L)]
     [InlineData(ColumnType.Integer, 840L, ColumnType.Decimal, null)]
     public void A_retype_converts_a_value_through_its_invariant_text(
@@ -1113,9 +1263,41 @@ public abstract class StorageContractTests : IDisposable
         // null and is filled in here rather than being left out of the table.
         AssertRetype(from, written, to, expected ?? (to is ColumnType.Decimal ? 840m : null));
 
+    /// <summary>
+    /// SC-6b again, from the other side: what does not convert is kept as it was, so a decimal
+    /// retyped to a whole number is still the decimal it was and is marked as needing attention.
+    /// </summary>
     [Fact]
-    public void A_decimal_that_is_not_whole_does_not_survive_being_retyped_to_a_whole_number() =>
-        AssertRetype(ColumnType.Decimal, 840.50m, ColumnType.Integer, null);
+    public void A_decimal_that_is_not_whole_survives_a_retype_to_a_whole_number_and_is_flagged()
+    {
+        var storage = Storage;
+        storage.CreateCollection(new CollectionDefinition("readings", columns:
+            [new ColumnDefinition("value", ColumnType.Decimal)]));
+
+        var record = storage.Create("readings", new Dictionary<string, object?> { ["value"] = 840.50m });
+
+        storage.RetypeColumn("readings", "value", ColumnType.Integer);
+
+        var held = storage.GetById("readings", record.Id)!;
+        Assert.Equal(840.50m, held["value"]);
+        Assert.Contains("value", held.NeedsAttention);
+    }
+
+    [Fact]
+    public void Text_that_is_not_a_true_or_a_false_survives_a_retype_to_true_or_false_and_is_flagged()
+    {
+        var storage = Storage;
+        storage.CreateCollection(new CollectionDefinition("readings", columns:
+            [new ColumnDefinition("value", ColumnType.Text)]));
+
+        var record = storage.Create("readings", new Dictionary<string, object?> { ["value"] = "yes" });
+
+        storage.RetypeColumn("readings", "value", ColumnType.Boolean);
+
+        var held = storage.GetById("readings", record.Id)!;
+        Assert.Equal("yes", held["value"]);
+        Assert.Contains("value", held.NeedsAttention);
+    }
 
     [Fact]
     public void A_decimal_retyped_to_text_keeps_its_scale() =>
@@ -1220,7 +1402,7 @@ public abstract class StorageContractTests : IDisposable
         Assert.Equal(before, storage.GetAll("readings").OrderBy(static record => record.Id));
 
         // Idempotent: the second one has nothing left to do, and says so.
-        Assert.Equal(0, storage.Converge("readings"));
+        Assert.Equal(0, storage.Converge("readings").RecordsBroughtUp);
         Assert.Equal(before, storage.GetAll("readings").OrderBy(static record => record.Id));
     }
 
@@ -1230,7 +1412,7 @@ public abstract class StorageContractTests : IDisposable
         var storage = GivenExpenses();
         storage.Create(Expenses, AnExpense());
 
-        Assert.Equal(0, storage.Converge(Expenses));
+        Assert.Equal(0, storage.Converge(Expenses).RecordsBroughtUp);
     }
 
     [Fact]
@@ -1545,7 +1727,7 @@ public abstract class StorageContractTests : IDisposable
             [first.Id, third.Id],
             result.Records.Select(static record => record.Id).Order());
 
-        Assert.Equal(QueryAccessPathKind.IdentityLookup, result.AccessPath.Kind);
+        Assert.Equal(QueryAccess.IdentityLookup, result.Execution.Access);
     }
 
     [Fact]
@@ -1590,19 +1772,24 @@ public abstract class StorageContractTests : IDisposable
 
         // What was returned is four; what was looked at is all ten, and the cost says so rather
         // than letting the caller believe paging made the query cheaper.
-        Assert.Equal(4, result.Cost.RecordsReturned);
-        Assert.Equal(10, result.Cost.RecordsExamined);
+        Assert.Equal(4, result.Execution.RecordsReturned);
+        Assert.Equal(10, result.Execution.RecordsExamined);
     }
 
     // ---- What the result says about how it was reached --------------------------------------
 
     /// <summary>
-    /// SC-7's acceptance condition. A unique column has an index because it is unique - the
-    /// enforcement and the access path are the same structure - so this is the query that should
-    /// seek, and on a storage with no indexes it is the query that should honestly say it did not.
+    /// SC-7a: every implementation reports what it actually did, and the shared suite asserts
+    /// that the report is present and holds together - not that it says "index seek".
+    ///
+    /// <b>Why the seek is asserted elsewhere.</b> A fake with no planner that returned a
+    /// "deterministic equivalent" of a seek would make this suite pass against a claim no code
+    /// supports, and this suite exists to catch exactly that. So the claim that a particular
+    /// query becomes a seek lives in the engine's own tests, where there is an index to make it
+    /// true, and what is shared is the honesty.
     /// </summary>
     [Fact]
-    public void A_query_over_an_indexed_column_reports_a_seek()
+    public void A_query_says_how_it_was_served_and_the_figures_agree()
     {
         var storage = GivenExpenses();
         foreach (var i in Enumerable.Range(0, 50))
@@ -1615,22 +1802,30 @@ public abstract class StorageContractTests : IDisposable
 
         Assert.Equal("event 31", Assert.Single(result.Records)["event"]);
 
-        if (SeeksIndexes)
-        {
-            Assert.Equal(QueryAccessPathKind.IndexSeek, result.AccessPath.Kind);
-            Assert.Equal("receipt_no", result.AccessPath.ColumnName);
-            Assert.True(result.AccessPath.IsNarrowed);
+        var execution = result.Execution;
 
-            // The point of the seek: one record looked at, not fifty.
+        Assert.True(Enum.IsDefined(execution.Access), $"'{execution.Access}' is not one of the access paths");
+        Assert.Equal(Expenses, execution.CollectionName);
+        Assert.Equal(1, execution.RecordsReturned);
+        Assert.True(
+            execution.RecordsExamined >= execution.RecordsReturned,
+            $"{execution.RecordsExamined} examined is fewer than the {execution.RecordsReturned} returned");
+        Assert.Equal(execution.RecordsExamined - execution.RecordsReturned, execution.RecordsRejected);
+        Assert.Equal(0, execution.RecordsExcludedByType);
+        Assert.False(execution.IsIncomplete);
+
+        // A storage that narrowed the read looked at fewer records than it holds; one that did
+        // not says so. Either is a true answer and the suite accepts the one the storage can
+        // honestly give.
+        if (execution.IsNarrowed)
+        {
             Assert.True(
-                result.Cost.RecordsExamined < 50,
-                $"a seek examined {result.Cost.RecordsExamined} of 50 records");
+                execution.RecordsExamined < 50,
+                $"a narrowed read examined {execution.RecordsExamined} of 50 records");
         }
         else
         {
-            Assert.Equal(QueryAccessPathKind.FullScan, result.AccessPath.Kind);
-            Assert.False(result.AccessPath.IsNarrowed);
-            Assert.Equal(50, result.Cost.RecordsExamined);
+            Assert.Equal(50, execution.RecordsExamined);
         }
     }
 
@@ -1647,10 +1842,10 @@ public abstract class StorageContractTests : IDisposable
             [new QueryCondition("event", QueryOperator.Equals, "event 7")]));
 
         Assert.Single(result.Records);
-        Assert.Equal(QueryAccessPathKind.FullScan, result.AccessPath.Kind);
-        Assert.False(result.AccessPath.IsNarrowed);
-        Assert.Equal(20, result.Cost.RecordsExamined);
-        Assert.Equal(19, result.Cost.RecordsRejected);
+        Assert.Equal(QueryAccess.Scan, result.Execution.Access);
+        Assert.False(result.Execution.IsNarrowed);
+        Assert.Equal(20, result.Execution.RecordsExamined);
+        Assert.Equal(19, result.Execution.RecordsRejected);
     }
 
     [Fact]
@@ -1659,11 +1854,11 @@ public abstract class StorageContractTests : IDisposable
         var storage = GivenExpenses();
         storage.Create(Expenses, AnExpense());
 
-        var path = storage.ExecuteQuery(new StorageQuery(Expenses)).AccessPath;
+        var execution = storage.ExecuteQuery(new StorageQuery(Expenses)).Execution;
 
-        Assert.Equal(Expenses, path.CollectionName);
-        Assert.Contains(Expenses, path.Description, StringComparison.Ordinal);
-        Assert.Equal(path.Description, path.ToString());
+        Assert.Equal(Expenses, execution.CollectionName);
+        Assert.Contains(Expenses, execution.Description, StringComparison.Ordinal);
+        Assert.Contains(execution.Description, execution.ToString(), StringComparison.Ordinal);
     }
 
     // ---- What a query that does not fit is told ---------------------------------------------

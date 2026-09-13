@@ -1,6 +1,5 @@
 using System.Text;
 using TokkDb.Assistant.Ingestion;
-using TokkDb.Assistant.Storage;
 
 namespace TokkDb.Assistant.Tests;
 
@@ -62,21 +61,21 @@ public sealed class AwkwardCsvTests
 
         // The dates: one written the other way round, and no twentieth month, so the column
         // settles the order for itself.
-        Assert.Equal(ColumnType.Date, byName["Date"].Inferred);
+        Assert.Equal(ValueKind.Date, byName["Date"].Inferred);
         Assert.Equal("2026-07-20", byName["Date"].Minimum);
         Assert.Equal("2026-09-30", byName["Date"].Maximum);
 
         // The amounts: 840.50 invariant, 1.234,56 European, 1 240,75 European with a space, 44
         // and 312.00 and 57.25 and 1.500. All of them numbers, and the column is decimal because
         // some of them have a fractional part.
-        Assert.Equal(ColumnType.Decimal, byName["Amount"].Inferred);
+        Assert.Equal(ValueKind.Decimal, byName["Amount"].Inferred);
         Assert.Equal(0, byName["Amount"].BlankCount);
         Assert.Equal(8, byName["Amount"].ValueCount);
 
         // IN-1's named case: seven whole numbers and one "pending".
         var nights = byName["Nights"];
-        Assert.Equal(ColumnType.Text, nights.Inferred);
-        Assert.Equal(ColumnType.Integer, nights.Majority);
+        Assert.Equal(ValueKind.Text, nights.Inferred);
+        Assert.Equal(ValueKind.Integer, nights.Majority);
         Assert.True(nights.WasWidened);
         Assert.Equal(7.0 / 8.0, nights.MajorityShare, 3);
 
@@ -86,7 +85,7 @@ public sealed class AwkwardCsvTests
         Assert.Equal(1, nights.ExceptionCount);
 
         // And the receipt column, which is text throughout and says so without exceptions.
-        Assert.Equal(ColumnType.Text, byName["Receipt"].Inferred);
+        Assert.Equal(ValueKind.Text, byName["Receipt"].Inferred);
         Assert.Empty(byName["Receipt"].Exceptions);
     }
 
@@ -98,7 +97,7 @@ public sealed class AwkwardCsvTests
     public void Every_amount_is_read_as_the_number_a_person_would_read_it_as()
     {
         var table = Read(AwkwardFile);
-        var amounts = table.Rows.Select(static row => row[2]).ToArray();
+        var amounts = table.Rows.Select(static row => row[2] ?? "").ToArray();
 
         Assert.Equal(
             ["840.50", "1.234,56", "44", "312.00", "1 240,75", "89", "57.25", "1500"],
@@ -163,7 +162,7 @@ public sealed class AwkwardCsvTests
             0,5
             """);
 
-        Assert.Equal(ColumnType.Decimal, Assert.Single(european.Profiles).Inferred);
+        Assert.Equal(ValueKind.Decimal, Assert.Single(european.Profiles).Inferred);
         Assert.Equal("0.5", Assert.Single(european.Profiles).Minimum);
         Assert.Equal("1234", Assert.Single(european.Profiles).Maximum);
 
@@ -200,7 +199,7 @@ public sealed class AwkwardCsvTests
 
         var profile = Assert.Single(table.Profiles);
 
-        Assert.Equal(ColumnType.Decimal, profile.Inferred);
+        Assert.Equal(ValueKind.Decimal, profile.Inferred);
         Assert.True(profile.HadAmbiguousValues);
         Assert.Equal(1, profile.AmbiguousCount);
 
@@ -215,7 +214,7 @@ public sealed class AwkwardCsvTests
             1.500
             """).Profiles);
 
-        Assert.Equal(ColumnType.Integer, alone.Inferred);
+        Assert.Equal(ValueKind.Integer, alone.Inferred);
         Assert.Equal(1500L, alone.Read("1.500"));
         Assert.True(alone.HadAmbiguousValues);
     }
@@ -234,7 +233,7 @@ public sealed class AwkwardCsvTests
             """);
 
         var profile = Assert.Single(table.Profiles);
-        Assert.Equal(ColumnType.Decimal, profile.Inferred);
+        Assert.Equal(ValueKind.Decimal, profile.Inferred);
         Assert.Equal("0.75", profile.Minimum);
         Assert.Equal("2.25", profile.Maximum);
     }

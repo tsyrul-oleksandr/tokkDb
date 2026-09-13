@@ -23,6 +23,17 @@ internal static class QueryMatching
         // than Prague.
         if (!present) return false;
 
+        // SC-6c: a value that is not of the column's type yet answers nothing asked of that
+        // column. This is not a choice - it is what the engine does, and for a reason worth
+        // knowing: every encoded key carries its type in its first byte, so a range walk over the
+        // numbers never enters the run of text and the record is simply not reached. Matching it
+        // here would make the two implementations disagree. What is not allowed is for the
+        // omission to be silent, which is why the count comes back in the execution info.
+        if (ColumnTypes.TryRecordedType(raw, out var recorded) && recorded != condition.Column.Type)
+        {
+            return false;
+        }
+
         // Text is compared in the form the engine's index keys are in: see TextComparison. The
         // stored value is untouched; this is only what the comparison sees.
         var type = condition.Column.Type;
@@ -84,6 +95,156 @@ internal static class QueryMatching
         return ordered!.ThenBy(static record => record.Id);
     }
 
+    /// <summary>
+    /// Whether a record falls after the page a cursor marks, in the order that cursor was issued
+    /// for. The comparison is on the pair of sort values and identity, which is what makes a
+    /// boundary among equal sort values exact rather than approximately right - see
+    /// <see cref="QueryCursor"/>.
+    /// </summary>
+    public static bool After(
+        StorageRecord record,
+        IReadOnlyList<(ColumnDefinition Column, bool Descending)> order,
+        QueryCursor cursor)
+    {
+        for (var i = 0; i < order.Count && i < cursor.SortValues.Count; i++)
+        {
+            var (column, descending) = order[i];
+
+            var held = TextComparison.AsCompared(column.Type, record[column.Name]);
+            var mark = TextComparison.AsCompared(column.Type, cursor.SortValues[i]);
+
+            var comparison = SortOrder.Instance.Compare(held, mark);
+            if (descending) comparison = -comparison;
+
+            if (comparison != 0) return comparison > 0;
+        }
+
+        // Equal on every sort column, so the identity decides - ascending whichever way the sort
+        // ran, because that is the tie-break Ordered applies and the two have to agree.
+        return record.Id.CompareTo(cursor.RecordId) > 0;
+    }
+
+    /// <summary>Where a page ended, as the marker for the next one.</summary>
+    public static QueryCursor CursorFor(
+        StorageRecord record,
+        IReadOnlyList<(ColumnDefinition Column, bool Descending)> order) =>
+        new([.. order.Select(entry => record[entry.Column.Name])], record.Id);
+
+    /// <summary>
+    /// The record with only the columns asked for. An empty projection is every column, which is
+    /// what a caller that did not ask meant.
+    ///
+    /// A column left out is left out rather than emptied, so a projected record reads exactly as
+    /// a record that never had those values - which is the distinction StorageRecord keeps
+    /// between absent and nothing, applied to a read rather than a write.
+    /// </summary>
+    public static StorageRecord Project(StorageRecord record, IReadOnlyList<ColumnDefinition> select)
+    {
+        if (select.Count == 0) return record;
+
+        var fields = new Dictionary<string, object?>(StorageNames.Comparer);
+
+        foreach (var column in select)
+        {
+            if (record.Has(column.Name)) fields[column.Name] = record[column.Name];
+        }
+
+        var attention = record.NeedsAttention.Count == 0
+            ? null
+            : record.NeedsAttention.Where(name => select.Any(column => StorageNames.Same(column.Name, name))).ToArray();
+
+        return new StorageRecord(record.Id, record.CollectionName, fields, attention);
+    }
+
+    /// <summary>
+    /// What the query asked to be computed, over everything that matched rather than over the
+    /// page that came back. D-16: the arithmetic is done here and never by a model.
+    ///
+    /// <b>A total of no values is nothing, not zero.</b> Zero is a claim - "you spent nothing" -
+    /// and a collection with no matching records supports no such claim. A count of no records is
+    /// a real zero, and is the only one of these that returns one.
+    /// </summary>
+    public static IReadOnlyDictionary<string, object?> Aggregate(
+        IReadOnlyList<StorageRecord> matched,
+        IReadOnlyList<(QueryAggregate Aggregate, ColumnDefinition? Column)> aggregates)
+    {
+        var computed = new Dictionary<string, object?>(StringComparer.Ordinal);
+
+        foreach (var (aggregate, column) in aggregates)
+        {
+            if (aggregate.Function is AggregateFunction.Count)
+            {
+                computed[aggregate.Key] = (long)matched.Count;
+                continue;
+            }
+
+            var values = matched
+                .Select(record => record[column!.Name])
+                .Where(static value => value is not null)
+                .ToList();
+
+            computed[aggregate.Key] = values.Count == 0
+                ? null
+                : aggregate.Function switch
+                {
+                    AggregateFunction.Sum => Total(column!.Type, values),
+                    AggregateFunction.Average => Mean(column!.Type, values),
+                    AggregateFunction.Minimum => Extreme(column!.Type, values, smallest: true),
+                    AggregateFunction.Maximum => Extreme(column!.Type, values, smallest: false),
+                    _ => null
+                };
+        }
+
+        return computed;
+    }
+
+    private static object Total(ColumnType type, IReadOnlyList<object?> values) =>
+        type is ColumnType.Integer
+            ? values.Sum(static value => (long)value!)
+            : values.Sum(static value => (decimal)value!);
+
+    /// <summary>
+    /// The mean, exact rather than binary floating point. A mean of whole numbers is not a whole
+    /// number, so it comes back as a decimal whatever the column keeps - and as a decimal rather
+    /// than a double because a total of money divided by a count has to still be money.
+    /// </summary>
+    private static object Mean(ColumnType type, IReadOnlyList<object?> values)
+    {
+        var total = type is ColumnType.Integer
+            ? values.Sum(static value => (long)value!)
+            : values.Sum(static value => (decimal)value!);
+
+        return (decimal)total / values.Count;
+    }
+
+    private static object? Extreme(ColumnType type, IReadOnlyList<object?> values, bool smallest)
+    {
+        object? best = null;
+        object? bestCompared = null;
+
+        foreach (var value in values)
+        {
+            var compared = TextComparison.AsCompared(type, value);
+
+            if (best is null)
+            {
+                best = value;
+                bestCompared = compared;
+                continue;
+            }
+
+            var comparison = SortOrder.Instance.Compare(compared, bestCompared);
+
+            if (smallest ? comparison < 0 : comparison > 0)
+            {
+                best = value;
+                bestCompared = compared;
+            }
+        }
+
+        return best;
+    }
+
     private static bool Same(object? left, object? right) => Equals(left, right);
 
     private static int Compare(object? left, object? right) => SortOrder.Instance.Compare(left, right);
@@ -107,8 +268,17 @@ internal static class QueryMatching
             (null, _) => -1,
             (_, null) => 1,
             (string a, string b) => string.CompareOrdinal(a, b),
+            // Two values of different types, which happens in a column something has been
+            // retyped out from under (SC-6b). The engine's keys sort into runs grouped by type
+            // tag and its own encoder records that comparing across tags is defined and
+            // meaningless; this is the same answer - an order, so that a sort terminates, and no
+            // claim that it means anything.
+            _ when left.GetType() != right.GetType() => Tag(left).CompareTo(Tag(right)),
             (IComparable a, _) => a.CompareTo(right),
             _ => 0
         };
+
+        private static int Tag(object value) =>
+            ColumnTypes.TryRecordedType(value, out var type) ? (int)type : int.MaxValue;
     }
 }

@@ -122,3 +122,82 @@ public sealed class StorageValidationException : StorageException
                  string.Join(" ", errors.Select(static error => error.Describe()))
         };
 }
+
+/// <summary>There is no relation by that name.</summary>
+public sealed class UnknownRelationException : StorageException
+{
+    public UnknownRelationException(string relationName)
+        : base($"There is no relation called '{relationName}'.")
+    {
+        RelationName = relationName;
+    }
+
+    public string RelationName { get; }
+}
+
+/// <summary>There is already a relation by that name.</summary>
+public sealed class RelationAlreadyExistsException : StorageException
+{
+    public RelationAlreadyExistsException(string relationName)
+        : base($"There is already a relation called '{relationName}'.")
+    {
+        RelationName = relationName;
+    }
+
+    public string RelationName { get; }
+}
+
+/// <summary>
+/// A delete was refused because other records refer to the record being deleted, under a
+/// relation whose integrity action says to refuse (SC-8).
+///
+/// It carries the referring records rather than a count, because the answer the user wants is
+/// "these four expenses are for that conference" and an application that has only a number
+/// cannot show them. <see cref="IStorage.InspectDelete"/> answers the same question without
+/// attempting the delete, which is what the confirmation card is built from.
+/// </summary>
+public sealed class IntegrityRefusedException : StorageException
+{
+    public IntegrityRefusedException(
+        RelationDefinition relation,
+        RecordReference target,
+        IReadOnlyList<RecordReference> referring)
+        : base(Summarise(relation, referring))
+    {
+        Relation = relation;
+        Target = target;
+        Referring = referring;
+    }
+
+    public RelationDefinition Relation { get; }
+
+    /// <summary>The record that was to be deleted.</summary>
+    public RecordReference Target { get; }
+
+    /// <summary>The records that refer to it.</summary>
+    public IReadOnlyList<RecordReference> Referring { get; }
+
+    private static string Summarise(RelationDefinition relation, IReadOnlyList<RecordReference> referring)
+    {
+        var what = relation.Purpose is { } purpose ? purpose : relation.Name;
+
+        return referring.Count == 1
+            ? $"One record of '{relation.FromCollection}' still refers to this one ({what}): " +
+              $"{referring[0].Id}."
+            : $"{referring.Count} records of '{relation.FromCollection}' still refer to this one ({what}): " +
+              string.Join(", ", referring.Take(5).Select(static reference => reference.Id)) +
+              (referring.Count > 5 ? ", and others." : ".");
+    }
+}
+
+/// <summary>There is no conversation with that identity (SC-10).</summary>
+public sealed class UnknownConversationException : StorageException
+{
+    public UnknownConversationException(Ulid id)
+        : base($"There is no conversation with the identity {id}.")
+    {
+        Id = id;
+    }
+
+    public Ulid Id { get; }
+}

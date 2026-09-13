@@ -141,3 +141,55 @@ public sealed record UnknownSortColumn(string CollectionName, string ColumnName)
     public override string Describe() =>
         $"'{CollectionName}' cannot be ordered by '{ColumnName}', which is not one of its columns.";
 }
+
+/// <summary>
+/// SC-7. The aggregation does not suit the column's type: a total asked of a date, an average
+/// asked of a name.
+/// </summary>
+public sealed record AggregateNotSuitable(
+    string CollectionName,
+    string ColumnName,
+    AggregateFunction Function,
+    ColumnType ColumnType) : StorageError(CollectionName, ColumnName)
+{
+    public override string Describe() =>
+        $"Column '{ColumnName}' of '{CollectionName}' keeps {ColumnType}, and there is no {Function} of that.";
+}
+
+/// <summary>
+/// The page marker does not belong to this query: it carries a different number of sort values
+/// than the query orders by, which means it was issued for a different ordering.
+///
+/// BR-3a: a cursor is valid only for the sort and filter it was issued for, and changing either
+/// starts a new sequence. Continuing anyway would land somewhere arbitrary, which is precisely
+/// the failure an offset has and a cursor exists to avoid.
+/// </summary>
+public sealed record CursorDoesNotFit(
+    string CollectionName,
+    int SortColumns,
+    int CursorValues) : StorageError(CollectionName, string.Empty)
+{
+    public override string Describe() =>
+        $"That page marker was made for a different ordering of '{CollectionName}': it carries " +
+        $"{CursorValues} values and this query orders by {SortColumns}.";
+}
+
+/// <summary>
+/// SC-8. The value refers to a record that is not there: an expense for a conference nobody has
+/// stored.
+///
+/// A refusal at the write rather than a dangling reference, because a relation that is enforced
+/// in one direction only is not a relation - and because the alternative is discovering it on
+/// the day somebody follows the reference and finds nothing.
+/// </summary>
+public sealed record ReferenceMissing(
+    string CollectionName,
+    string ColumnName,
+    object? Value,
+    string RelationName,
+    string ReferredCollection) : StorageError(CollectionName, ColumnName)
+{
+    public override string Describe() =>
+        $"'{ColumnName}' of '{CollectionName}' has to name something in '{ReferredCollection}', and " +
+        $"nothing there is {ColumnTypes.Render(Value)}.";
+}

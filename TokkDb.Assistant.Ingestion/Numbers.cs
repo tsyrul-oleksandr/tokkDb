@@ -55,6 +55,12 @@ internal static class Numbers
 {
     public static NumberReading Read(string text)
     {
+        // IN-1b, and the clearest case of it. A leading zero is part of the value rather than an
+        // accident of how it was typed: 007 is a room, a route or an account, and reading it as
+        // seven throws away the thing that made it recognisable. Text holds it and a retype can
+        // narrow it later; seven cannot be widened back into 007.
+        if (HasLeadingZero(text)) return NumberReading.NotANumber;
+
         if (!Prepare(text, out var body, out var negative)) return NumberReading.NotANumber;
 
         var dots = body.Count(static character => character == '.');
@@ -128,6 +134,20 @@ internal static class Numbers
         var grouped = Grouped(body, grouping, negative);
 
         return grouped.IsNumber ? grouped : reading;
+    }
+
+    /// <summary>
+    /// Whether the value is written with a zero in front of it: <c>007</c> and <c>0012.5</c>,
+    /// but not <c>0</c>, <c>0.5</c> or <c>0,5</c>, where the zero is the value.
+    /// </summary>
+    public static bool HasLeadingZero(string text)
+    {
+        var trimmed = text.Trim();
+        var start = trimmed.Length > 0 && trimmed[0] is '-' or '+' or '\u2212' ? 1 : 0;
+
+        return trimmed.Length > start + 1
+               && trimmed[start] == '0'
+               && char.IsAsciiDigit(trimmed[start + 1]);
     }
 
     /// <summary>

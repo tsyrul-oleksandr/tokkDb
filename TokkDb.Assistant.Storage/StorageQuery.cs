@@ -110,14 +110,124 @@ public sealed record QuerySort(string ColumnName, bool Descending = false)
     public string ColumnName { get; } = StorageNames.Normalise(ColumnName, "column name");
 }
 
+/// <summary>What an aggregation asks of the records a query matched.</summary>
+public enum AggregateFunction
+{
+    /// <summary>How many records matched. The only one that names no column.</summary>
+    Count = 1,
+
+    /// <summary>The values added up. Numbers only.</summary>
+    Sum,
+
+    /// <summary>The smallest value. Any ordered type.</summary>
+    Minimum,
+
+    /// <summary>The largest value. Any ordered type.</summary>
+    Maximum,
+
+    /// <summary>The mean of the values. Numbers only, and exact rather than binary floating point.</summary>
+    Average
+}
+
 /// <summary>
-/// A read, described rather than performed.
+/// One number computed over everything a query matched, rather than over the page it returned.
+///
+/// D-16: aggregation is computed by the engine and never by a model. "What did I spend on
+/// conferences last year" is a sum over four hundred records, and the alternative to computing it
+/// here is sending four hundred records to a model and hoping - which costs the tokens D-6 exists
+/// to save and gets the arithmetic wrong.
+/// </summary>
+public sealed record QueryAggregate
+{
+    public QueryAggregate(AggregateFunction function, string? columnName = null)
+    {
+        if (!Enum.IsDefined(function))
+        {
+            throw new InvalidDefinitionException("aggregate", "A query was asked for a total of no kind.");
+        }
+
+        if (function is AggregateFunction.Count)
+        {
+            // Counting records needs no column, and one given here would be a caller believing
+            // it counts values rather than records.
+            if (columnName is not null)
+            {
+                throw new InvalidDefinitionException(
+                    "aggregate",
+                    $"Counting records takes no column, and '{columnName}' was named.");
+            }
+
+            ColumnName = null;
+        }
+        else
+        {
+            ColumnName = StorageNames.Normalise(
+                columnName ?? throw new InvalidDefinitionException(
+                    "aggregate", $"{function} has to be asked of a column."),
+                "column name");
+        }
+
+        Function = function;
+    }
+
+    public AggregateFunction Function { get; }
+
+    /// <summary>The column, or null for <see cref="AggregateFunction.Count"/>.</summary>
+    public string? ColumnName { get; }
+
+    /// <summary>
+    /// What this aggregate is called in <see cref="StorageQueryResult.Aggregates"/>: "count",
+    /// "sum(cost)". Stable, because a caller reads the result by it.
+    /// </summary>
+    public string Key => ColumnName is null
+        ? Function.ToString().ToLowerInvariant()
+        : $"{Function.ToString().ToLowerInvariant()}({ColumnName})";
+
+    public override string ToString() => Key;
+}
+
+/// <summary>
+/// A condition on the far side of a relation: the expenses whose conference was in Lviv, said
+/// without the caller having to know that "conference" is a column holding a name.
+///
+/// SC-7's internal model supports relation traversal, and this is the shape of it. The relation
+/// says which two collections and which two columns; the query says what has to be true of the
+/// far one. The storage runs the far query first and turns its answers into a condition on the
+/// near column, which is a shape an index answers - so traversal costs one extra query and not a
+/// join the engine has no operator for.
+/// </summary>
+public sealed record QueryTraversal
+{
+    public QueryTraversal(string relationName, StorageQuery target)
+    {
+        RelationName = StorageNames.Normalise(relationName, "relation name");
+        Target = target ?? throw new InvalidDefinitionException(
+            "traversal", $"Following '{RelationName}' needs something to look for on the other side.");
+    }
+
+    public string RelationName { get; }
+
+    /// <summary>What has to be true of the record referred to.</summary>
+    public StorageQuery Target { get; }
+
+    public override string ToString() => $"through {RelationName} to {Target.CollectionName}";
+}
+
+/// <summary>
+/// A read, described rather than performed. The rich face of D-16.
 ///
 /// SC-7: one declarative type, validated against the schema before anything runs. It is
 /// declarative in the strict sense - it says what is wanted and nothing about how to get it.
 /// Which index to use, whether to use one at all, and in what order to read the pages are the
-/// planner's, and what it decided comes back in <see cref="StorageQueryResult.AccessPath"/>
+/// planner's, and what it decided comes back in <see cref="StorageQueryResult.Execution"/>
 /// rather than being something the caller had to ask for.
+///
+/// <b>This is the face C# writes, and it is not the face a model writes.</b> D-16 keeps the two
+/// apart deliberately. Everything here - projection, cursor paging, aggregation, traversal -
+/// serves the browser, retrieval, follow-ups and the import path, and every one of them would be
+/// another thing a 4B model has to get right if it had to emit them. What a model emits is
+/// <see cref="ModelQuery"/>, which is small enough for a grammar to constrain, and C# expands it
+/// into this. Adding a feature here therefore changes nothing about what a model has to learn.
 ///
 /// <b>The conditions are joined by AND, and there is no OR.</b> That is a limit and it is
 /// deliberate. Every condition of an AND is a shape the planner can answer from an index and
@@ -137,6 +247,21 @@ public sealed record StorageQuery
         int skip = 0,
         int? take = null,
         IReadOnlyList<Ulid>? ids = null)
+        : this(collectionName, where, orderBy, skip, take, ids, null, null, null, null)
+    {
+    }
+
+    private StorageQuery(
+        string collectionName,
+        IReadOnlyList<QueryCondition>? where,
+        IReadOnlyList<QuerySort>? orderBy,
+        int skip,
+        int? take,
+        IReadOnlyList<Ulid>? ids,
+        IReadOnlyList<string>? select,
+        QueryCursor? after,
+        IReadOnlyList<QueryAggregate>? aggregates,
+        IReadOnlyList<QueryTraversal>? traversals)
     {
         CollectionName = StorageNames.Normalise(collectionName, "collection name");
         Where = [.. where ?? []];
@@ -155,6 +280,10 @@ public sealed record StorageQuery
         Skip = skip;
         Take = take;
         Ids = [.. ids ?? []];
+        Select = [.. (select ?? []).Select(static column => StorageNames.Normalise(column, "column name"))];
+        After = after;
+        Aggregates = [.. aggregates ?? []];
+        Traversals = [.. traversals ?? []];
     }
 
     public string CollectionName { get; }
@@ -164,10 +293,16 @@ public sealed record StorageQuery
 
     /// <summary>
     /// How the records come back. An empty list means no order is asked for and none is
-    /// promised, exactly as <see cref="IStorage.GetAll"/> promises none.
+    /// promised, exactly as <see cref="IStorage.GetAll"/> promises none - except when a cursor
+    /// is in play, where identity is the order and is what makes a page boundary exact.
     /// </summary>
     public IReadOnlyList<QuerySort> OrderBy { get; }
 
+    /// <summary>
+    /// How many records to pass over. Kept for callers that have a reason, and <b>not</b> what
+    /// the browser pages with: BR-3 pages by cursor, because an offset re-counts from the start
+    /// every time and is wrong the moment something is inserted before it.
+    /// </summary>
     public int Skip { get; }
 
     /// <summary>How many records at most, or null for all of them.</summary>
@@ -179,4 +314,47 @@ public sealed record StorageQuery
     /// narrowest access path there is, and the planner takes it.
     /// </summary>
     public IReadOnlyList<Ulid> Ids { get; }
+
+    /// <summary>
+    /// The columns to bring back, or empty for all of them. A projection over a wide collection
+    /// is the difference between reading a name and reading a record, and the browser's table
+    /// asks for four columns of forty.
+    /// </summary>
+    public IReadOnlyList<string> Select { get; }
+
+    /// <summary>Where the previous page ended, or null to start at the beginning. See <see cref="QueryCursor"/>.</summary>
+    public QueryCursor? After { get; }
+
+    /// <summary>What to compute over everything that matched, rather than over the page returned.</summary>
+    public IReadOnlyList<QueryAggregate> Aggregates { get; }
+
+    /// <summary>Conditions on the far side of a relation. See <see cref="QueryTraversal"/>.</summary>
+    public IReadOnlyList<QueryTraversal> Traversals { get; }
+
+    /// <summary>This query, bringing back only these columns.</summary>
+    public StorageQuery Selecting(params string[] columns) =>
+        new(CollectionName, Where, OrderBy, Skip, Take, Ids, columns, After, Aggregates, Traversals);
+
+    /// <summary>This query, continuing after the page that cursor ended.</summary>
+    public StorageQuery Continuing(QueryCursor? cursor) =>
+        new(CollectionName, Where, OrderBy, Skip, Take, Ids, Select, cursor, Aggregates, Traversals);
+
+    /// <summary>This query, also computing these.</summary>
+    public StorageQuery Computing(params QueryAggregate[] aggregates) =>
+        new(CollectionName, Where, OrderBy, Skip, Take, Ids, Select, After, [.. Aggregates, .. aggregates], Traversals);
+
+    /// <summary>This query, with a condition on the far side of a relation.</summary>
+    public StorageQuery Through(QueryTraversal traversal) =>
+        new(CollectionName, Where, OrderBy, Skip, Take, Ids, Select, After, Aggregates, [.. Traversals, traversal]);
+
+    /// <summary>
+    /// This query with one more condition and no traversals: what a resolved traversal becomes,
+    /// once the far side has been asked and its answers are a condition on the near column.
+    /// </summary>
+    public StorageQuery Resolved(IReadOnlyList<QueryCondition> extra) =>
+        new(CollectionName, [.. Where, .. extra], OrderBy, Skip, Take, Ids, Select, After, Aggregates, []);
+
+    /// <summary>This query, taking at most that many records.</summary>
+    public StorageQuery Taking(int? take) =>
+        new(CollectionName, Where, OrderBy, Skip, take, Ids, Select, After, Aggregates, Traversals);
 }

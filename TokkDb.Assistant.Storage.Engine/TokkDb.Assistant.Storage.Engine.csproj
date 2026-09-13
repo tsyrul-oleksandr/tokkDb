@@ -19,6 +19,7 @@
   -->
   <ItemGroup>
     <ProjectReference Include="..\TokkDb.Assistant.Storage\TokkDb.Assistant.Storage.csproj" />
+    <ProjectReference Include="..\TokkDb.Assistant.Trace\TokkDb.Assistant.Trace.csproj" />
     <ProjectReference Include="..\TokkDb\TokkDb.csproj" />
   </ItemGroup>
 

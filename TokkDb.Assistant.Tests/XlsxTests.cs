@@ -2,7 +2,6 @@ using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 using TokkDb.Assistant.Ingestion;
-using TokkDb.Assistant.Storage;
 
 namespace TokkDb.Assistant.Tests;
 
@@ -66,7 +65,7 @@ public sealed class XlsxTests
         Assert.Equal(["Event", "Paid on"], table.Columns);
 
         var paidOn = table.Profiles[1];
-        Assert.Equal(ColumnType.Date, paidOn.Inferred);
+        Assert.Equal(ValueKind.Date, paidOn.Inferred);
         Assert.Equal("2026-05-14", paidOn.Minimum);
         Assert.Equal("2026-07-20", paidOn.Maximum);
 
@@ -94,7 +93,7 @@ public sealed class XlsxTests
         Assert.Equal("840.50", row[2]);
 
         Assert.Equal(1, table.Profiles[1].BlankCount);
-        Assert.Equal(ColumnType.Decimal, table.Profiles[2].Inferred);
+        Assert.Equal(ValueKind.Decimal, table.Profiles[2].Inferred);
     }
 
     [Fact]
