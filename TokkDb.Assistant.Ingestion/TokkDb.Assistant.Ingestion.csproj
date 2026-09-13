@@ -12,14 +12,13 @@
     writes anything; a file goes in and a description of what is in it comes out, the same way
     every time.
 
-    The contract is referenced for one thing: ColumnType. Inference has to conclude in the
-    vocabulary the storage can actually hold, and a second enum here would be two vocabularies
-    to keep in step for no gain. The contract assembly depends on nothing itself, so this
-    borrows no weight by taking it.
+    §3.1 of the plan: this project references nothing. An earlier version of it took the storage
+    contract for one type, ColumnType, on the argument that inference should conclude in the
+    vocabulary the storage can hold. The dependency graph says otherwise and is right: parsing
+    happens before anything has been decided about where the data goes, and a file is not a
+    schema. ValueKind is that type, said here, and the mapping between the two belongs in the
+    layer that decides where things go.
   -->
-  <ItemGroup>
-    <ProjectReference Include="..\TokkDb.Assistant.Storage\TokkDb.Assistant.Storage.csproj" />
-  </ItemGroup>
 
   <ItemGroup>
     <!--

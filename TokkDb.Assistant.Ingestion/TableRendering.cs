@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text;
-using TokkDb.Assistant.Storage;
 
 namespace TokkDb.Assistant.Ingestion;
 
@@ -109,7 +108,7 @@ public static class TableRendering
             line.Append(", ").Append(profile.DistinctCount.ToString(CultureInfo.InvariantCulture)).Append(" distinct");
         }
 
-        if (profile.Minimum is not null && profile.Inferred is not ColumnType.Text)
+        if (profile.Minimum is not null && profile.Inferred is not ValueKind.Text)
         {
             line.Append(", ").Append(profile.Minimum).Append(" to ").Append(profile.Maximum);
         }
@@ -133,7 +132,21 @@ public static class TableRendering
                     .Select(static exception => $"row {exception.LineNumber} \"{Shorten(exception.Value, 24)}\"")));
         }
 
-        if (profile.HadAmbiguousValues)
+        // What the column had to guess, in the words IN-1a asks for: how many values, which way
+        // they were read, and what the other way would have meant. A model that is proposing
+        // where this column goes can then say so, and the person can correct it before a year of
+        // dates is stored the wrong way round.
+        if (profile.Ambiguity is { } ambiguity)
+        {
+            line.Append("\n    ")
+                .Append(ambiguity.Count.ToString(CultureInfo.InvariantCulture))
+                .Append(ambiguity.Count == 1 ? " value could" : " values could")
+                .Append(" have been read two ways: read as ")
+                .Append(ambiguity.ReadAs)
+                .Append(", could be ")
+                .Append(ambiguity.OrElse);
+        }
+        else if (profile.HadAmbiguousValues)
         {
             line.Append("\n    ")
                 .Append(profile.AmbiguousCount.ToString(CultureInfo.InvariantCulture))
@@ -182,14 +195,14 @@ public static class TableRendering
     }
 
     /// <summary>The type in the words the assistant uses, rather than the contract's spelling of it.</summary>
-    private static string Name(ColumnType type) => type switch
+    private static string Name(ValueKind type) => type switch
     {
-        ColumnType.Text => "text",
-        ColumnType.Integer => "whole number",
-        ColumnType.Decimal => "number",
-        ColumnType.Boolean => "true or false",
-        ColumnType.Date => "date",
-        ColumnType.Timestamp => "date and time",
+        ValueKind.Text => "text",
+        ValueKind.Integer => "whole number",
+        ValueKind.Decimal => "number",
+        ValueKind.Boolean => "true or false",
+        ValueKind.Date => "date",
+        ValueKind.Timestamp => "date and time",
         _ => type.ToString().ToLowerInvariant()
     };
 

@@ -28,6 +28,15 @@ namespace TokkDb.Assistant.Storage.Engine;
 /// <c>string</c> and the contract's are <c>string?</c>, and without one a value that was nothing
 /// would come back as an empty string. The old adapter had that bug.
 ///
+/// <b>EX-1, and it is a property of this shape rather than a promise about it.</b> Everything
+/// the descriptor cannot hold is a key in a document, so a capability added later is a new key,
+/// and a database written before it has no key of that name - which reads as the default,
+/// because that is what a missing key does here. No migration, no version number in the
+/// settings, and nothing to do to an existing file when a column gains a property. The same is
+/// true of the descriptor itself: the engine's own <c>RelationDescriptorDocument</c> records
+/// that "a database written before these existed reads them as empty rather than needing a
+/// migration".
+///
 /// <b>Raised rather than assumed</b> (D-2): the right home for "this column has to have a value"
 /// is a field on the engine's <c>ColumnDescriptor</c>, which its own comment says is cheap -
 /// "adding a field here means adding a field to a document: no binary reader changes, no
@@ -38,6 +47,7 @@ internal static class EngineSchema
 {
     private const string UserMetadataPrefix = "u:";
     private const string ColumnExtrasPrefix = "c:";
+    private const string PendingPrefix = "n:";
 
     private const string RequiredFlag = "required";
     private const string DateFlag = "date";
@@ -55,12 +65,26 @@ internal static class EngineSchema
             EngineValues.ToDocument(column.Type, column.DefaultValue))).ToList();
 
     /// <summary>
-    /// The settings document for a collection: the caller's metadata and the two column facts
-    /// the descriptor has no room for.
+    /// The settings document for a collection: the caller's metadata, the two column facts the
+    /// descriptor has no room for, and how many records are still holding a value of the type a
+    /// column used to have.
+    ///
+    /// The last of those is a count, and SC-2 forbids a count on a <b>definition</b> - which is
+    /// why it is here and not there. It is on this side of the boundary with the page numbers
+    /// and the index roots, where a physical fact belongs, and it reaches a caller only as
+    /// <c>IStorage.CountNeedingAttention</c> and as the excluded figure in a query's execution
+    /// info (SC-6c).
     /// </summary>
-    public static Dictionary<string, string> ToSettings(CollectionDefinition definition)
+    public static Dictionary<string, string> ToSettings(
+        CollectionDefinition definition,
+        IReadOnlyDictionary<string, int>? pending = null)
     {
         var settings = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var (column, count) in pending ?? EmptyPending)
+        {
+            if (count > 0) settings[PendingPrefix + column] = count.ToString();
+        }
 
         foreach (var (key, value) in definition.Metadata)
         {
@@ -122,6 +146,30 @@ internal static class EngineSchema
             unique: column.Unique,
             readOnly: column.ReadOnly,
             defaultValue: EngineValues.FromDocument(type, column.DefaultValue));
+    }
+
+    private static readonly IReadOnlyDictionary<string, int> EmptyPending =
+        new Dictionary<string, int>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// How many records hold a value of another type in each column, as the last change or
+    /// converge counted them. A column not named here has none.
+    /// </summary>
+    public static Dictionary<string, int> PendingOf(IReadOnlyDictionary<string, string> settings)
+    {
+        var pending = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var (key, value) in settings)
+        {
+            if (!key.StartsWith(PendingPrefix, StringComparison.Ordinal)) continue;
+
+            if (int.TryParse(value, out var count) && count > 0)
+            {
+                pending[key[PendingPrefix.Length..]] = count;
+            }
+        }
+
+        return pending;
     }
 
     private static string[] Flags(IReadOnlyDictionary<string, string> settings, string columnName) =>

@@ -73,6 +73,28 @@ internal static class ColumnTypes
         }
     }
 
+    /// <summary>
+    /// The type a value already is, judged by what it is rather than by what a column says it
+    /// should be. This is how a read tells a value written under an older type from one written
+    /// under the current one (SC-6b): the column says Integer, the value is a string, and the
+    /// difference is the whole of what "needs attention" means.
+    /// </summary>
+    public static bool TryRecordedType(object? value, out ColumnType type)
+    {
+        switch (value)
+        {
+            case string: type = ColumnType.Text; return true;
+            case long or int or short or sbyte or byte or ushort or uint or ulong:
+                type = ColumnType.Integer;
+                return true;
+            case decimal: type = ColumnType.Decimal; return true;
+            case bool: type = ColumnType.Boolean; return true;
+            case DateOnly: type = ColumnType.Date; return true;
+            case DateTime or DateTimeOffset: type = ColumnType.Timestamp; return true;
+            default: type = ColumnType.Text; return false;
+        }
+    }
+
     /// <summary>The CLR type a column of this type hands back, for error messages and for tests.</summary>
     public static Type ClrType(ColumnType type) => type switch
     {

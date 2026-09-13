@@ -89,6 +89,14 @@ namespace TokkDb.Assistant.Storage;
 /// </item>
 /// </list>
 ///
+/// <b>What else this contract settles, in the order the requirements settle it.</b> Where a value
+/// goes when its column is retyped and it will not convert (SC-6b: kept, flagged, never dropped).
+/// What a query says when it could not consider every record (SC-6c). What a delete does to the
+/// records that refer to the one being deleted (SC-8, at the relation and not here). How many
+/// values are checked against an index at once (SC-9). Where conversations live, and that
+/// deleting one does not delete what its requests stored (SC-10). And how a record reads as a
+/// line of text, which is derived and never stored (SC-11, in <see cref="DisplayValue"/>).
+///
 /// </summary>
 public interface IStorage
 {
@@ -177,11 +185,36 @@ public interface IStorage
     bool Update(StorageRecord record);
 
     /// <summary>
-    /// Removes a record, returning false if there was none with that identity. Destructive; see
-    /// <see cref="DeleteCollection"/> on D-7.
+    /// Removes a record, and whatever the relations pointing at it say goes with it.
+    ///
+    /// SC-8 decides that at the relation rather than here: restrict refuses the delete and names
+    /// what refers to the record, cascade takes the referring records with it, set empty leaves
+    /// them without a reference, and require-replacement refuses until the caller says what they
+    /// should point at instead. Restrict is the default, so the refusal is what happens unless
+    /// somebody chose otherwise when the relation was created.
+    ///
+    /// <b>What went is reported rather than counted.</b> SC-8a needs each cascaded deletion to be
+    /// its own change record, and a caller told only "deleted" cannot write five of them - so an
+    /// undo computed from that would restore one record and leave four gone.
+    ///
+    /// Destructive; see <see cref="DeleteCollection"/> on D-7, and
+    /// <see cref="InspectDelete"/> for the counts the confirmation card is built from.
     /// </summary>
     /// <exception cref="UnknownCollectionException">There is no such collection.</exception>
-    bool Delete(string collectionName, Ulid id);
+    /// <exception cref="IntegrityRefusedException">
+    /// Something refers to the record under a relation that refuses the delete.
+    /// </exception>
+    DeletionResult Delete(string collectionName, Ulid id);
+
+    /// <summary>
+    /// What <see cref="Delete"/> would do, without doing it.
+    ///
+    /// D-14's rule that violation counts are computed before the question is asked, never after.
+    /// "Four expenses are for this conference, and here they are" is a question a person can
+    /// answer; "this would violate referential integrity" is not.
+    /// </summary>
+    /// <exception cref="UnknownCollectionException">There is no such collection.</exception>
+    DeletionEffect InspectDelete(string collectionName, Ulid id);
 
     /// <summary>
     /// Every record in the collection, <b>in no promised order</b> - see answer 5 above. Sort by
@@ -316,5 +349,127 @@ public interface IStorage
     /// collection is large.
     /// </summary>
     /// <exception cref="UnknownCollectionException">There is no such collection.</exception>
-    int Converge(string collectionName);
+    ConvergeReport Converge(string collectionName);
+
+    // ---- Relations (SC-8) --------------------------------------------------------------------
+
+    /// <summary>
+    /// Records that one thing refers to another, and what a delete of the referred-to thing does.
+    ///
+    /// The column referred to has to be unique: a reference that matches three records refers to
+    /// nothing in particular. <see cref="RelationIntegrity.SetEmpty"/> on a required column is
+    /// refused <b>here</b>, when the relation is created, rather than when the first delete finds
+    /// out - the two rules cannot both hold, and the delete is the wrong moment to discover it.
+    /// </summary>
+    /// <exception cref="UnknownCollectionException">Either collection is not there.</exception>
+    /// <exception cref="UnknownColumnException">Either column is not there.</exception>
+    /// <exception cref="RelationAlreadyExistsException">A relation of that name exists.</exception>
+    /// <exception cref="InvalidDefinitionException">
+    /// The column referred to is not unique, or the rule and the column contradict each other.
+    /// </exception>
+    void AddRelation(RelationDefinition relation);
+
+    /// <summary>Removes a relation, returning false if there was none. The records are untouched.</summary>
+    bool RemoveRelation(string relationName);
+
+    /// <summary>Every relation. Like <see cref="GetAll"/>, in no promised order.</summary>
+    IReadOnlyCollection<RelationDefinition> GetRelations();
+
+    // ---- Asking about many values at once (SC-9) ---------------------------------------------
+
+    /// <summary>
+    /// Which of these values some record already holds in that column, and which record holds it.
+    ///
+    /// <b>A set in, not a value in a loop.</b> The engine has no page cache - every read of a page
+    /// allocates a buffer and hits the file - so ten thousand lookups are ten thousand physical
+    /// reads multiplied by the height of the tree. A B+Tree's answer to "which of these ten
+    /// thousand keys exist" is a merge against its own ordering: encode them, sort them into key
+    /// order, walk the index once. An API that took a set and looped inside itself would hide
+    /// that loop rather than remove it, which is why this is in the contract and not a
+    /// convenience on top of it.
+    ///
+    /// Where the set is small next to the collection, per-value seeks are still cheaper, and
+    /// which was used is in <see cref="ValueSetResult.Execution"/> rather than left to be guessed
+    /// at (SC-9a).
+    ///
+    /// This is what makes IN-9a affordable: classifying every row of an import before the
+    /// transaction opens means asking about every row, and one pass costs a sort where ten
+    /// thousand lookups cost a stall.
+    /// </summary>
+    /// <exception cref="UnknownCollectionException">There is no such collection.</exception>
+    /// <exception cref="UnknownColumnException">There is no such column.</exception>
+    ValueSetResult MatchValues(string collectionName, string columnName, IReadOnlyCollection<object?> values);
+
+    /// <summary>
+    /// How many records hold a value in that column that is not of the column's type (SC-6b).
+    ///
+    /// Zero for almost every column of almost every collection. It is not zero after a retype
+    /// that left values behind, and then it is the number a query on that column reports as not
+    /// considered (SC-6c) and the number the browser shows as needing attention.
+    /// </summary>
+    /// <exception cref="UnknownCollectionException">There is no such collection.</exception>
+    /// <exception cref="UnknownColumnException">There is no such column.</exception>
+    int CountNeedingAttention(string collectionName, string columnName);
+
+    // ---- The rest of the logical schema -------------------------------------------------------
+
+    /// <summary>
+    /// Replaces what the application remembers about a collection that is not part of its shape:
+    /// where the data came from, what the user calls it, which normalisation its fingerprints
+    /// were computed under. Rewrites no records.
+    /// </summary>
+    /// <exception cref="UnknownCollectionException">There is no such collection.</exception>
+    void SetMetadata(string collectionName, IReadOnlyDictionary<string, string?> metadata);
+
+    /// <summary>
+    /// Changes how a record of this collection reads as a line of text, or removes the rule.
+    ///
+    /// SC-11 calls this <c>Safe</c> under D-14, and this is why it can: the display value is
+    /// derived when it is shown and never stored, so changing the rule rewrites no records and
+    /// loses nothing. A rule naming a column the collection does not have is refused.
+    /// </summary>
+    /// <exception cref="UnknownCollectionException">There is no such collection.</exception>
+    /// <exception cref="InvalidDefinitionException">The rule names a column the collection has not got.</exception>
+    void SetDisplayRule(string collectionName, DisplayRule? displayRule);
+
+    /// <summary>
+    /// Makes a column one no two records may share, or stops it being one (IN-6b).
+    ///
+    /// Accepting a natural key is this, and it is a structural action under D-14 rather than a
+    /// note about the schema: a newly unique column can refuse writes the collection previously
+    /// allowed, which is the second of the four ways D-14 says "additive" was too coarse. Its
+    /// evidence is <see cref="InspectUnique"/>, and a collection that already holds a collision
+    /// is refused here rather than at the first write that trips over it.
+    /// </summary>
+    /// <exception cref="UnknownCollectionException">There is no such collection.</exception>
+    /// <exception cref="UnknownColumnException">There is no such column.</exception>
+    /// <exception cref="StorageValidationException">Records already hold the same value twice.</exception>
+    void SetUnique(string collectionName, string columnName, bool unique);
+
+    /// <summary>
+    /// What making a column unique would find: the values two records already share. D-14's
+    /// evidence, computed before the question is asked.
+    /// </summary>
+    /// <exception cref="UnknownCollectionException">There is no such collection.</exception>
+    /// <exception cref="UnknownColumnException">There is no such column.</exception>
+    UniquenessEffect InspectUnique(string collectionName, string columnName);
+
+    /// <summary>
+    /// What retyping a column would cost, without doing it (SC-6a).
+    ///
+    /// Widening is lossless and produces no question at all. Every other direction reports the
+    /// stored values that will not convert, with the records they are in, so that the card can
+    /// say "three of your forty-seven costs are not numbers, here they are".
+    /// </summary>
+    /// <exception cref="UnknownCollectionException">There is no such collection.</exception>
+    /// <exception cref="UnknownColumnException">There is no such column.</exception>
+    RetypeEffect InspectRetype(string collectionName, string columnName, ColumnType newType);
+
+    // ---- Conversations (SC-10) ----------------------------------------------------------------
+
+    /// <summary>
+    /// What was said, as opposed to what was stored. See <see cref="IConversationStore"/>, and
+    /// note that deleting a conversation does not delete the data its requests kept.
+    /// </summary>
+    IConversationStore Conversations { get; }
 }

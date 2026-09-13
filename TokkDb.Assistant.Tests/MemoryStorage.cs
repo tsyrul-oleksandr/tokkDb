@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using TokkDb.Assistant.Storage;
 
 namespace TokkDb.Assistant.Tests;
@@ -6,9 +7,10 @@ namespace TokkDb.Assistant.Tests;
 /// <see cref="IStorage"/> in dictionaries.
 ///
 /// It is not a stub. It obeys the contract, including the parts that are easy to skip - a
-/// refused write leaves nothing behind, a failed unit of work leaves nothing behind, and a value
-/// comes back as the type it went in as - because a fake that is easier to satisfy than the real
-/// thing makes the contract suite worth less than the time it takes to run.
+/// refused write leaves nothing behind, a failed unit of work leaves nothing behind, a value
+/// comes back as the type it went in as, and a value that will not convert is kept and flagged
+/// rather than quietly dropped - because a fake that is easier to satisfy than the real thing
+/// makes the contract suite worth less than the time it takes to run.
 ///
 /// The judgement is not reimplemented here. <c>SharedRules</c> in the contract assembly decides
 /// what fits and <c>RecordIdentity</c> issues identities, so the only things this file decides
@@ -20,15 +22,24 @@ namespace TokkDb.Assistant.Tests;
 /// to return insertion order would let a caller depend on it here and fail against the engine
 /// later. Shuffling turns that into a failure now, which is the only time it is cheap. The
 /// shuffle is seeded per instance, so a failure is reproducible.
+///
+/// <b>And it reports a scan, because it performs one.</b> SC-7a forbids the tempting alternative:
+/// a fake that returned a "deterministic equivalent" of an index seek would make the shared suite
+/// pass against a claim no code supports, and the suite exists to catch exactly that.
 /// </summary>
 public sealed class MemoryStorage : IStorage
 {
     private readonly Random _order = new(20260912);
+    private readonly MemoryConversations _conversations = new();
 
     private Dictionary<string, Thing> _things = new(StorageNames.Comparer);
+    private Dictionary<string, RelationDefinition> _relations = new(StorageNames.Comparer);
 
     private Dictionary<string, Thing>? _before;
+    private Dictionary<string, RelationDefinition>? _beforeRelations;
     private int _depth;
+
+    public IConversationStore Conversations => _conversations;
 
     public void InUnitOfWork(Action work)
     {
@@ -50,6 +61,7 @@ public sealed class MemoryStorage : IStorage
         if (_depth++ == 0)
         {
             _before = Copy(_things);
+            _beforeRelations = new Dictionary<string, RelationDefinition>(_relations, StorageNames.Comparer);
         }
 
         try
@@ -59,6 +71,7 @@ public sealed class MemoryStorage : IStorage
             if (--_depth == 0)
             {
                 _before = null;
+                _beforeRelations = null;
             }
 
             return result;
@@ -68,7 +81,9 @@ public sealed class MemoryStorage : IStorage
             if (--_depth == 0)
             {
                 _things = _before!;
+                _relations = _beforeRelations!;
                 _before = null;
+                _beforeRelations = null;
             }
 
             throw;
@@ -95,7 +110,39 @@ public sealed class MemoryStorage : IStorage
     public IReadOnlyCollection<CollectionDefinition> GetCollectionDefinitions() =>
         Shuffled(_things.Values.Select(static thing => thing.Definition));
 
-    public bool DeleteCollection(string collectionName) => _things.Remove(Name(collectionName));
+    public bool DeleteCollection(string collectionName)
+    {
+        var name = Name(collectionName);
+
+        if (!_things.Remove(name)) return false;
+
+        foreach (var relation in _relations.Values.ToList())
+        {
+            if (StorageNames.Same(relation.FromCollection, name) || StorageNames.Same(relation.ToCollection, name))
+            {
+                _relations.Remove(relation.Name);
+            }
+        }
+
+        return true;
+    }
+
+    public void SetMetadata(string collectionName, IReadOnlyDictionary<string, string?> metadata)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+
+        var thing = Require(collectionName);
+        Replace(thing, thing.Definition.WithMetadata(metadata));
+    }
+
+    public void SetDisplayRule(string collectionName, DisplayRule? displayRule)
+    {
+        var thing = Require(collectionName);
+        var after = thing.Definition.WithDisplayRule(displayRule);
+
+        SharedRules.CheckDefinitionFitsItself(after);
+        Replace(thing, after);
+    }
 
     public StorageRecord Create(string collectionName, IReadOnlyDictionary<string, object?> fields)
     {
@@ -103,6 +150,9 @@ public sealed class MemoryStorage : IStorage
 
         var thing = Require(collectionName);
         var judged = SharedRules.ForCreate(thing.Definition, fields, thing.HolderOf);
+
+        SharedRules.CheckReferences(thing.Definition, judged, From(thing.Definition.Name), Exists);
+
         var record = new StorageRecord(RecordIdentity.Next(), thing.Definition.Name, judged);
 
         thing.Records[record.Id] = record;
@@ -124,11 +174,55 @@ public sealed class MemoryStorage : IStorage
         }
 
         var judged = SharedRules.ForUpdate(thing.Definition, record, existing, thing.HolderOf);
-        thing.Records[record.Id] = new StorageRecord(record.Id, thing.Definition.Name, judged);
+
+        SharedRules.CheckReferences(thing.Definition, judged, From(thing.Definition.Name), Exists);
+
+        // A value that is still not of its column's type is still not of it after a write that
+        // handed it back unchanged (SC-6b), so the flag survives with it.
+        var attention = existing.NeedsAttention
+            .Where(column => judged.TryGetValue(column, out var value) && Equals(value, existing[column]))
+            .ToArray();
+
+        thing.Records[record.Id] = new StorageRecord(record.Id, thing.Definition.Name, judged, attention);
         return true;
     }
 
-    public bool Delete(string collectionName, Ulid id) => Require(collectionName).Records.Remove(id);
+    public DeletionResult Delete(string collectionName, Ulid id)
+    {
+        var thing = Require(collectionName);
+        var effect = InspectDelete(thing, id);
+
+        if (!effect.RecordExists) return DeletionResult.NotFound;
+
+        if (effect.Blocking.Count > 0)
+        {
+            throw new IntegrityRefusedException(
+                Refusing(thing, id)!, new RecordReference(thing.Definition.Name, id), effect.Blocking);
+        }
+
+        var removed = new List<RecordReference>();
+        var cleared = new List<RecordReference>();
+
+        InUnitOfWork(() =>
+        {
+            foreach (var reference in effect.WouldAlsoBeRemoved)
+            {
+                if (Require(reference.CollectionName).Records.Remove(reference.Id)) removed.Add(reference);
+            }
+
+            foreach (var reference in effect.WouldBeCleared)
+            {
+                if (Clear(reference, thing.Definition.Name)) cleared.Add(reference);
+            }
+
+            thing.Records.Remove(id);
+        });
+
+        return new DeletionResult(true, removed, cleared);
+    }
+
+    public DeletionEffect InspectDelete(string collectionName, Ulid id) =>
+        InspectDelete(Require(collectionName), id);
 
     public IReadOnlyCollection<StorageRecord> GetAll(string collectionName) =>
         Shuffled(Require(collectionName).Records.Values);
@@ -138,18 +232,26 @@ public sealed class MemoryStorage : IStorage
     /// a dictionary of records answers every condition by looking at every record, so a query
     /// says so - except a lookup by identity, which really is one, because the records are held
     /// by identity.
-    ///
-    /// Reporting a scan as a scan is the point. A fake that claimed a seek would let a caller
-    /// believe a question is cheap here and discover against the engine that it is not.
     /// </summary>
     public StorageQueryResult ExecuteQuery(StorageQuery query)
     {
         ArgumentNullException.ThrowIfNull(query);
 
         var thing = Require(query.CollectionName);
-        var validated = QueryValidation.Against(thing.Definition, query);
 
-        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (!QueryTraversals.TryResolve(query, Relation, ExecuteQuery, out var resolved))
+        {
+            return new StorageQueryResult(
+                thing.Definition.Name,
+                [],
+                Info(QueryAccess.Scan, thing, null, "nothing on the other side of the relation matched", 0, 0, 0,
+                    TimeSpan.Zero),
+                QueryMatching.Aggregate([], QueryValidation.Against(thing.Definition, query.Resolved([])).Aggregates));
+        }
+
+        var validated = QueryValidation.Against(thing.Definition, resolved);
+
+        var started = Stopwatch.GetTimestamp();
 
         var byIdentity = query.Ids.Count > 0;
         var candidates = byIdentity
@@ -158,34 +260,104 @@ public sealed class MemoryStorage : IStorage
 
         var matched = candidates
             .Where(record => validated.Where.All(condition => QueryMatching.Matches(record, condition)))
-            .ToArray();
+            .ToList();
+
+        if (resolved.After is { } cursor && validated.OrderBy.Count > 0)
+        {
+            matched = [.. matched.Where(record => QueryMatching.After(record, validated.OrderBy, cursor))];
+        }
+
+        var aggregates = QueryMatching.Aggregate(matched, validated.Aggregates);
 
         var page = QueryMatching.Ordered(matched, validated.OrderBy).Skip(query.Skip);
-        if (query.Take is { } take) page = page.Take(take);
+        if (query.Take is { } take) page = page.Take(take + 1);
 
         var records = page.ToList();
 
-        var path = byIdentity
-            ? new QueryAccessPath(
-                QueryAccessPathKind.IdentityLookup,
-                thing.Definition.Name,
-                null,
-                $"lookup of {query.Ids.Count} records by identity in {thing.Definition.Name}")
-            : new QueryAccessPath(
-                QueryAccessPathKind.FullScan,
-                thing.Definition.Name,
-                null,
-                $"full scan of {thing.Definition.Name} (nothing here is indexed)");
+        var more = query.Take is { } wanted && records.Count > wanted;
+        if (more) records.RemoveAt(records.Count - 1);
+
+        var next = more && validated.OrderBy.Count > 0
+            ? QueryMatching.CursorFor(records[^1], validated.OrderBy)
+            : null;
+
+        var projected = validated.Select.Count == 0
+            ? records
+            : [.. records.Select(record => QueryMatching.Project(record, validated.Select))];
 
         return new StorageQueryResult(
             thing.Definition.Name,
-            records,
-            path,
-            new QueryCost(
+            projected,
+            Info(
+                byIdentity ? QueryAccess.IdentityLookup : QueryAccess.Scan,
+                thing,
+                null,
+                byIdentity
+                    ? $"lookup of {query.Ids.Count} records by identity in {thing.Definition.Name}"
+                    : $"full scan of {thing.Definition.Name} (nothing here is indexed)",
                 candidates.Length,
-                records.Count,
-                PagesRead: 0,
-                System.Diagnostics.Stopwatch.GetElapsedTime(started)));
+                projected.Count,
+                Excluded(thing, validated),
+                Stopwatch.GetElapsedTime(started)),
+            aggregates,
+            next);
+    }
+
+    /// <summary>
+    /// SC-9, answered the only way a dictionary can: by looking at every record once. The shape
+    /// of the call is what the contract is about - a set in, a set out - and the execution info
+    /// says a scan happened, because one did (SC-7a).
+    /// </summary>
+    public ValueSetResult MatchValues(string collectionName, string columnName, IReadOnlyCollection<object?> values)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+
+        var thing = Require(collectionName);
+        var column = thing.Definition.Column(columnName)
+            ?? throw new UnknownColumnException(
+                thing.Definition.Name, StorageNames.Normalise(columnName, "column name"));
+
+        var started = Stopwatch.GetTimestamp();
+
+        var wanted = new Dictionary<object, object>();
+        foreach (var value in values)
+        {
+            if (value is null) continue;
+            if (!ColumnTypes.TryCanonicalise(column.Type, value, out var canonical) || canonical is null) continue;
+
+            wanted.TryAdd(TextComparison.AsCompared(column.Type, canonical)!, canonical);
+        }
+
+        var found = new List<ValueMatch>();
+
+        foreach (var record in thing.Records.Values)
+        {
+            if (record[column.Name] is not { } held) continue;
+
+            var key = TextComparison.AsCompared(column.Type, held)!;
+
+            if (wanted.Remove(key, out var asked)) found.Add(new ValueMatch(asked, record.Id));
+        }
+
+        return new ValueSetResult(found, Info(
+            QueryAccess.Scan,
+            thing,
+            column.Name,
+            $"one pass over {thing.Definition.Name}, which has no index on anything",
+            thing.Records.Count,
+            found.Count,
+            0,
+            Stopwatch.GetElapsedTime(started)));
+    }
+
+    public int CountNeedingAttention(string collectionName, string columnName)
+    {
+        var thing = Require(collectionName);
+        var column = thing.Definition.Column(columnName)
+            ?? throw new UnknownColumnException(
+                thing.Definition.Name, StorageNames.Normalise(columnName, "column name"));
+
+        return thing.Records.Values.Count(record => record.NeedsAttention.Contains(column.Name));
     }
 
     // ---- Structural change (SC-6) ----------------------------------------------------------
@@ -216,14 +388,20 @@ public sealed class MemoryStorage : IStorage
         var from = StorageNames.Normalise(columnName, "column name");
         var to = StorageNames.Normalise(newName, "column name");
 
-        Rewrite(thing, after, fields =>
+        Rewrite(thing, after, (fields, attention) =>
         {
             // Only a column the record actually had moves. One it never had stays not there,
             // rather than appearing under the new name holding nothing.
             if (fields.Remove(from, out var value)) fields[to] = value;
+            if (attention.Remove(from)) attention.Add(to);
         });
     }
 
+    /// <summary>
+    /// SC-6b in the simplest possible storage: a value that will not convert stays exactly where
+    /// it is and the column it is in is named as needing attention. Nothing is dropped, nothing
+    /// is refused, and the record reads normally in every other column.
+    /// </summary>
     public void RetypeColumn(string collectionName, string columnName, ColumnType newType)
     {
         var thing = Require(collectionName);
@@ -234,11 +412,24 @@ public sealed class MemoryStorage : IStorage
         var name = StorageNames.Normalise(columnName, "column name");
         var was = before.Column(name)!.Type;
 
-        Rewrite(thing, after, fields =>
+        Rewrite(thing, after, (fields, attention) =>
         {
-            if (fields.TryGetValue(name, out var value))
+            if (!fields.TryGetValue(name, out var value)) return;
+
+            // A value already waiting to be made sense of is converted from what it actually is,
+            // not from what the column used to say: a second retype does not make it worse.
+            var from = attention.Contains(name) && ColumnTypes.TryRecordedType(value, out var recorded)
+                ? recorded
+                : was;
+
+            if (ColumnConversion.TryRetype(from, newType, value, out var converted))
             {
-                fields[name] = ColumnConversion.Retype(was, newType, value);
+                fields[name] = converted;
+                attention.Remove(name);
+            }
+            else
+            {
+                attention.Add(name);
             }
         });
     }
@@ -249,31 +440,330 @@ public sealed class MemoryStorage : IStorage
         var after = StructuralChange.Remove(thing.Definition, columnName);
         var name = StorageNames.Normalise(columnName, "column name");
 
-        Rewrite(thing, after, fields => fields.Remove(name));
+        Rewrite(thing, after, (fields, attention) =>
+        {
+            fields.Remove(name);
+            attention.Remove(name);
+        });
     }
 
     /// <summary>
-    /// Nothing to converge: every change was applied when it was made. Zero is the honest
-    /// answer, and it is the same answer the engine gives once it has caught up.
+    /// Nothing to converge: every change was applied when it was made. What it still has to do is
+    /// report what it could not convert, which is the same set the engine reports once it has
+    /// caught up - and reporting it twice is the same answer twice, which is what idempotent
+    /// means here.
     /// </summary>
-    public int Converge(string collectionName)
+    public ConvergeReport Converge(string collectionName)
     {
-        Require(collectionName);
-        return 0;
+        var thing = Require(collectionName);
+
+        var stubborn = new List<UnconvertibleValue>();
+
+        foreach (var record in thing.Records.Values)
+        {
+            foreach (var column in record.NeedsAttention)
+            {
+                var value = record[column];
+
+                stubborn.Add(new UnconvertibleValue(
+                    record.Id,
+                    column,
+                    value,
+                    ColumnTypes.TryRecordedType(value, out var recorded) ? recorded : ColumnType.Text));
+            }
+        }
+
+        return new ConvergeReport(thing.Definition.Name, 0, stubborn);
     }
+
+    public RetypeEffect InspectRetype(string collectionName, string columnName, ColumnType newType)
+    {
+        var thing = Require(collectionName);
+        var column = thing.Definition.Column(columnName)
+            ?? throw new UnknownColumnException(
+                thing.Definition.Name, StorageNames.Normalise(columnName, "column name"));
+
+        var inspected = 0;
+        var refusing = new List<UnconvertibleValue>();
+
+        foreach (var record in thing.Records.Values)
+        {
+            if (record[column.Name] is not { } value) continue;
+
+            inspected++;
+
+            var from = record.NeedsAttention.Contains(column.Name)
+                       && ColumnTypes.TryRecordedType(value, out var recorded)
+                ? recorded
+                : column.Type;
+
+            if (!ColumnConversion.TryRetype(from, newType, value, out _))
+            {
+                refusing.Add(new UnconvertibleValue(record.Id, column.Name, value, from));
+            }
+        }
+
+        return new RetypeEffect(
+            thing.Definition.Name,
+            column.Name,
+            column.Type,
+            newType,
+            ColumnConversion.IsLossless(column.Type, newType),
+            inspected,
+            refusing);
+    }
+
+    public UniquenessEffect InspectUnique(string collectionName, string columnName)
+    {
+        var thing = Require(collectionName);
+        var column = thing.Definition.Column(columnName)
+            ?? throw new UnknownColumnException(
+                thing.Definition.Name, StorageNames.Normalise(columnName, "column name"));
+
+        var byValue = new Dictionary<object, List<RecordReference>>();
+        var inspected = 0;
+
+        foreach (var record in thing.Records.Values)
+        {
+            if (record[column.Name] is not { } value) continue;
+
+            inspected++;
+
+            var key = TextComparison.AsCompared(column.Type, value)!;
+
+            if (!byValue.TryGetValue(key, out var holders))
+            {
+                holders = [];
+                byValue[key] = holders;
+            }
+
+            holders.Add(new RecordReference(thing.Definition.Name, record.Id));
+        }
+
+        return new UniquenessEffect(
+            thing.Definition.Name,
+            column.Name,
+            inspected,
+            [.. byValue.Values.Where(static holders => holders.Count > 1)]);
+    }
+
+    public void SetUnique(string collectionName, string columnName, bool unique)
+    {
+        var thing = Require(collectionName);
+        var column = thing.Definition.Column(columnName)
+            ?? throw new UnknownColumnException(
+                thing.Definition.Name, StorageNames.Normalise(columnName, "column name"));
+
+        if (column.Unique == unique) return;
+
+        if (unique)
+        {
+            var effect = InspectUnique(thing.Definition.Name, column.Name);
+
+            if (!effect.IsPossible)
+            {
+                throw new StorageValidationException(
+                    [.. effect.Collisions.Select(holders => new DuplicateValue(
+                        thing.Definition.Name, column.Name, null, holders[0].Id))]);
+            }
+        }
+
+        Replace(thing, thing.Definition.WithColumns(
+            [.. thing.Definition.Columns.Select(candidate => StorageNames.Same(candidate.Name, column.Name)
+                ? new ColumnDefinition(
+                    column.Name, column.Type, column.Purpose, column.Required, unique, column.ReadOnly,
+                    column.DefaultValue)
+                : candidate)]));
+    }
+
+    // ---- Relations (SC-8) --------------------------------------------------------------------
+
+    public void AddRelation(RelationDefinition relation)
+    {
+        ArgumentNullException.ThrowIfNull(relation);
+
+        var from = Require(relation.FromCollection).Definition;
+        var to = Require(relation.ToCollection).Definition;
+
+        var source = from.Column(relation.FromColumn)
+            ?? throw new UnknownColumnException(from.Name, relation.FromColumn);
+        var target = to.Column(relation.ToColumn)
+            ?? throw new UnknownColumnException(to.Name, relation.ToColumn);
+
+        if (!target.Unique)
+        {
+            throw new InvalidDefinitionException(
+                "relation",
+                $"'{relation.Name}' refers to '{to.Name}.{target.Name}', which two records can both hold - " +
+                "so a reference to it would refer to nothing in particular.");
+        }
+
+        if (source.Type != target.Type)
+        {
+            throw new InvalidDefinitionException(
+                "relation",
+                $"'{relation.Name}' refers from a {source.Type} to a {target.Type}, and one cannot hold " +
+                "the other.");
+        }
+
+        if (relation.Integrity is RelationIntegrity.SetEmpty && source.Required)
+        {
+            throw new InvalidDefinitionException(
+                "relation",
+                $"'{relation.Name}' says to empty '{source.Name}' when what it refers to goes, and " +
+                $"'{source.Name}' has to have a value.");
+        }
+
+        if (!_relations.TryAdd(relation.Name, relation))
+        {
+            throw new RelationAlreadyExistsException(relation.Name);
+        }
+    }
+
+    public bool RemoveRelation(string relationName) =>
+        _relations.Remove(StorageNames.Normalise(relationName, "relation name"));
+
+    public IReadOnlyCollection<RelationDefinition> GetRelations() => Shuffled(_relations.Values);
+
+    // ---- The seams ---------------------------------------------------------------------------
+
+    private DeletionEffect InspectDelete(Thing thing, Ulid id)
+    {
+        if (!thing.Records.TryGetValue(id, out var record)) return DeletionEffect.Nothing(false);
+
+        var blocking = new List<RecordReference>();
+        var removed = new List<RecordReference>();
+        var cleared = new List<RecordReference>();
+
+        foreach (var relation in Pointing(thing.Definition.Name))
+        {
+            if (record[relation.ToColumn] is not { } value) continue;
+
+            var referring = Referring(relation, value);
+            if (referring.Count == 0) continue;
+
+            switch (relation.Integrity)
+            {
+                case RelationIntegrity.Cascade:
+                    removed.AddRange(referring);
+                    break;
+
+                case RelationIntegrity.SetEmpty:
+                    cleared.AddRange(referring);
+                    break;
+
+                default:
+                    blocking.AddRange(referring);
+                    break;
+            }
+        }
+
+        return new DeletionEffect(true, blocking, removed, cleared);
+    }
+
+    private RelationDefinition? Refusing(Thing thing, Ulid id)
+    {
+        var record = thing.Records.GetValueOrDefault(id);
+
+        foreach (var relation in Pointing(thing.Definition.Name))
+        {
+            if (relation.Integrity is RelationIntegrity.Cascade or RelationIntegrity.SetEmpty) continue;
+            if (record?[relation.ToColumn] is not { } value) continue;
+            if (Referring(relation, value).Count > 0) return relation;
+        }
+
+        return null;
+    }
+
+    private List<RecordReference> Referring(RelationDefinition relation, object value)
+    {
+        var source = Require(relation.FromCollection);
+        var column = source.Definition.Column(relation.FromColumn)!;
+        var wanted = TextComparison.AsCompared(column.Type, value);
+
+        return
+        [
+            .. source.Records.Values
+                .Where(record => Equals(TextComparison.AsCompared(column.Type, record[column.Name]), wanted))
+                .Select(record => new RecordReference(source.Definition.Name, record.Id))
+        ];
+    }
+
+    private bool Clear(RecordReference reference, string targetCollection)
+    {
+        var relation = _relations.Values.FirstOrDefault(candidate =>
+            StorageNames.Same(candidate.FromCollection, reference.CollectionName)
+            && StorageNames.Same(candidate.ToCollection, targetCollection)
+            && candidate.Integrity is RelationIntegrity.SetEmpty);
+
+        if (relation is null) return false;
+
+        var record = Require(reference.CollectionName).Records.GetValueOrDefault(reference.Id);
+
+        return record is not null && Update(record.With(relation.FromColumn, null));
+    }
+
+    private IEnumerable<RelationDefinition> From(string collectionName) =>
+        _relations.Values.Where(relation => StorageNames.Same(relation.FromCollection, collectionName));
+
+    /// <summary>Whether anything in the collection referred to holds this value. A scan, honestly.</summary>
+    private bool Exists(RelationDefinition relation, object value)
+    {
+        var target = Require(relation.ToCollection);
+        var column = target.Definition.Column(relation.ToColumn);
+        if (column is null) return false;
+
+        var wanted = TextComparison.AsCompared(column.Type, value);
+
+        return target.Records.Values.Any(record =>
+            Equals(TextComparison.AsCompared(column.Type, record[column.Name]), wanted));
+    }
+
+    private IEnumerable<RelationDefinition> Pointing(string collectionName) =>
+        _relations.Values.Where(relation => StorageNames.Same(relation.ToCollection, collectionName));
+
+    private RelationDefinition? Relation(string relationName) =>
+        _relations.GetValueOrDefault(StorageNames.Normalise(relationName, "relation name"));
+
+    private static int Excluded(Thing thing, ValidatedQuery validated)
+    {
+        var asked = validated.Where.Select(static condition => condition.Column.Name)
+            .Concat(validated.OrderBy.Select(static entry => entry.Column.Name))
+            .Distinct(StorageNames.Comparer)
+            .ToHashSet(StorageNames.Comparer);
+
+        return thing.Records.Values.Count(record => record.NeedsAttention.Any(asked.Contains));
+    }
+
+    private static QueryExecutionInfo Info(
+        QueryAccess access,
+        Thing thing,
+        string? columnName,
+        string description,
+        int examined,
+        int returned,
+        int excluded,
+        TimeSpan elapsed) =>
+        new(access, thing.Definition.Name, columnName, description, examined, returned, excluded, 0, elapsed);
 
     private void Replace(Thing thing, CollectionDefinition definition) =>
         _things[definition.Name] = thing with { Definition = definition };
 
-    private void Rewrite(Thing thing, CollectionDefinition definition, Action<Dictionary<string, object?>> change)
+    private void Rewrite(
+        Thing thing,
+        CollectionDefinition definition,
+        Action<Dictionary<string, object?>, HashSet<string>> change)
     {
         var records = new Dictionary<Ulid, StorageRecord>();
 
         foreach (var (id, record) in thing.Records)
         {
             var fields = new Dictionary<string, object?>(record.Fields, StorageNames.Comparer);
-            change(fields);
-            records[id] = new StorageRecord(id, definition.Name, fields);
+            var attention = new HashSet<string>(record.NeedsAttention, StorageNames.Comparer);
+
+            change(fields, attention);
+
+            records[id] = new StorageRecord(id, definition.Name, fields, attention);
         }
 
         _things[definition.Name] = new Thing(definition, records);
