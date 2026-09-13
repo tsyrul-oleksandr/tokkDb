@@ -29,6 +29,7 @@ public class TokkDbConnection : IDisposable {
   private readonly QueryService _queries;
   private readonly CollectionSettingsCatalog _settings;
   private readonly SystemDocumentStore _systemDocuments;
+  private readonly CatalogLock _catalogLock = new();
 
   public TokkDbConnection(string filePath, TokkDbAccessMode accessMode = TokkDbAccessMode.ReadWrite,
       ILogger logger = null)
@@ -54,7 +55,8 @@ public class TokkDbConnection : IDisposable {
     _systemDocuments.SetDataPageManager(_dataPageManager);
     _settings = new CollectionSettingsCatalog(_transactionManager, _systemDocuments);
     _dataPageManager.SetCatalogs(_indexCatalog, _relationCatalog);
-    _queries = new QueryService(_dataPageManager, _indexCatalog, _pageManager);
+    _queries = new QueryService(_dataPageManager, _catalog, _indexCatalog, _relationCatalog, _pageManager,
+      _catalogLock);
   }
 
   //DC-5 and UI-4: the planner, and the report every query it runs publishes. A host that
@@ -74,7 +76,7 @@ public class TokkDbConnection : IDisposable {
   }
 
   public void Load() {
-    InTransaction(Initialize);
+    ChangeSchema(Initialize);
   }
   
   //The catalogue as it was read at open. Every collection in the database is here,
@@ -90,7 +92,7 @@ public class TokkDbConnection : IDisposable {
   public CollectionDescriptor CreateCollection(string name, IEnumerable<ColumnDescriptor> columns = null,
       string description = "") {
     CollectionDescriptor descriptor = null;
-    InTransaction(() => {
+    ChangeSchema(() => {
       descriptor = _catalog.CreateCollection(name, columns, description);
       CreateUniqueIndexes(descriptor);
     });
@@ -121,7 +123,7 @@ public class TokkDbConnection : IDisposable {
   //An index over one column. Building it reads the collection once; after that nothing does.
   public IndexDescriptor CreateIndex(string collectionName, string columnName, bool unique = false) {
     IndexDescriptor descriptor = null;
-    InTransaction(() => descriptor = _indexCatalog.Create(collectionName, columnName, unique).Descriptor);
+    ChangeSchema(() => descriptor = _indexCatalog.Create(collectionName, columnName, unique).Descriptor);
     return descriptor;
   }
 
@@ -130,7 +132,7 @@ public class TokkDbConnection : IDisposable {
   public RelationDescriptor CreateRelation(string name, string sourceCollection, string sourceColumn,
       string targetCollection, string targetColumn, string cardinality = "", string description = "") {
     RelationDescriptor descriptor = null;
-    InTransaction(() => descriptor = _relationCatalog.Create(name, sourceCollection, sourceColumn,
+    ChangeSchema(() => descriptor = _relationCatalog.Create(name, sourceCollection, sourceColumn,
       targetCollection, targetColumn, cardinality, description));
     return descriptor;
   }
@@ -145,7 +147,7 @@ public class TokkDbConnection : IDisposable {
   //layer up says so through this, so that nothing in the catalogue is readable only in code
   //(DC-7).
   public void DescribeSystemCollection(string collectionName, IEnumerable<ColumnDescriptor> columns) {
-    InTransaction(() => _catalog.DescribeSystemCollection(collectionName, columns));
+    ChangeSchema(() => _catalog.DescribeSystemCollection(collectionName, columns));
   }
 
   //D-4: the display rule and the per-collection settings, as their own documents. The engine
@@ -182,7 +184,7 @@ public class TokkDbConnection : IDisposable {
   public CollectionDescriptor SetColumns(string collectionName, IEnumerable<ColumnDescriptor> columns,
       IEnumerable<ColumnMigration> migrations = null) {
     CollectionDescriptor descriptor = null;
-    InTransaction(() => {
+    ChangeSchema(() => {
       var wanted = columns?.ToList() ?? [];
       var steps = migrations?.ToList() ?? [];
       //Which columns the change touches, under the names the indexes currently use.
@@ -259,8 +261,9 @@ public class TokkDbConnection : IDisposable {
         }
       });
     }
-    //Last, and only now: the log is what made every record before this readable.
-    InTransaction(() => _catalog.ClearMigrations(collectionName));
+    //Last, and only now: the log is what made every record before this readable. A schema change,
+    //because a query reading an old record reads it through this log.
+    ChangeSchema(() => _catalog.ClearMigrations(collectionName));
     return rewritten;
   }
 
@@ -286,7 +289,7 @@ public class TokkDbConnection : IDisposable {
   //its relations, its display rule and its settings, in one transaction (DC-8).
   public bool DropCollection(string collectionName) {
     var dropped = false;
-    InTransaction(() => {
+    ChangeSchema(() => {
       if (!_catalog.Exists(collectionName)) {
         return;
       }
@@ -307,13 +310,13 @@ public class TokkDbConnection : IDisposable {
 
   public bool DropIndex(string collectionName, string columnName) {
     var dropped = false;
-    InTransaction(() => dropped = _indexCatalog.Drop(collectionName, columnName));
+    ChangeSchema(() => dropped = _indexCatalog.Drop(collectionName, columnName));
     return dropped;
   }
 
   public bool RemoveRelation(string name) {
     var removed = false;
-    InTransaction(() => removed = _relationCatalog.Remove(name));
+    ChangeSchema(() => removed = _relationCatalog.Remove(name));
     return removed;
   }
 
@@ -348,7 +351,10 @@ public class TokkDbConnection : IDisposable {
     }
   }
 
+  //The reload rebuilds every catalogue in memory, which is a schema change to anything planning
+  //against them.
   private void ReloadCatalogues() {
+    using var change = _catalogLock.Change();
     var transaction = _transactionManager.CreateTransaction();
     try {
       Initialize();
@@ -360,7 +366,7 @@ public class TokkDbConnection : IDisposable {
   }
 
   public void CreateDatabase(Action<TokkDbConfiguration> configure) {
-    InTransaction(() => {
+    ChangeSchema(() => {
       Initialize();
       var config = new TokkDbConfiguration();
       configure(config);
@@ -371,8 +377,19 @@ public class TokkDbConnection : IDisposable {
     });
   }
 
+  //QM-2b: a change to what a plan depends on — collections, their columns, indexes, relations.
+  //It waits for every query holding a lease on the catalogue, no query starts while it runs, and
+  //it moves the catalogue version, so a plan made before it is refused afterwards (QM-2a).
+  //
+  //The lease is taken before the transaction is, so a change that is waiting has touched nothing.
+  private void ChangeSchema(Action action) {
+    using var change = _catalogLock.Change();
+    InTransaction(action);
+  }
+
   public void Dispose() {
     _diskManager.Dispose();
+    _catalogLock.Dispose();
   }
 
   //DC-4: a column declared unique is enforced by a unique index, and there is nowhere else
