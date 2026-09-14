@@ -132,11 +132,16 @@ public abstract class BaseItemsPage : BasePage {
   //the slots before it, which is only right while every item lies in slot order. One reused
   //slot breaks that, and the reconstruction then points at a live record, which the next write
   //overwrites. Space is reclaimed by compaction, which is what ST-4 is for.
+  //
+  //V-17: the bytes are cleared as the slot is freed, whatever the retention policy. A freed
+  //slot's bytes are unreachable through the directory and would otherwise lie in the page
+  //until a compaction or a reuse happened to overwrite them.
   public virtual void FreeItem(ushort index) {
     var address = GetItemSlotAddressValue(index);
     if (address.Position == FreeSlotPosition) {
       return;
     }
+    Buffer.Clear(address.Position, address.Length);
     SetItemSlotAddressValue(index, FreeSlotPosition, 0);
     FreeListBytes += address.Length;
   }
@@ -176,6 +181,9 @@ public abstract class BaseItemsPage : BasePage {
     NextFreePosition = position;
     FreeListBytes = 0;
     FreeBytes = (ushort)(PageSize - ControlAreaByteSize - ItemsCount * SlotSize - position);
+    //V-17: the run the compaction vacated — every byte between the last live record and the
+    //slot directory — is cleared, because sliding records down leaves their old copies above.
+    Buffer.Clear(position, PageSize - ControlAreaByteSize - ItemsCount * SlotSize - position);
   }
 
   public virtual IEnumerable<BufferSlice> GetItems() {

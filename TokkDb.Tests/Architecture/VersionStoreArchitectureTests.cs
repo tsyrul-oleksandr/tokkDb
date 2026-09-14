@@ -18,7 +18,9 @@ public class VersionStoreArchitectureTests {
     nameof(HistoryVerification), nameof(HistoryCollections), nameof(VersionAttribution),
     nameof(VersionNotFoundException), nameof(VersionHistory), nameof(VersionEntry), nameof(Unmapped),
     nameof(UnmappedReason), "VersionedValue`1", nameof(StoredVersion), nameof(AsOfOutcome), "AsOfResult`1",
-    nameof(SchemaSnapshot), nameof(LogicalTime), nameof(SchemaMapping), nameof(VersionDiff)
+    nameof(SchemaSnapshot), nameof(LogicalTime), nameof(SchemaMapping), nameof(VersionDiff),
+    nameof(RestoreResult), nameof(RestoreRefusedException), nameof(RestoreRefusal), nameof(HistoryReport),
+    nameof(RelatedRestoreResult), nameof(RestoredRecord), nameof(RelatedRestoreRefusedException), nameof(RelatedRestoreRefusal)
   ];
 
   //The callers §3 allows: the write seam in DbEntities, and the schema changes, which live in

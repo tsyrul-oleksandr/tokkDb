@@ -57,8 +57,13 @@ public class PageManager {
   }
   
   //The commit protocol of TX-2, in the order that makes it recoverable: the journal first
-  //and on the device, then the database file, then the commit record.
-  public virtual void CommitPages(ulong transactionId, BasePage[] pages) {
+  //and on the device, then the database file, then the commit record. A transaction marked
+  //for it (V-17) then discards its frame at once: the commit record is durable, so the frame
+  //has nothing left to say to recovery, and its before images are the bytes the transaction
+  //released. Every other commit leaves its frame until the next transaction begins, as before;
+  //a process killed between the commit record and the discard leaves it for the next open to
+  //remove, which is what recovery does with any committed frame.
+  public virtual void CommitPages(ulong transactionId, BasePage[] pages, bool discardFrame = false) {
     if (pages.Length == 0) {
       return;
     }
@@ -68,6 +73,9 @@ public class PageManager {
     WriteJournal(transactionId, pages);
     WritePages(pages);
     MarkJournalCommitted(transactionId);
+    if (discardFrame) {
+      _diskManager.DiscardJournalFrame();
+    }
   }
 
   protected virtual void WriteJournal(ulong transactionId, BasePage[] pages) {

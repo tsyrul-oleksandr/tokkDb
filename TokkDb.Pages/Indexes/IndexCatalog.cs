@@ -74,7 +74,7 @@ public class IndexCatalog {
     }
     if (collection.IsSystem) {
       throw new ArgumentException(
-        $"Collection '{collectionName}' belongs to the catalogue and is not indexed in this pass.",
+        $"Collection '{collectionName}' is reserved and reserved collections are not indexed (F-6).",
         nameof(collectionName));
     }
     //Refused here rather than at the first write: an object and an array have no ordering, so
@@ -103,15 +103,14 @@ public class IndexCatalog {
   //
   //The pages are recorded as retired rather than freed outright because that is the pool the
   //trees of this collection take from — the same recycling a merge uses when it empties a
-  //node, so a dropped index makes room for the next one instead of growing the file.
+  //node, so a dropped index makes room for the next one instead of growing the file. Each is
+  //cleared before it is recorded (V-17): the keys of an index are values.
   public bool Drop(string collectionName, string columnName) {
     _transactionManager.RequireTransaction();
     if (Find(collectionName, columnName) is not { } index) {
       return false;
     }
-    foreach (var node in index.Tree.Nodes()) {
-      _freeSpace.RecordIndexPage(collectionName, node.Index, inUse: false);
-    }
+    index.Tree.ReleasePages();
     _catalog.RemoveSecondaryIndexRoot(collectionName, index.Descriptor.Name);
     if (_dataPageManager.FindLiveRow(SystemCollections.Indexes, index.Descriptor.Id) is { } row) {
       _dataPageManager.RetireRow(SystemCollections.Indexes, row.Address, RecordFlags.Deleted);

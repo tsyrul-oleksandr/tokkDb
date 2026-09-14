@@ -19,6 +19,13 @@ public class TransactionManager {
   //attribution scope here; null means no scope, which stamps the empty attribution.
   public Func<VersionAttribution> AttributionSource { get; set; }
 
+  //What brings the in-memory catalogues back in step with the file after an outermost
+  //transaction is rolled back — record counts, page allocations and free space move in memory
+  //as a transaction runs, and a rollback restores only the file. The connection wires its
+  //catalogue reload here; a caller that rolls back deliberately and goes on working, as the
+  //purge does for a record it cannot rebuild (RP-1), invokes it.
+  public Action AfterOutermostRollback { get; set; }
+
   public TransactionManager(PageManager pageManager) {
     _pageManager = pageManager;
   }

@@ -186,6 +186,30 @@ public sealed class ReconstructionReport {
   }
 }
 
+//RP-7 and VR-10. What a history holds, counted by one scan: the nodes and how many are
+//keyframes, the operations, the bytes of deltas and of images as stored, the pages the history
+//collection and its version index occupy, and the oldest schema version any node still
+//refers to — the one Rewrite cannot let the schema history forget.
+public sealed class HistoryReport {
+  public string CollectionName { get; init; }
+  public int Records { get; init; }
+  public int Nodes { get; init; }
+  public int Keyframes { get; init; }
+  public int Operations { get; init; }
+  public long DeltaBytes { get; init; }
+  public long ImageBytes { get; init; }
+  public int DataPages { get; init; }
+  public int IndexPages { get; init; }
+  public int Pages => DataPages + IndexPages;
+  public ushort? OldestSchemaVersion { get; init; }
+
+  public override string ToString() {
+    return $"{CollectionName}: {Records} records, {Nodes} nodes ({Keyframes} keyframes), {Operations} operations, " +
+      $"{DeltaBytes} delta bytes, {ImageBytes} image bytes, {Pages} pages ({DataPages} data, {IndexPages} index), " +
+      $"oldest schema version {(OldestSchemaVersion is { } oldest ? oldest.ToString() : "none")}";
+  }
+}
+
 //WV-10 and RP-8. What Verify found: every place the history breaks an invariant, each named
 //by the node or record it concerns, and what was looked at. Sound when nothing is listed.
 public sealed class HistoryVerification {
@@ -194,6 +218,11 @@ public sealed class HistoryVerification {
   public int Nodes { get; init; }
   public int IndexEntries { get; init; }
   public bool IsSound => Problems.Count == 0;
+
+  //RP-8: the node the first problem is at, when the problem is a node's.
+  public Ulid? FailingRecord { get; init; }
+  public Ulid? FailingVersion { get; init; }
+  public string FirstProblem => Problems.Count == 0 ? null : Problems[0];
 
   public override string ToString() {
     return IsSound

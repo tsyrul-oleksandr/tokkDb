@@ -64,7 +64,8 @@ public class MutableRecordTests {
     using var file = new TempDatabaseFile();
     using var db = NewDatabase(file);
     //Step 3.1 of the versioning plan: what this asserts is what only RetentionPolicy.None gives.
-    db.SetRetentionPolicy("Person", RetentionPolicy.None);
+    //A new collection keeps versions by default (I-4), so its empty history is dropped with it.
+    db.SetRetentionPolicy("Person", RetentionPolicy.None, dropHistory: true);
     var entities = db.Entities<Person>();
     entities.Insert(TestPeople.Ivan());
     var record = Assert.Single(entities.GetAllRecords());
@@ -88,7 +89,8 @@ public class MutableRecordTests {
     using var file = new TempDatabaseFile();
     using var db = NewDatabase(file);
     //Step 3.1 of the versioning plan: what this asserts is what only RetentionPolicy.None gives.
-    db.SetRetentionPolicy("Person", RetentionPolicy.None);
+    //A new collection keeps versions by default (I-4), so its empty history is dropped with it.
+    db.SetRetentionPolicy("Person", RetentionPolicy.None, dropHistory: true);
     var entities = db.Entities<Person>();
     for (var i = 0; i < 5; i++) {
       entities.Insert(TestPeople.Numbered(i));
@@ -110,7 +112,8 @@ public class MutableRecordTests {
     using var file = new TempDatabaseFile();
     using var db = NewDatabase(file);
     //Step 3.1 of the versioning plan: what this asserts is what only RetentionPolicy.None gives.
-    db.SetRetentionPolicy("Person", RetentionPolicy.None);
+    //A new collection keeps versions by default (I-4), so its empty history is dropped with it.
+    db.SetRetentionPolicy("Person", RetentionPolicy.None, dropHistory: true);
     var entities = db.Entities<Person>();
     for (var i = 0; i < 20; i++) {
       entities.Insert(TestPeople.Numbered(i));

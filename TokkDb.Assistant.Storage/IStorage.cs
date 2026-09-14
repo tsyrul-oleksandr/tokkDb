@@ -465,6 +465,80 @@ public interface IStorage
     /// <exception cref="UnknownColumnException">There is no such column.</exception>
     RetypeEffect InspectRetype(string collectionName, string columnName, ColumnType newType);
 
+    // ---- Versions (SC-12, SC-12a) --------------------------------------------------------------
+    //
+    // The six operations undo needs, and nothing more: what compensation, the before-and-after
+    // table and erasure use (D-17, TR-6, NF-4d). Browsing history and reading a record as of a
+    // moment stay out of the contract. Every collection the assistant writes to keeps versions -
+    // one it creates is created versioned, and opening a storage switches any collection that is
+    // not on, without rewriting a record - so that undo means the same thing over both
+    // implementations, whatever the engine's own default (SC-12a).
+
+    /// <summary>
+    /// The version a record is at: the one its last write produced, or - for a deleted record
+    /// whose history is still kept - the version of its deletion. Null when the storage holds
+    /// neither the record nor any of its history. Inside a unit of work, the version an update
+    /// in that unit produced is already the head.
+    ///
+    /// "Has this been touched since" is whether this is still the version a change recorded
+    /// (AG-11a): exact, where a hash of the values could not tell an edit undone from no edit.
+    /// </summary>
+    /// <exception cref="UnknownCollectionException">There is no such collection.</exception>
+    Ulid? HeadVersion(string collectionName, Ulid id);
+
+    /// <summary>
+    /// Whether that version of the record is still kept. False once a purge has removed it -
+    /// after which a change that names it is <c>NotReversible</c> and its before-and-after
+    /// table says the values are no longer kept - and false for a version that never existed.
+    /// </summary>
+    /// <exception cref="UnknownCollectionException">There is no such collection.</exception>
+    bool Keeps(string collectionName, Ulid id, Ulid versionId);
+
+    /// <summary>
+    /// The columns that differ between two versions of one record, old beside new (TR-6), each
+    /// value as the column's type reads it now. A version that is the record's deletion has no
+    /// values, so against it every column of the other version is a change to or from nothing.
+    /// </summary>
+    /// <exception cref="UnknownCollectionException">There is no such collection.</exception>
+    /// <exception cref="VersionNotKeptException">Either version is not kept.</exception>
+    VersionDifference DiffVersions(string collectionName, Ulid id, Ulid fromVersionId, Ulid toVersionId);
+
+    /// <summary>
+    /// Puts the record back as it was at that version, under its own identity - so that the
+    /// records referring to it still do - and returns it as it now reads. A deleted record comes
+    /// back into the collection; a record already at that version is returned unchanged.
+    ///
+    /// Judged as a write is judged (SC-3, SC-8): a value another record has taken since is a
+    /// <see cref="DuplicateValue"/>, a reference to a record that is gone a
+    /// <see cref="ReferenceMissing"/>, and nothing is written when either refuses.
+    /// </summary>
+    /// <exception cref="UnknownCollectionException">There is no such collection.</exception>
+    /// <exception cref="VersionNotKeptException">The version is not kept.</exception>
+    /// <exception cref="VersionNotRestorableException">The version is the record's deletion.</exception>
+    /// <exception cref="StorageValidationException">The restored values collide with a rule.</exception>
+    StorageRecord RestoreVersion(string collectionName, Ulid id, Ulid versionId);
+
+    /// <summary>
+    /// Removes the record's versions from before <paramref name="before"/>, keeping the version
+    /// the record was at then and everything after it, so that nothing the record reads as at or
+    /// after that moment changes. Returns how many versions went. Ends the compensation window
+    /// for the record's changes at once (NF-4d), which is why the assistant's purge must never
+    /// reach inside that window (AJ-8).
+    /// </summary>
+    /// <exception cref="UnknownCollectionException">There is no such collection.</exception>
+    int PurgeRecordHistory(string collectionName, Ulid id, DateTimeOffset before);
+
+    /// <summary>
+    /// Removes the record and every version of it, deleted or not, so that no read of any kind
+    /// can return it (NF-4d); returns false when the storage held nothing of it. The engine-backed
+    /// storage leaves no copy in the database file or its journal (NF-4d1), and clears the
+    /// diagnostic payloads of every request that changed the record; the change journal keeps
+    /// the record's identifier, which carries no value. Conversations are outside: they are the
+    /// user's own and go when the user says so.
+    /// </summary>
+    /// <exception cref="UnknownCollectionException">There is no such collection.</exception>
+    bool Erase(string collectionName, Ulid id);
+
     // ---- Conversations (SC-10) ----------------------------------------------------------------
 
     /// <summary>

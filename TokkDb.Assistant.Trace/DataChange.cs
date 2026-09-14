@@ -3,13 +3,13 @@ namespace TokkDb.Assistant.Trace;
 /// <summary>What a change did, which decides what has to be recorded to describe it (TR-2b).</summary>
 public enum ChangeKind
 {
-    /// <summary>A record was created. The identity and a content hash; the data itself is in storage.</summary>
+    /// <summary>A record was created. The record and the version it produced; the data is in storage and its history.</summary>
     Insert = 1,
 
-    /// <summary>A record was changed. The changed fields, before and after.</summary>
+    /// <summary>A record was changed. The version it replaced and the version it produced.</summary>
     Update,
 
-    /// <summary>A record was removed. <b>The whole record</b>, because this is about to be the only copy.</summary>
+    /// <summary>A record was removed. The version it replaced and the tombstone; the record's last state is kept by the engine's history.</summary>
     Delete,
 
     /// <summary>A collection was created.</summary>
@@ -55,24 +55,45 @@ public enum Reversibility
     /// No complete inverse is kept. Removing a field from a wide collection needs every removed
     /// value, which past the journal's cap is not retained - so the operation is classified this
     /// way before it runs and the card says so, rather than half an inverse being kept and an
-    /// undo that half-restores looking like one that worked.
+    /// undo that half-restores looking like one that worked. A record change becomes this only
+    /// once the version it would restore has been purged from history (D-17, AJ-5).
     /// </summary>
     NotReversible
 }
 
 /// <summary>
-/// The durable record of one change to the data (TR-2, TR-4, D-17).
+/// AJ-5 and V-18: what a record change's reversibility is, decided before it runs from what its
+/// collection declares. <see cref="Reversibility.Reversible"/> when the collection has no unique
+/// column and takes part in no relation in either direction - nothing can then invalidate the
+/// undo - and <see cref="Reversibility.ReversibleWithConditions"/> otherwise, because putting a
+/// value back, or taking an inserted record away, can collide with a value or a reference taken
+/// since. Neither depends on the width of the record or on any payload cap.
+/// </summary>
+public static class Reversibilities
+{
+    public static Reversibility OfRecordChange(bool hasUniqueColumn, bool takesPartInRelation) =>
+        hasUniqueColumn || takesPartInRelation
+            ? Reversibility.ReversibleWithConditions
+            : Reversibility.Reversible;
+}
+
+/// <summary>
+/// The durable record of one change to the data (TR-2, TR-4, D-17, V-18).
 ///
 /// <b>This is three things at once, and that is why it is separate from the diagnostics.</b> It is
 /// the audit log - what happened to the data and which request did it. It is the size discipline -
 /// bounded by a stated rule rather than by what happened to be convenient. And it is the undo log,
 /// because compensation is computed from it.
 ///
-/// <b>Bounded is not small.</b> A delete records the whole record, since the journal is then the
-/// only copy. What bounded means is that the rule is stated: the payload is shaped by the
-/// operation first and capped by size second, with large values kept as a size, a hash and a
-/// preview. <see cref="DataChanges"/> is that rule, written once so that no caller can shape a
-/// payload its own way.
+/// <b>A record change is a fixed-size set of references</b> (TR-2b, AJ-1): the request, the
+/// record, the version it replaced and the version it produced, and no field values. The old
+/// values live in the engine's version history, where an undo restores them and where the
+/// before-and-after table is read from (TR-6), and a version answers "touched since" exactly
+/// (AG-11a). <b>A structural change keeps the shaped and bounded payload</b>: the journal is
+/// then the only copy of what it removed, so the operation decides what is recorded and the cap
+/// decides how much of it survives, with large values kept as a size, a hash and a preview.
+/// <see cref="DataChanges"/> is that rule, written once so that no caller can shape a payload
+/// its own way.
 ///
 /// <b>Committed in the same transaction as the mutation it describes</b> (TR-4). Neither can exist
 /// without the other, which is what makes an audit record something other than a hopeful copy.
@@ -89,17 +110,30 @@ public sealed record DataChange(
     public Ulid? RecordId { get; init; }
 
     /// <summary>
-    /// What changed, field by field, old beside new (TR-2a).
-    ///
-    /// Shaped by <see cref="Kind"/> and not by what was convenient: empty for an insert, whose
-    /// data is in storage and whose identity and <see cref="ContentHash"/> are the whole record
-    /// of it; the changed fields for an update; every field for a delete.
+    /// For a record change: the version the change replaced, which an undo restores (D-17).
+    /// Null for an insert, which an undo deletes, and null on a change written before version
+    /// references existed (step 9.1 of the versioning plan), which then cannot be undone from here.
+    /// </summary>
+    public Ulid? PreviousVersionId { get; init; }
+
+    /// <summary>
+    /// For a record change: the version the change produced - for a delete, the tombstone. "Has
+    /// this been touched since" is whether the record's head is still this (AG-11a). Null on a
+    /// change written before version references existed.
+    /// </summary>
+    public Ulid? VersionId { get; init; }
+
+    /// <summary>
+    /// For a structural change only: what changed, field by field, old beside new (TR-2a),
+    /// shaped by <see cref="Kind"/> and bounded by <see cref="PayloadLimits"/>. Empty for a
+    /// record change, whose values are in the engine's version history (V-18).
     /// </summary>
     public IReadOnlyList<FieldChange> Fields { get; init; } = [];
 
     /// <summary>
-    /// A hash of the record as it was written, so that "has this been touched since" stays
-    /// answerable for the commonest case, which is an import (AG-11a).
+    /// Kept for documents written before step 9.1 of the versioning plan, when a record change
+    /// carried a hash of the record as written; a change written since carries none, because
+    /// the version references answer "touched since" exactly where the hash could not (V-18).
     /// </summary>
     public string? ContentHash { get; init; }
 
@@ -120,7 +154,8 @@ public sealed record DataChange(
     public string? Disposition { get; init; }
 
     /// <summary>
-    /// How many fields the cap left out, where even their descriptions would not fit.
+    /// For a structural change: how many fields the cap left out, where even their descriptions
+    /// would not fit.
     ///
     /// It is a count rather than a silence because the audit record has to be honest about what
     /// it is not saying. A change with this above zero is always
@@ -129,170 +164,147 @@ public sealed record DataChange(
     /// </summary>
     public int OmittedFields { get; init; }
 
-    /// <summary>What this change costs the journal, in characters of payload (TR-2b).</summary>
+    /// <summary>
+    /// What this change costs the journal, in characters of payload (TR-2b). Zero for every
+    /// record change, whatever the width of the record: its references are of fixed size.
+    /// </summary>
     public int Weight => Fields.Sum(static entry => entry.Weight) + (ContentHash?.Length ?? 0);
+
+    /// <summary>A change to one record - an insert, update or delete - as opposed to a structural one.</summary>
+    public bool IsRecordChange => Kind is ChangeKind.Insert or ChangeKind.Update or ChangeKind.Delete;
 }
 
 /// <summary>
 /// TR-2b, in one place: <b>shaped by the operation first, bounded by size second</b>.
 ///
-/// The order is the requirement and it is not a preference. A purely size-based rule would
-/// truncate the one payload that cannot be truncated - a delete, where the journal is about to be
-/// the only copy of the record - while happily keeping a full copy of an insert, whose data is
-/// still in storage and whose payload is therefore the one that can afford to be almost nothing.
-/// So the operation decides what is recorded, and the cap then decides how much of it survives.
+/// A record change - <see cref="Insert"/>, <see cref="Update"/>, <see cref="Delete"/> - records
+/// the record and two version identifiers and nothing of the values (V-18, AJ-1): the values are
+/// in the engine's version history, so the journal of an import of ten thousand records is a
+/// fixed cost per record whatever the width of the rows, and no cap decides whether a record
+/// change can be undone. A structural change - <see cref="Structural"/> - is where the journal is
+/// still the only copy of what went, and there the operation decides what is recorded and the
+/// cap decides how much of it survives: large values as a size, a hash and a preview, and a cap
+/// per change as well as per value.
 ///
-/// <b>And where the cap cannot hold the inverse, the change is declared irreversible rather than
-/// truncated.</b> That decision is made here, before the change runs, so that the confirmation
-/// card can say so while the person can still decline (AG-11c, AG-11d, D-17).
+/// <b>And where the cap cannot hold a structural inverse, the change is declared irreversible
+/// rather than truncated.</b> That decision is made here, before the change runs, so that the
+/// confirmation card can say so while the person can still decline (AG-11c, AG-11d, D-17).
 /// </summary>
 public static class DataChanges
 {
     /// <summary>
-    /// A record was created (TR-2b).
-    ///
-    /// <b>The identity and a content hash, and nothing else.</b> This is what makes the journal
-    /// of an import of ten thousand records a fixed cost per record rather than a second copy of
-    /// the file: the payload of an insert does not grow with the width of the row, because the
-    /// row is in storage and the only question the journal has to keep answering is whether it
-    /// has been touched since (AG-11a). Undoing an insert needs the identity, which is here.
+    /// A record was created (TR-2b, V-18): the record and the version its insert produced. An
+    /// undo deletes the record by identity, so nothing about its values is needed here, and the
+    /// journal of an import does not grow with the width of the rows (AJ-1).
     /// </summary>
+    /// <param name="reversibility">
+    /// Computed before the change runs from what the collection declares:
+    /// <see cref="Reversibilities.OfRecordChange"/> (AJ-5).
+    /// </param>
     public static DataChange Insert(
         Ulid requestId,
         string collectionName,
         Ulid recordId,
-        IReadOnlyDictionary<string, object?> written)
+        Ulid versionId,
+        Reversibility reversibility)
     {
-        ArgumentNullException.ThrowIfNull(written);
-
         return new DataChange(
             Next(),
             requestId,
             ChangeKind.Insert,
             Name(collectionName),
             DateTimeOffset.UtcNow,
-            Reversibility.Reversible)
+            reversibility)
         {
             RecordId = recordId,
-            ContentHash = Hashes.OfFields(written)
+            PreviousVersionId = null,
+            VersionId = versionId
         };
     }
 
     /// <summary>
-    /// A record was changed: the fields that differ, before and after (TR-2a, TR-2b).
-    ///
-    /// Fields that did not change are not recorded. An update that touches one field of a record
-    /// of eighty is a payload of one field, and the undo of it is the same size - which is the
-    /// point of recording the change rather than the record.
+    /// A record was changed (TR-2b, V-18): the version it replaced, which an undo restores, and
+    /// the version it produced, which says whether the record has been touched since (AG-11a).
+    /// No field values: the before-and-after table is read from the two versions (TR-6).
     /// </summary>
     public static DataChange Update(
         Ulid requestId,
         string collectionName,
         Ulid recordId,
-        IReadOnlyDictionary<string, object?> before,
-        IReadOnlyDictionary<string, object?> after,
-        PayloadLimits? limits = null)
+        Ulid previousVersionId,
+        Ulid versionId,
+        Reversibility reversibility)
     {
-        ArgumentNullException.ThrowIfNull(before);
-        ArgumentNullException.ThrowIfNull(after);
-
-        var bounds = limits ?? PayloadLimits.Default;
-        var fields = new List<FieldChange>();
-
-        foreach (var name in before.Keys.Concat(after.Keys).Distinct(StringComparer.Ordinal)
-                     .OrderBy(static name => name, StringComparer.Ordinal))
-        {
-            var was = before.GetValueOrDefault(name);
-            var now = after.GetValueOrDefault(name);
-
-            if (Same(was, now)) continue;
-
-            fields.Add(new FieldChange(name, JournalValue.Of(was, bounds), JournalValue.Of(now, bounds)));
-        }
-
-        var payload = Bound(fields, bounds);
-
         return new DataChange(
             Next(),
             requestId,
             ChangeKind.Update,
             Name(collectionName),
             DateTimeOffset.UtcNow,
-            // An update is unconditionally reversible when its inverse is whole: putting the old
-            // values back cannot violate a rule the new ones satisfy. When a before value was too
-            // large to keep, there is no inverse to put back and saying otherwise would be a lie.
-            payload.Whole ? Reversibility.Reversible : Reversibility.NotReversible)
+            reversibility)
         {
             RecordId = recordId,
-            Fields = payload.Fields,
-            OmittedFields = payload.Omitted,
-            ContentHash = Hashes.OfFields(after)
+            PreviousVersionId = previousVersionId,
+            VersionId = versionId
         };
     }
 
     /// <summary>
-    /// A record was removed: <b>the whole record</b> (TR-2b, D-17).
-    ///
-    /// The one payload that is not allowed to be economical. Everywhere else the journal can
-    /// record less because storage still has the data; here it is about to have nothing, and
-    /// what is written down is the only thing standing between a deleted record and its being
-    /// gone. If that cannot be written down whole, the delete is
-    /// <see cref="Reversibility.NotReversible"/> and the person is told before it runs.
-    ///
-    /// Whole and restorable are still not the same thing, which is why a delete is
-    /// <see cref="Reversibility.ReversibleWithConditions"/> at best: a uniqueness rule or a
-    /// relation created since the deletion can refuse the record on its way back in, and that is
-    /// found out when the undo is attempted rather than when it is offered.
+    /// A record was removed (TR-2b, D-17, V-18): the version it replaced - the record's last
+    /// state, which the engine's history keeps and an undo restores under the record's own
+    /// identity - and the tombstone the delete produced. The journal is no longer the only copy
+    /// of a deleted record, so its payload is as small as any other record change's.
     /// </summary>
     public static DataChange Delete(
         Ulid requestId,
         string collectionName,
         Ulid recordId,
-        IReadOnlyDictionary<string, object?> removed,
-        PayloadLimits? limits = null)
+        Ulid previousVersionId,
+        Ulid tombstoneVersionId,
+        Reversibility reversibility)
     {
-        ArgumentNullException.ThrowIfNull(removed);
-
-        var bounds = limits ?? PayloadLimits.Default;
-
-        var fields = removed.Keys
-            .OrderBy(static name => name, StringComparer.Ordinal)
-            .Select(name => FieldChange.Removed(name, JournalValue.Of(removed[name], bounds)))
-            .ToList();
-
-        var payload = Bound(fields, bounds);
-
         return new DataChange(
             Next(),
             requestId,
             ChangeKind.Delete,
             Name(collectionName),
             DateTimeOffset.UtcNow,
-            payload.Whole ? Reversibility.ReversibleWithConditions : Reversibility.NotReversible)
+            reversibility)
         {
             RecordId = recordId,
-            Fields = payload.Fields,
-            OmittedFields = payload.Omitted,
-            ContentHash = Hashes.OfFields(removed)
+            PreviousVersionId = previousVersionId,
+            VersionId = tombstoneVersionId
         };
     }
 
     /// <summary>
     /// A change to the shape of things rather than to a record: a collection, a field, a relation.
+    /// The one kind of change whose inverse lives in the journal (AG-11e), shaped and bounded by
+    /// TR-2b: each value inside <paramref name="limits"/>, and the whole payload inside the cap.
     ///
-    /// The caller states the reversibility because only it knows what it kept. Removing a field
-    /// needs every value that was in it, and whether those fit is a question about the whole
-    /// collection rather than about this payload - which is why AG-11e puts the inverse in the
-    /// journal and TR-2b lets the operation be declared irreversible when it will not fit.
+    /// The caller states the reversibility because only it knows what it kept, and the cap can
+    /// only lower it: a payload the cap could not hold whole makes the change
+    /// <see cref="Reversibility.NotReversible"/>, because half an inverse is not one. Removing a
+    /// field from a wide collection needs every value that was in it, and whether those fit is a
+    /// question about the whole collection rather than about this payload - which is why the
+    /// operation is declared irreversible before it runs when they will not (AG-11c, AG-11d).
     /// </summary>
     public static DataChange Structural(
         Ulid requestId,
         ChangeKind kind,
         string collectionName,
         IReadOnlyList<FieldChange> fields,
-        Reversibility reversibility)
+        Reversibility reversibility,
+        PayloadLimits? limits = null)
     {
         ArgumentNullException.ThrowIfNull(fields);
+
+        if (kind is ChangeKind.Insert or ChangeKind.Update or ChangeKind.Delete)
+        {
+            throw new ArgumentException("A record change carries version references, not a payload.", nameof(kind));
+        }
+
+        var payload = Bound([.. fields], limits ?? PayloadLimits.Default);
 
         return new DataChange(
             Next(),
@@ -300,15 +312,18 @@ public static class DataChanges
             kind,
             Name(collectionName),
             DateTimeOffset.UtcNow,
-            reversibility)
+            payload.Whole ? reversibility : Reversibility.NotReversible)
         {
-            Fields = fields
+            Fields = payload.Fields,
+            OmittedFields = payload.Omitted
         };
     }
 
     /// <summary>
-    /// The record as it was, for putting it back (D-17). Empty where a value was too large to
-    /// keep, which is why such a change is never offered as reversible in the first place.
+    /// The values a structural change's inverse holds, for putting them back (D-17): field by
+    /// field, the value as it was. Empty where a value was too large to keep, which is why such
+    /// a change is never offered as reversible in the first place. A record change has nothing
+    /// here: its inverse is the version <see cref="DataChange.PreviousVersionId"/> names.
     /// </summary>
     public static IReadOnlyDictionary<string, object?> Restore(DataChange change)
     {
@@ -327,12 +342,12 @@ public static class DataChanges
     }
 
     /// <summary>
-    /// The cap per change, which is the half of TR-2b that a per-value cap cannot do: a record of
-    /// five thousand short fields passes every per-value bound there is.
+    /// The cap per change, which is the half of TR-2b that a per-value cap cannot do: a
+    /// structural change over five thousand short fields passes every per-value bound there is.
     ///
     /// <b>Three outcomes, and only the first of them keeps an inverse.</b> Inside the cap with
-    /// every old value whole, the payload is the inverse and the change is as reversible as its
-    /// kind allows. Past the cap, <b>the inverse is not kept</b> - every value is given up for its
+    /// every old value whole, the payload is the inverse and the change is as reversible as the
+    /// caller said. Past the cap, <b>the inverse is not kept</b> - every value is given up for its
     /// description, which is what TR-2b means by classifying the operation irreversible instead
     /// of truncating it, and it is why this happens before the change runs rather than after.
     /// Past the cap even then, the descriptions are cut off too and the change says how many
@@ -347,9 +362,7 @@ public static class DataChanges
         // too large to keep costs the audit a preview rather than costing the undo anything.
         var whole = fields.All(static field => field.Before.IsWhole);
 
-        // The cap is over the change, so the fixed-width part of it - the content hash every
-        // update and delete carries - comes out of the room the fields have.
-        var room = limits.LongestPayload - Hashes.Length;
+        var room = limits.LongestPayload;
 
         // Inside the cap, everything stands as the per-value bound left it. One field that was
         // too large to keep does not cost the other fields their values - only its own record's
@@ -378,21 +391,6 @@ public static class DataChanges
     }
 
     private static int Weigh(IEnumerable<FieldChange> fields) => fields.Sum(static field => field.Weight);
-
-    /// <summary>
-    /// Whether two values are the same value, so that an update records what changed rather than
-    /// what was written. Compared as the journal will keep them, which settles the awkward pairs
-    /// - a <see cref="long"/> beside an <see cref="int"/>, two moments in different offsets -
-    /// the same way the hash does.
-    /// </summary>
-    private static bool Same(object? was, object? now)
-    {
-        if (was is null && now is null) return true;
-        if (was is null || now is null) return false;
-
-        return JournalValue.KindOf(was) == JournalValue.KindOf(now)
-               && string.Equals(JournalValue.TextOf(was), JournalValue.TextOf(now), StringComparison.Ordinal);
-    }
 
     private static Ulid Next() => Ulid.NewUlid();
 

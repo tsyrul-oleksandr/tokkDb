@@ -16,8 +16,9 @@ public interface IVersionStore {
   //at open and after a catalogue reload, so that nothing ever scans for them (HS-4).
   //CreateHistory makes the collection's history collection, links it through
   //HistoryCollectionId and records the schema and relations as they stand (HS-10), in the
-  //caller's transaction; DropHistory retires every document in it, drops its version index and
-  //removes it from the catalogue, so that secure release reaches all of it (HS-2).
+  //caller's transaction; DropHistory retires every document in it, drops its version index,
+  //zeroes every live image's pointer into it (WV-10) and removes it from the catalogue, so that
+  //secure release reaches all of it (HS-2).
   void Initialize();
   CollectionDescriptor CreateHistory(string collectionName);
   void DropHistory(string collectionName);
@@ -25,7 +26,8 @@ public interface IVersionStore {
   //Recording (V-7): the write seam and schema changes only, inside the write's transaction.
   //RecordInsert writes the Insert node of a new record's first image and returns the address
   //the image's PreviousVersion takes (WV-1). RecordSupersede takes the head as stored — its
-  //header and its unmigrated image, for the keyframe copy and a Baseline (WV-4) — the new
+  //header and its unmigrated image, for the keyframe copy and a Baseline (WV-4); the image is
+  //null when the head is a tombstone, which has none (RB-2) — the new
   //image's header, whose VersionId the seam has minted after the head's (HS-7), the new image,
   //the delta the seam computed from the head as the current schema reads it, and, for a
   //restore, the version restored, which becomes the parent (V-9); it copies the head's image
@@ -61,11 +63,26 @@ public interface IVersionStore {
   IReadOnlyList<ColumnMigration> SchemaAt(string collectionName, ushort fromVersion, ushort toVersion);
   Reconstruction Reconstruct(string collectionName, Ulid recordId, Ulid versionId);
 
-  //Maintenance (layer 4 only). Refined at steps 7.1 and 7.3.
-  void Reroot(string collectionName, Ulid recordId, Ulid versionId, ObjectDocument image, Ulid cutFrom);
+  //Maintenance (layer 4 only). V-15's steps 3 and 4 for the purge: Reroot makes a kept node a
+  //root — it takes the image the purge reconstructed for it, at the schema version given,
+  //unless it holds one already, is the live head, whose image is live, or is a tombstone, which
+  //has none; it loses its delta and its parent and records the parent as cutFrom. Remove
+  //retires the nodes named and their index entries, skipping any already gone, so that a purge
+  //run again after an interruption finishes what is left (RP-1). NextRecords walks the records
+  //with nodes in identifier order, after a given one and at most limit at a time, which is how
+  //the collection-wide purge takes its batches (I-7) without holding a scan open across the
+  //transactions that change the index. RemoveUnreferencedOperations is the pass that ends a
+  //collection-wide purge: one scan, retiring every operation document no node names. EraseRecord
+  //is refined at step 7.3.
+  void Reroot(string collectionName, Ulid recordId, Ulid versionId, ObjectDocument image, ushort imageSchemaVersion,
+      Ulid cutFrom);
   void Remove(string collectionName, Ulid recordId, IReadOnlyCollection<Ulid> versionIds);
+  IReadOnlyList<Ulid> NextRecords(string collectionName, Ulid? after, int limit);
+  int RemoveUnreferencedOperations(string collectionName);
   void EraseRecord(string collectionName, Ulid recordId);
 
-  //Verification (layer 4 and tests): WV-10's four invariants over the whole history, by scans.
+  //Verification (layer 4 and tests): WV-10's four invariants over the whole history, by scans,
+  //naming the first node that breaks one; and the report of RP-7, by one scan of the same.
   HistoryVerification Verify(string collectionName);
+  HistoryReport Report(string collectionName);
 }

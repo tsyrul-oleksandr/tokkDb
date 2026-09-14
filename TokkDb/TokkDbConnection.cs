@@ -65,6 +65,7 @@ public class TokkDbConnection : IDisposable {
     _transactionManager.BeforeOutermostCommit = _catalog.RecordIdentifierMark;
     //HS-9: every outermost transaction is stamped with the attribution scope open when it begins.
     _transactionManager.AttributionSource = () => _attribution;
+    _transactionManager.AfterOutermostRollback = ReloadCatalogues;
     _queries = new QueryService(_dataPageManager, _catalog, _indexCatalog, _relationCatalog, _pageManager,
       _catalogLock);
   }
@@ -129,8 +130,19 @@ public class TokkDbConnection : IDisposable {
     ChangeSchema(() => {
       descriptor = _catalog.CreateCollection(name, columns, description);
       CreateUniqueIndexes(descriptor);
+      KeepVersionsByDefault(descriptor);
     });
     return descriptor;
+  }
+
+  //V-13 and I-4: a user collection keeps versions from the moment it exists, at the interval
+  //and ratio step 5.1 measured and step 5.2 accepted (k = 8, ratio 0.5), with its history
+  //collection created in the same transaction as the collection itself. Existing collections
+  //keep what they have; reserved ones never keep versions.
+  private void KeepVersionsByDefault(CollectionDescriptor descriptor) {
+    _catalog.SetRetentionPolicy(descriptor.Name, RetentionPolicy.KeepVersions,
+      CollectionDescriptor.DefaultSnapshotInterval, CollectionDescriptor.DefaultLargeDeltaRatio);
+    _versionStore.CreateHistory(descriptor.Name);
   }
 
   public CollectionDescriptor CreateCollection<T>(string name = null, string description = "") {
@@ -220,9 +232,9 @@ public class TokkDbConnection : IDisposable {
 
   //HS-1 and V-13: what a collection keeps of its retired images, with the keyframe interval and
   //the large-delta ratio of V-1. A schema change (QM-2b), because the seam reads it on every
-  //write. The defaults stand in for I-1 and I-2 until step 5.1 measures them. A reserved
-  //collection, an interval below 1 and a ratio outside (0, 1] are refused before anything is
-  //written.
+  //write. The defaults are I-1 and I-2 as accepted at step 5.2, which new user collections get
+  //without asking. A reserved collection, an interval below 1 and a ratio outside (0, 1] are
+  //refused before anything is written.
   //
   //V-4 and V-14: turning KeepVersions on creates the collection's history collection in the
   //same transaction. Turning it off while that history exists is refused unless dropHistory is
@@ -250,25 +262,86 @@ public class TokkDbConnection : IDisposable {
     return descriptor;
   }
 
+  //RP-1, V-15 and I-7. Applies V-15's rule to every record of the collection, one record per
+  //transaction, so that an interrupted purge has lost nothing but the records it had not
+  //reached and is run again to finish (RP-1). The records come in batches of identifiers, read
+  //ahead of the transactions that purge them so that no scan is held open across a change to
+  //the index; the batch size is I-7's default. The collection-wide purge ends with one pass
+  //that removes every operation document no remaining node references (V-12). Runs outside
+  //any unit of work, because each record is one of its own.
+  public PurgeReport PurgeHistory(string collectionName, DateTimeOffset before, int batchSize = DefaultPurgeBatchSize) {
+    if (_catalog.Get(collectionName).RetentionPolicy != RetentionPolicy.KeepVersions) {
+      throw new InvalidOperationException($"Collection '{collectionName}' keeps no versions.");
+    }
+    return new HistoryPurge(_versionStore, _dataPageManager, _transactionManager)
+      .PurgeCollection(collectionName, before, batchSize);
+  }
+
+  //RP-7 and VR-10. The history's counts and sizes, by one scan; NF-2, NF-4 and NF-5 are
+  //computed from them.
+  public HistoryReport HistoryReport(string collectionName) {
+    return _versionStore.Report(collectionName);
+  }
+
+  //RP-8 and NFR-5. WV-10's invariants first, by the store's scan; then every node of every
+  //record is reconstructed, so that a stored old value that no longer matches (DL-7) is
+  //reported at the node whose delta fails, and a node that reaches its image only beyond its
+  //stored distance is reported too. A larger stored distance, which a purge leaves behind, is
+  //allowed. The first failing node is named, and the walk stops at it.
+  public HistoryVerification VerifyHistory(string collectionName) {
+    var invariants = _versionStore.Verify(collectionName);
+    if (!invariants.IsSound || _catalog.Get(collectionName).HistoryCollectionId == default) {
+      return invariants;
+    }
+    Ulid? after = null;
+    while (true) {
+      var batch = _versionStore.NextRecords(collectionName, after, DefaultPurgeBatchSize);
+      foreach (var recordId in batch) {
+        foreach (var node in _versionStore.Nodes(collectionName, recordId)) {
+          if (node.Kind == VersionKind.Delete) {
+            continue;
+          }
+          try {
+            var reconstruction = _versionStore.Reconstruct(collectionName, recordId, node.VersionId);
+            var stepsUp = reconstruction.Report.VersionsExamined - 1;
+            if (stepsUp > node.Distance) {
+              return Failure(invariants, recordId, node.VersionId,
+                $"version {node.VersionId} of record {recordId} reaches an image {stepsUp} steps up, beyond its stored distance {node.Distance}");
+            }
+          } catch (Documents.Delta.DeltaMismatchException mismatch) {
+            var failing = mismatch.Version ?? node.VersionId;
+            return Failure(invariants, recordId, failing, $"version {failing} of record {recordId} does not reconstruct: {mismatch.Message}");
+          } catch (Exception exception) when (exception is not OutOfMemoryException) {
+            return Failure(invariants, recordId, node.VersionId, $"version {node.VersionId} of record {recordId} does not reconstruct: {exception.Message}");
+          }
+        }
+      }
+      if (batch.Count < DefaultPurgeBatchSize) {
+        return invariants;
+      }
+      after = batch[^1];
+    }
+  }
+
+  private static HistoryVerification Failure(HistoryVerification counted, Ulid recordId, Ulid versionId, string problem) {
+    return new HistoryVerification {
+      Problems = [problem], Records = counted.Records, Nodes = counted.Nodes, IndexEntries = counted.IndexEntries,
+      FailingRecord = recordId, FailingVersion = versionId
+    };
+  }
+
+  //I-7, settled at step 7.1: how many record identifiers a collection-wide purge reads ahead
+  //of the transactions that purge them. A batch costs one range read of that many identifiers
+  //and 16 bytes each in memory; it bounds neither a transaction, which is one record, nor the
+  //purge, which walks every batch.
+  public const int DefaultPurgeBatchSize = 256;
+
   //RH-9 and V-11. The columns and relations of a versioned collection as declared at a moment
   //of logical time, from the schema and relation nodes in memory: the last schema node at or
   //before the moment, and every relation whose last node at or before the moment created it.
   //Before the first schema node there is no recorded history to answer from.
   public SchemaSnapshot SchemaAsOf(string collectionName, DateTimeOffset moment) {
-    var schema = _versionStore.SchemaNodes(collectionName)
-      .Where(node => node.LogicalTime <= moment)
-      .MaxBy(node => node.Id);
-    if (schema is null) {
-      return new SchemaSnapshot { Moment = moment, BeforeRecordedHistory = true };
-    }
-    var relations = _versionStore.RelationNodes(collectionName)
-      .Where(node => node.LogicalTime <= moment)
-      .GroupBy(node => node.Relation.Name, StringComparer.Ordinal)
-      .Select(group => group.MaxBy(node => node.Id)!)
-      .Where(node => node.Kind == RelationNodeKind.Created)
-      .Select(node => node.Relation)
-      .ToList();
-    return new SchemaSnapshot { Moment = moment, Schema = schema, Relations = relations };
+    return SchemaSnapshots.At(_versionStore, collectionName, moment);
   }
 
   //DC-7. Replaces the column set of a collection and bumps its schema version. The indexes
@@ -429,6 +502,8 @@ public class TokkDbConnection : IDisposable {
       if (!_catalog.Exists(collectionName)) {
         return;
       }
+      //V-17: the frame of this transaction would hold every record and node it retires.
+      _transactionManager.RequireTransaction().MarkForFrameDiscard();
       foreach (var relation in _relationCatalog.Naming(collectionName)) {
         _relationCatalog.Remove(relation.Name);
         RecordRelationChange(relation, RelationNodeKind.Removed, dropping: collectionName);
@@ -441,8 +516,13 @@ public class TokkDbConnection : IDisposable {
       foreach (var row in _dataPageManager.GetAllRows(collectionName).ToArray()) {
         _dataPageManager.RetireRow(collectionName, row.Address, RecordFlags.Deleted);
       }
+      //RP-4: the primary index's pages are cleared like a dropped secondary index's. Its keys
+      //are identifiers rather than values, but the rule is every page an index occupied.
+      _dataPageManager.PrimaryIndex(collectionName).ReleasePages();
       _settings.Remove(collectionName);
       dropped = _catalog.DropCollection(collectionName);
+      //A collection created later under the same name starts with pages of its own.
+      _freeSpace.Forget(collectionName);
     });
     return dropped;
   }
@@ -468,6 +548,12 @@ public class TokkDbConnection : IDisposable {
   //DC-4: the collection's primary index. The tree reads its own root out of the catalogue
   //document (D-2), so this hands back a view of what is on disk rather than a structure that
   //had to be built first.
+  //The tree of a secondary index, for tests and diagnostics as PrimaryIndex is; null when the
+  //column has none.
+  public BPlusTree SecondaryIndex(string collectionName, string columnName) {
+    return _indexCatalog.Find(collectionName, columnName)?.Tree;
+  }
+
   public BPlusTree PrimaryIndex(string collectionName) {
     return _dataPageManager.PrimaryIndex(collectionName);
   }
@@ -516,8 +602,9 @@ public class TokkDbConnection : IDisposable {
       var config = new TokkDbConfiguration();
       configure(config);
       foreach (var (name, entity) in config.Entities) {
-        CreateUniqueIndexes(
-          _catalog.CreateCollection(name, EntityColumns.Describe(entity.EntityType), entity.Description));
+        var descriptor = _catalog.CreateCollection(name, EntityColumns.Describe(entity.EntityType), entity.Description);
+        CreateUniqueIndexes(descriptor);
+        KeepVersionsByDefault(descriptor);
       }
     });
   }

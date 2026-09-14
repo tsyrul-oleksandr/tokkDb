@@ -51,11 +51,17 @@ public class HistoryCollectionTests {
 
   //HS-2: a failure between writing the policy and creating the history collection leaves
   //neither, because both are one transaction and recovery takes the whole of it back.
+  //A database whose Person collection keeps no versions, for the switch-on to be measured.
+  private static void CreateUnversioned(TempDatabaseFile file) {
+    using var db = NewDatabase(file);
+    db.SetRetentionPolicy(nameof(Person), RetentionPolicy.None, dropHistory: true);
+  }
+
   [Fact]
   public void AFailureBetweenThePolicyAndTheHistoryCollectionLeavesNeither() {
     int writesInACleanRun;
     using (var file = new TempDatabaseFile()) {
-      using (var db = NewDatabase(file)) { }
+      CreateUnversioned(file);
       using var disk = new FaultInjectingDiskManager(file.Path);
       using (var db = new TokkDbConnection(disk)) {
         db.Load();
@@ -68,7 +74,7 @@ public class HistoryCollectionTests {
     var fired = 0;
     for (var killAfterWrites = 1; killAfterWrites <= writesInACleanRun; killAfterWrites++) {
       using var file = new TempDatabaseFile();
-      using (var db = NewDatabase(file)) { }
+      CreateUnversioned(file);
 
       var disk = new FaultInjectingDiskManager(file.Path, killAfterWrites);
       var attempt = new TokkDbConnection(disk);
@@ -165,6 +171,7 @@ public class HistoryCollectionTests {
   public void TurningOffWhatWasNeverOnChangesNothing() {
     using var file = new TempDatabaseFile();
     using var db = NewDatabase(file);
+    db.SetRetentionPolicy(nameof(Person), RetentionPolicy.None, dropHistory: true);
     db.SetRetentionPolicy(nameof(Person), RetentionPolicy.None);
     db.SetRetentionPolicy(nameof(Person), RetentionPolicy.None, dropHistory: true);
     Assert.Equal(default, db.Collection(nameof(Person)).HistoryCollectionId);

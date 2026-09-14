@@ -77,7 +77,8 @@ public class SchemaHistoryTests {
     Assert.False(created.UnknownCreationTime);
     Assert.Equal("PersonCity", created.Relation.Name);
     Assert.Equal("City", created.Relation.TargetCollection);
-    Assert.Throws<InvalidOperationException>(() => store.RelationNodes("City"));
+    //The relation names City too, and City keeps versions from its creation (I-4).
+    Assert.Equal(RelationNodeKind.Created, Assert.Single(store.RelationNodes("City")).Kind);
 
     db.RemoveRelation("PersonCity");
     Assert.Equal(2, store.RelationNodes(Collection).Count);
@@ -190,6 +191,7 @@ public class SchemaHistoryTests {
     using var db = new TokkDbConnection(file.Path);
     db.Load();
     db.CreateCollection(Collection, PersonColumns());
+    db.SetRetentionPolicy(Collection, RetentionPolicy.None, dropHistory: true);
     db.InTransaction(() => Assert.Null(db.Versions.RecordSchema(Collection, SchemaNode.Of(db.Collection(Collection), []))));
     var columns = PersonColumns();
     columns.Add(new ColumnDescriptor("City", ValueTypeEnum.String));

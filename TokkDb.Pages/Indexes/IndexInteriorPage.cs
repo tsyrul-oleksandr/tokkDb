@@ -77,5 +77,11 @@ public class IndexInteriorPage : BaseIndexPage {
       WriteKey(entry.Key, ref position);
       WritePageIndex(entry.ChildPageIndex, ref position);
     }
+    ClearBeyond(position);
+  }
+
+  public override void ClearForRelease() {
+    Entries.Clear();
+    FirstChildPageIndex = default;
   }
 }

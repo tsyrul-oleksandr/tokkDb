@@ -16,4 +16,8 @@ public class CountingBufferSlice : BufferSlice {
   public override void WriteBytes(byte[] values, int index, out int writeBytes) {
     writeBytes = TypesConstants.ByteByteSize * values.Length;
   }
+
+  public override void Clear(int index, int length) {
+    //Nothing was stored, so there is nothing to clear.
+  }
 }

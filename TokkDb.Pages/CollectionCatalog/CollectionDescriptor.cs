@@ -59,11 +59,14 @@ public class CollectionDescriptor {
 
   //HS-1 and V-13: the one source of truth for what becomes of a retired image, read by the
   //write seam. Stored by name; a database written before versioning existed holds an empty
-  //name here, which reads as None.
+  //name here, which reads as None. None is what a descriptor starts as; a user collection
+  //created through the connection is switched to KeepVersions in the same transaction (I-4).
   public RetentionPolicy RetentionPolicy { get; set; } = RetentionPolicy.None;
 
-  //V-1: the keyframe interval k and the large-delta ratio, per collection. Their defaults
-  //are I-1 and I-2, decided at step 5.1; until then these stand in. Read only under
+  //V-1: the keyframe interval k and the large-delta ratio, per collection. The defaults are
+  //I-1 and I-2 as measured at step 5.1 and accepted at step 5.2: k = 8, because every
+  //workload's history size is flat from there and a read applies at most seven deltas, and
+  //0.5, which keeps a complete rewrite at the cost of a full copy. Read only under
   //KeepVersions.
   public int SnapshotInterval { get; set; } = DefaultSnapshotInterval;
   public double LargeDeltaRatio { get; set; } = DefaultLargeDeltaRatio;

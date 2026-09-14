@@ -17,7 +17,8 @@ public class VersionRecordingTests(ITestOutputHelper output) {
       double ratio = 0.5) {
     var db = new TokkDbConnection(file.Path);
     db.CreateDatabase(config => config.CreateEntity<Person>());
-    db.SetRetentionPolicy(Collection, policy, k, ratio);
+    //Created versioned (I-4): None means dropping the empty history it came with.
+    db.SetRetentionPolicy(Collection, policy, k, ratio, dropHistory: policy == RetentionPolicy.None);
     return db;
   }
 

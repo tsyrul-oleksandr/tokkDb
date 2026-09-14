@@ -63,6 +63,8 @@ internal sealed class EngineTraces : ITraceRecorder
     private const string AtField = "at";
     private const string ReversibilityField = "reversibility";
     private const string RecordField = "record";
+    private const string PreviousVersionField = "previousVersion";
+    private const string VersionField = "version";
     private const string ContentHashField = "contentHash";
     private const string DispositionField = "disposition";
     private const string FieldsField = "fields";
@@ -273,7 +275,9 @@ internal sealed class EngineTraces : ITraceRecorder
         new(AtField, ValueTypeEnum.DateTime, "When"),
         new(ReversibilityField, ValueTypeEnum.String, "Whether it can be taken back (D-17)"),
         new(RecordField, ValueTypeEnum.Ulid, "The record, where it was one record"),
-        new(ContentHashField, ValueTypeEnum.String, "The record as written, so 'touched since' stays answerable"),
+        new(PreviousVersionField, ValueTypeEnum.Ulid, "The version a record change replaced, which an undo restores (V-18)"),
+        new(VersionField, ValueTypeEnum.Ulid, "The version a record change produced: 'touched since' is whether the head is still it"),
+        new(ContentHashField, ValueTypeEnum.String, "A hash of the record as written, on changes from before version references"),
         new(DispositionField, ValueTypeEnum.String, "What happened to the row it came from, on an import (IN-8a)"),
         new(FieldsField, ValueTypeEnum.Array, "What changed, old beside new (TR-2a)"),
         new(OmittedField, ValueTypeEnum.Int, "How many fields the cap left out, where it had to (TR-2b)")
@@ -346,6 +350,8 @@ internal sealed class EngineTraces : ITraceRecorder
             [AtField] = new DateTimeDocumentValue(change.At.UtcDateTime),
             [ReversibilityField] = DocumentFields.Word(change.Reversibility),
             [RecordField] = DocumentFields.Value(change.RecordId),
+            [PreviousVersionField] = DocumentFields.Value(change.PreviousVersionId),
+            [VersionField] = DocumentFields.Value(change.VersionId),
             [ContentHashField] = DocumentFields.Value(change.ContentHash),
             [DispositionField] = DocumentFields.Value(change.Disposition),
             [FieldsField] = new ArrayDocumentValue([.. change.Fields.Select(ToValue)]),
@@ -486,6 +492,10 @@ internal sealed class EngineTraces : ITraceRecorder
             DocumentFields.Word(value, ReversibilityField, Reversibility.NotReversible))
         {
             RecordId = DocumentFields.Identity(value, RecordField),
+            //A document written before step 9.1 of the versioning plan has neither: it reads
+            //with null versions, and the change it describes cannot be undone from history.
+            PreviousVersionId = DocumentFields.Identity(value, PreviousVersionField),
+            VersionId = DocumentFields.Identity(value, VersionField),
             StepId = DocumentFields.Identity(value, StepField),
             ContentHash = DocumentFields.OptionalText(value, ContentHashField),
             Disposition = DocumentFields.OptionalText(value, DispositionField),

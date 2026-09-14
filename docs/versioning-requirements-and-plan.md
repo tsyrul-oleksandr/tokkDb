@@ -206,24 +206,30 @@ memory at open and after a catalogue reload, and the two readers of what it load
 schema versions and returns the migration steps between them. Step 3.4 added `PreserveImage`, the one
 recording operation `Rewrite` uses (WV-8). `RecordSupersede` takes the delta the seam computed, so that
 the seam decides whether anything changed (WV-2 step 1) and the store decides where it is kept.
+Step 7.1 refined the maintenance row: `Reroot` takes the image's schema version beside the image and the
+parent it records as `cutFrom`; `NextRecords` walks the records with nodes in batches, which is how the
+collection-wide purge takes them (I-7); `RemoveUnreferencedOperations` is the pass that ends it. Step 7.3
+made `EraseRecord` retire every node of a record with its index entry and mark the transaction for V-17's
+journal rule; `DropHistory` marks it too. Step 7.4 added `Report`, the one scan behind `HistoryReport`, and
+made `Verify` name the first failing node, which `VerifyHistory` builds on.
 
 | Group | Operation | Used by |
 |---|---|---|
 | Lifecycle | `Initialize()`, `CreateHistory(collection)`, `DropHistory(collection)` | the connection at open, `SetRetentionPolicy` and `DropCollection` only |
 | Recording | `RecordInsert`, `RecordSupersede` (update or restore), `RecordDelete`, `RecordSchema`, `RecordRelation`, `PreserveImage` | the write seam and schema changes only; `PreserveImage` by `Rewrite` only (WV-8) |
 | Reading | `Head(record)`, `Node(record, version)`, `Nodes(record)`, `Floor(record, moment)`, `Operation(id)`, `SchemaNodes(collection)`, `RelationNodes(collection)`, `SchemaAt(from, to)`, `Reconstruct(record, version)` | layers 2–4 |
-| Maintenance | `Reroot(record, version, image)`, `Remove(record, versions)`, `EraseRecord(record)` | layer 4 only |
-| Verification | `Verify(collection)` | layer 4, tests |
+| Maintenance | `Reroot(record, version, image, imageSchemaVersion, cutFrom)`, `Remove(record, versions)`, `NextRecords(after, limit)`, `RemoveUnreferencedOperations()`, `EraseRecord(record)` | layer 4 only |
+| Verification | `Verify(collection)`, `Report(collection)` | layer 4, tests |
 
 ### 3.2 The public surface this plan adds
 
 | Where | Member | Step |
 |---|---|---|
 | `TokkDb.Documents.Delta` | `DeltaPath`, `DeltaOperation`, `DeltaElement`, `DocumentDelta`, `DocumentDiff.Compute(a, b, options)`, `DocumentDelta.ApplyTo(value)`, `DocumentDelta.Invert()`, `CanonicalValue.Equal(a, b)`, `DeltaMismatchException` | 1.1–1.5 |
-| `TokkDb.Pages.Versions` | `IVersionStore`, `VersionStore`, `VersionNode`, `VersionKind`, `Operation`, `SchemaNode`, `RelationNode`, `VersionIndexRoot`, `VersionAttribution`, `Unmapped`, `Reconstruction`, `ReconstructionReport`, `HistoryReport`, `HistoryVerification`, `VersionHistory`, `VersionEntry`, `VersionedValue<T>`, `StoredVersion`, `AsOfResult<T>`, `AsOfOutcome`, `SchemaSnapshot`, `SchemaMapping`, `VersionDiff`, `LogicalTime`, `HistoryCollections`, `HistoryDocuments`, `VersionNotFoundException` | 2.3–4.4 |
+| `TokkDb.Pages.Versions` | `IVersionStore`, `VersionStore`, `VersionNode`, `VersionKind`, `Operation`, `SchemaNode`, `RelationNode`, `VersionIndexRoot`, `VersionAttribution`, `Unmapped`, `Reconstruction`, `ReconstructionReport`, `HistoryReport`, `HistoryVerification`, `VersionHistory`, `VersionEntry`, `VersionedValue<T>`, `StoredVersion`, `AsOfResult<T>`, `AsOfOutcome`, `SchemaSnapshot`, `SchemaMapping`, `VersionDiff`, `LogicalTime`, `HistoryCollections`, `HistoryDocuments`, `VersionNotFoundException`, `RestoreResult`, `RestoreRefusedException`, `RestoreRefusal`, `RelatedRestoreResult`, `RestoredRecord`, `RelatedRestoreRefusedException`, `RelatedRestoreRefusal` | 2.3–6.3 |
 | `BPlusTree` | `Floor(key)` | 2.4 |
-| `TokkDbConnection` | `SetRetentionPolicy(collection, policy, snapshotInterval, largeDeltaRatio, dropHistory)`, `Attribute(VersionAttribution)`, `PurgeHistory(collection, before)`, `SchemaAsOf(collection, moment)`, `HistoryReport(collection)`, `VerifyHistory(collection)` | 2.2, 2.3, 2.5, 4.3, 7.1, 7.4 |
-| `DbEntities<T>` | `RetentionPolicy { get; }`, `HeadVersion(recordId)`, `History(recordId)`, `GetAsOf(recordId, versionId)`, `GetAsOf(recordId, moment)`, `GetStoredAsOf(recordId, versionId)`, `Diff(recordId, from, to)`, `Restore(recordId, versionId)`, `RestoreAsOf(recordId, moment, followRelations)`, `PurgeHistory(recordId, before)`, `Erase(recordId)` | 3.2–7.3 |
+| `TokkDbConnection` | `SetRetentionPolicy(collection, policy, snapshotInterval, largeDeltaRatio, dropHistory)`, `Attribute(VersionAttribution)`, `PurgeHistory(collection, before, batchSize)` and its `PurgeReport`, `SchemaAsOf(collection, moment)`, `HistoryReport(collection)`, `VerifyHistory(collection)` | 2.2, 2.3, 2.5, 4.3, 7.1, 7.4 |
+| `DbEntities<T>` | `RetentionPolicy { get; }`, `HeadVersion(recordId)`, `History(recordId)`, `GetAsOf(recordId, versionId)`, `GetAsOf(recordId, moment)`, `GetStoredAsOf(recordId, versionId)`, `Diff(recordId, from, to)`, `Restore(recordId, versionId)`, `RestoreAsOf(recordId, moment, followRelations, cap)`, `PurgeHistory(recordId, before)`, `Erase(recordId)` | 3.2–7.3 |
 | `TokkDb.Assistant.Trace` | `DataChange.PreviousVersionId`, `DataChange.VersionId` | 9.1 |
 | `TokkDb.Assistant.Storage` | `IStorage.HeadVersion`, `.Keeps`, `.DiffVersions`, `.RestoreVersion`, `.PurgeRecordHistory`, `.Erase` | 9.2 |
 
@@ -263,13 +269,13 @@ Every decision has one of three classes.
 | V-16 | Related restore follows outgoing relations only | Blocking | here |
 | V-17 | The erasure boundary | Blocking | here |
 | V-18 | The assistant's journal holds version references for record changes | Blocking | here |
-| I-1 | The default keyframe interval *k* | Implementation-time | step 5.1 |
-| I-2 | The large-delta ratio | Implementation-time | step 5.1 |
+| I-1 | The default keyframe interval *k* | Implementation-time | Settled at step 5.2: *k* = 8, from the run of 2026-09-14 in `docs/benchmarks.md` ("Versioning — measurement"): history size is flat from *k* = 8 on the assistant-like workload and at 35% of full copy on small edits, with at most seven deltas and 1.25 ms per reconstruction; wide records edited one field at a time should override to 16 or 32 |
+| I-2 | The large-delta ratio | Implementation-time | Settled at step 5.2: 0.5, from the same run: neutral on every workload, and the rule that keeps a complete rewrite at the cost of a full copy rather than twice it |
 | I-3 | Whether a cumulative-bytes keyframe rule is added to the count rule | Future — see F-12 | — |
-| I-4 | Flipping the default to `KeepVersions` | Implementation-time, with your sign-off | step 5.2 |
+| I-4 | Flipping the default to `KeepVersions` | Implementation-time, with your sign-off | Settled at step 5.2 on 2026-09-14: yes, on the numbers of that run (an import at 2.3× the CPU and 166 bytes more file per row, edits at 1.9×, durable writes unchanged). `KeepVersions` at *k* = 8 and ratio 0.5 is the default for user collections created through `CreateCollection` and `CreateDatabase`; existing collections keep what they have |
 | I-5 | Where an array column's element key is declared | Implementation-time | Settled at step 1.5: `ColumnDescriptor.ElementKey`, a field of the column's declaration in the collection's catalogue document (D-4), empty by default. Nested arrays have no declaration and are positional |
-| I-6 | The cap on a related restore | Implementation-time | step 6.3 |
-| I-7 | The purge batch size | Implementation-time | step 7.1 |
+| I-6 | The cap on a related restore | Implementation-time | Settled at step 6.3: 1 000 records (`DbEntities.DefaultRelatedRestoreCap`, a parameter of `RestoreAsOf`). The set is gathered in memory before anything is written, so the cap bounds that planning and the one transaction after it; exceeding it fails naming the cap and the size reached |
+| I-7 | The purge batch size | Implementation-time | Settled at step 7.1: 256 record identifiers per batch (`TokkDbConnection.DefaultPurgeBatchSize`). A batch is only the identifiers read ahead of the one-record transactions that purge them — one range read, 16 bytes each in memory — so it bounds neither a transaction nor the purge, and 256 keeps a scan from being held open across more than a few dozen pages of changes to the index |
 | F-1 | Turning versioning off with a recorded gap | Future | A "history gap" outcome for `GetAsOf` and a gap node |
 | F-2 | Incoming relations, and finding a holder through history, in a related restore | Future | A temporal index over values |
 | F-3 | Queries over a whole collection as of a moment | Future | A temporal index |
@@ -543,7 +549,8 @@ once the cost is measured.** `KeepVersions` becomes the default for user collect
 `CreateCollection` and `CreateDatabase` at step 5.2, after step 5.1's measurements have been reviewed
 and signed off (I-4). Until then, the default is `None`. Existing collections keep what they have, and
 an empty stored policy reads as `None`. Reserved collections refuse `KeepVersions`.
-`DbEntities.RetentionPolicy` becomes a read-only view of the catalogue.
+`DbEntities.RetentionPolicy` becomes a read-only view of the catalogue. *Flipped at step 5.2 on
+2026-09-14 (I-4).*
 
 *Why:* VR-1 asks for history without application code, and VR-12 asks that switching the policy be
 the only change needed to start keeping versions. But every versioned write also writes a node, an
@@ -2041,28 +2048,30 @@ refer to it.
 
 ## 11. Traceability
 
-How each versioning item of the other two plans is closed. Step 8.3 fills in the tests column.
+How each versioning item of the other two plans is closed. Step 8.3 filled in the tests column for every
+step that had run; the assistant rows are filled by their steps in Phase 9, and VR-9 by step 6.3. Every
+test named is in `TokkDb.Tests` unless said otherwise.
 
 | Plan | Item | Closed by | Steps | Tests |
 |---|---|---|---|---|
 | Engine | D-5, the open question | V-1 | 0.1 | — |
-| Engine | VR-1 | HS-1, WV-1, V-13 | 2.2, 3.2, 5.2 | |
-| Engine | VR-2 | DL-1, DL-2, WV-2 | 1.1, 1.2, 3.2 | |
-| Engine | VR-3 | DL-3, DL-4, DL-8 | 1.3–1.5 | |
-| Engine | VR-4 | HS-5, HS-6, HS-9, RH-1 | 2.4, 2.5, 4.2 | |
-| Engine | VR-5 | RB-1, V-9, G-5 | 6.1 | |
-| Engine | VR-6 | V-1, WV-5, NF-3 | 3.2, 4.1, 5.1 | |
-| Engine | VR-7 | RH-2, RH-3, RH-4 | 4.2–4.4 | |
-| Engine | VR-8 | WV-3, RB-2 | 3.3, 6.2 | |
-| Engine | VR-9 | RB-5, V-16 | 6.3, after Phase 8 | |
-| Engine | VR-10 | HS-4, RP-7, NF-4 | 2.4, 5.1, 7.4 | |
-| Engine | VR-11 | HS-7, HS-8, V-6 | 2.1, 2.4, 3.2 | |
-| Engine | VR-12 | WV-2, WV-4, WV-8, V-1 | 3.2–3.4 | |
-| Engine | VR-13 | WV-6 | 3.2 | |
-| Engine | NFR-2, reconstruction under 50 ms | NF-1 | 8.3 | benchmark |
-| Engine | NFR-4 | NF-2 | 5.1, 8.3 | benchmark |
-| Engine | NFR-5 | DL-7, RP-8 | 1.4, 7.4 | |
-| Engine | NFR-8 | NF-6, §6 | 8.1, 8.2 | |
+| Engine | VR-1 | HS-1, WV-1, V-13 | 2.2, 3.2, 5.2 | `RetentionPolicyTests`, `HistoryCollectionTests`, `VersionRecordingTests` |
+| Engine | VR-2 | DL-1, DL-2, WV-2 | 1.1, 1.2, 3.2 | `Delta/DocumentDiffTests`, `Delta/DeltaPathTests`, `Delta/DeltaApplyTests`, `VersionRecordingTests` |
+| Engine | VR-3 | DL-3, DL-4, DL-8 | 1.3–1.5 | `Delta/ArrayDiffTests`, `Delta/KeyedArrayDiffTests`, `Delta/DeltaPropertyTests`, `Delta/DeltaStorageTests` |
+| Engine | VR-4 | HS-5, HS-6, HS-9, RH-1 | 2.4, 2.5, 4.2 | `VersionStoreTests`, `AttributionTests`, `HistoryReadTests` |
+| Engine | VR-5 | RB-1, V-9, G-5 | 6.1 | `RestoreTests`, `RestoreDeletedTests`, `VersioningGuaranteeTests` (G-4, G-5), `ScenarioTests` (S-2) |
+| Engine | VR-6 | V-1, WV-5, NF-3 | 3.2, 4.1, 5.1 | `VersionRecordingTests`, `ReconstructionTests`, `ScenarioTests` (S-5); `HistorySizeBenchmark` |
+| Engine | VR-7 | RH-2, RH-3, RH-4 | 4.2–4.4 | `HistoryReadTests`, `AsOfTests`, `VersionDiffTests`, `ScenarioTests` (S-3) |
+| Engine | VR-8 | WV-3, RB-2 | 3.3, 6.2 | `VersionDeleteTests`, `RestoreDeletedTests` |
+| Engine | VR-9 | RB-5, V-16 | 6.3, after Phase 8 | `RelatedRestoreTests` (S-9, N-11, the cycle, the cap, an unfollowed later relation, an untouched referrer) |
+| Engine | VR-10 | HS-4, RP-7, NF-4 | 2.4, 5.1, 7.4 | `VersionStoreTests`, `HistoryVerificationTests`; `HistorySizeBenchmark` |
+| Engine | VR-11 | HS-7, HS-8, V-6 | 2.1, 2.4, 3.2 | `IdentifierTests`, `VersionStoreTests`, `VersionRecordingTests` |
+| Engine | VR-12 | WV-2, WV-4, WV-8, V-1 | 3.2–3.4 | `VersionRecordingTests`, `VersionDeleteTests`, `VersionRewriteTests`, `MutableRecordTests`, `VersionAtomicityTests` |
+| Engine | VR-13 | WV-6 | 3.2 | `VersionRecordingTests` |
+| Engine | NFR-2, reconstruction under 50 ms | NF-1 | 8.3 | `HistorySizeBenchmark` (`docs/benchmarks.md`, 2026-09-14) |
+| Engine | NFR-4 | NF-2 | 5.1, 8.3 | `HistorySizeBenchmark`, `WriteAmplificationBenchmark` |
+| Engine | NFR-5 | DL-7, RP-8 | 1.4, 7.4 | `Delta/DeltaApplyTests`, `HistoryVerificationTests` |
+| Engine | NFR-8 | NF-6, §6 | 8.1, 8.2 | `Model/VersioningModelTests`, `VersioningGuaranteeTests` |
 | Engine | UI-1 | F-10 | — | — |
 | Assistant | D-17, "full undo waits for versioning" | V-18, AJ-4, AJ-5 | 9.3 | |
 | Assistant | SC-12, the six version operations | AJ-2 | 9.2 | |
@@ -2071,7 +2080,34 @@ How each versioning item of the other two plans is closed. Step 8.3 fills in the
 | Assistant | TR-6, the before-and-after table | AJ-6 | 9.4 | |
 | Assistant | TR-8, no purge inside the compensation window | AJ-8 | 9.3 | |
 | Assistant | AG-11a to AG-11f, compensation | AJ-4 | 9.3 | |
-| Assistant | NF-4d, NF-4d1 | V-17, RP-4, AJ-7 | 7.2, 9.4 | |
+| Assistant | NF-4d, NF-4d1 | V-17, RP-4, AJ-7 | 7.2, 9.4 | `SecureReleaseTests`, `EraseTests` (7.2, 7.3); the assistant's half at 9.4 |
+
+The requirements of §5 by group, and the tests that cover each (step 8.3):
+
+| Group | Tests |
+|---|---|
+| DL-1 to DL-8 | `Delta/DocumentDiffTests`, `Delta/DeltaPathTests`, `Delta/DeltaApplyTests`, `Delta/ArrayDiffTests`, `Delta/KeyedArrayDiffTests`, `Delta/DeltaPropertyTests`, `Delta/DeltaStorageTests` |
+| HS-1 to HS-10 | `RetentionPolicyTests`, `HistoryCollectionTests`, `Architecture/RetirementCallSiteTests`, `Architecture/VersionStoreArchitectureTests`, `VersionStoreTests`, `IdentifierTests`, `AttributionTests`, `SchemaHistoryTests`, `CollectionCatalogTests` |
+| WV-1 to WV-10 | `VersionRecordingTests`, `VersionDeleteTests`, `VersionRewriteTests`, `VersionAtomicityTests`, `SchemaHistoryTests`, `ReconstructionTests` |
+| RH-1 to RH-9 | `HistoryReadTests`, `ReconstructionTests`, `SchemaMappingTests`, `AsOfTests`, `VersionDiffTests` |
+| RB-1 to RB-4 | `RestoreTests`, `RestoreDeletedTests` |
+| RB-5 | `RelatedRestoreTests` |
+| RP-1 to RP-3 | `PurgeTests` |
+| RP-4 | `SecureReleaseTests`, `ItemsPageTests` |
+| RP-5 | `EraseTests` |
+| RP-6 | `SwitchOffTests`, `HistoryCollectionTests` |
+| RP-7, RP-8 | `HistoryVerificationTests` |
+| NF-1 to NF-5 | `docs/benchmarks.md` |
+| NF-6 | `Model/VersioningModelTests` |
+| NF-7 | `CompatibilityTests` (in `PreVersioningFixtureTests.cs`), `PreVersioningFixtureTests` |
+| G-1 to G-9 | `VersioningGuaranteeTests` |
+
+The scenarios of §7, and where each is a test: S-1 `RestoreDeletedTests`; S-2, S-3 and S-5 `ScenarioTests`; S-4
+`VersionDeleteTests`; S-6 `PurgeTests`; S-7, S-8 and S-10 the assistant's `UndoGuaranteeTests` (step 9.4);
+S-9 `RelatedRestoreTests`. N-1 `RetentionPolicyTests`; N-2 `HistoryCollectionTests`; N-3 `PurgeTests`; N-4, N-5 and N-12
+`RestoreTests`; N-6 `HistoryVerificationTests`; N-7 `VersionAtomicityTests`; N-8 `SchemaHistoryTests` and
+`VersionRewriteTests`; N-9 `AsOfTests` and `EraseTests`; N-10 `AsOfTests`; N-11 `RelatedRestoreTests`; N-13
+`VersionDiffTests`; N-14 the assistant's tests (step 9.3).
 
 ---
 

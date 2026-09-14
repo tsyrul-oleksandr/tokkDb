@@ -34,6 +34,11 @@ public sealed class VersionStore : IVersionStore {
   //lease. Null in the engine; a test can block here and show a schema change waiting.
   public Action<VersionNode> ReconstructionProbe { get; set; }
 
+  //RP-1's test hook: answers true for a node whose rerooting image the store is to drop, so
+  //that a test can show the purge rolling that record back rather than committing a history
+  //it cannot rebuild. Nothing in the engine sets it.
+  public Func<VersionNode, bool> DropRerootedImageForTests { get; set; }
+
   //V-11 and HS-4: the schema and relation nodes of every history collection, by history
   //collection name, read at open and kept current by the recording operations. Few, needed by
   //every reconstruction, and never scanned for.
@@ -209,8 +214,9 @@ public sealed class VersionStore : IVersionStore {
   //HS-2 and V-14. Every document is retired one by one rather than the catalogue entry being
   //dropped alone, because retiring is the path that secure release clears (RP-4), and a
   //collection dropped by its entry alone would leave every node's bytes on its pages. The
-  //version index's pages go back to the collection's pool the way a dropped secondary index's
-  //do (IndexCatalog.Drop), and step 7.2 clears them there.
+  //version index's pages are cleared and go back to the collection's pool the way a dropped
+  //secondary index's do (BPlusTree.ReleasePages). Every live image's pointer into the dropped
+  //history is zeroed, so that WV-10's first invariant — no history, a zero pointer — holds.
   public void DropHistory(string collectionName) {
     _transactionManager.RequireTransaction();
     var owner = _catalog.Get(collectionName);
@@ -219,15 +225,20 @@ public sealed class VersionStore : IVersionStore {
     }
     var name = HistoryCollections.NameFor(owner.Id);
     if (_catalog.Exists(name)) {
+      //V-17: the frame of this transaction would hold every node it retires.
+      _transactionManager.RequireTransaction().MarkForFrameDiscard();
       foreach (var row in _dataPageManager.GetAllRows(name).ToArray()) {
         _dataPageManager.RetireRow(name, row.Address, RecordFlags.Deleted);
       }
-      var index = Index(name);
-      foreach (var node in index.Nodes().ToList()) {
-        _freeSpace.RecordIndexPage(name, node.Index, inUse: false);
+      Index(name).ReleasePages();
+      foreach (var row in _dataPageManager.GetAllRows(collectionName).ToArray()) {
+        _dataPageManager.ZeroPreviousVersion(row.Address);
       }
       _catalog.SetVersionIndexRoot(name, default);
       _catalog.DropHistoryCollection(name);
+      //The next history collection of this owner has this same name; nothing of the dropped
+      //one's free space may be handed to it.
+      _freeSpace.Forget(name);
     }
     _schemaHistories.Remove(name);
     _catalog.SetHistoryCollectionId(collectionName, default);
@@ -313,14 +324,13 @@ public sealed class VersionStore : IVersionStore {
       ObjectDocument previousImage, RecordHeader newHead, ObjectDocument newImage, DocumentDelta delta,
       Ulid? restoredVersion) {
     ArgumentNullException.ThrowIfNull(previousHead);
-    ArgumentNullException.ThrowIfNull(previousImage);
     ArgumentNullException.ThrowIfNull(newHead);
     ArgumentNullException.ThrowIfNull(newImage);
     ArgumentNullException.ThrowIfNull(delta);
     _transactionManager.RequireTransaction();
     var owner = _catalog.Get(collectionName);
     var operationId = EnsureOperation(HistoryOf(collectionName));
-    var headNode = HeadNodeWithImage(collectionName, previousHead, (ObjectDocumentValue)previousImage.Value, operationId);
+    var headNode = HeadNodeWithImage(collectionName, previousHead, (ObjectDocumentValue)previousImage?.Value, operationId);
     var parent = restoredVersion is { } restored
       ? Node(collectionName, previousHead.RecordId, restored)
         ?? throw new InvalidOperationException($"Version {restored} of record {previousHead.RecordId} is not kept.")
@@ -375,6 +385,10 @@ public sealed class VersionStore : IVersionStore {
       Ulid operationId) {
     var headNode = HeadNode(collectionName, head);
     if (headNode is null) {
+      if (storedImage is null) {
+        throw new InvalidOperationException(
+          $"Record {head.RecordId} has no node for its head {head.VersionId} and no image to write one from.");
+      }
       var baseline = new VersionNode {
         RecordId = head.RecordId, VersionId = head.VersionId, Kind = VersionKind.Baseline, Parent = null,
         OperationId = operationId, SchemaVersion = head.SchemaVersion, Distance = 0, Image = storedImage,
@@ -382,7 +396,7 @@ public sealed class VersionStore : IVersionStore {
       };
       return baseline.With(WriteNode(collectionName, baseline));
     }
-    if (headNode.IsKeyframe && headNode.Image is null) {
+    if (headNode.IsKeyframe && headNode.Image is null && storedImage is not null) {
       return RewriteNode(collectionName, headNode.WithImage(storedImage, head.SchemaVersion));
     }
     return headNode;
@@ -623,20 +637,118 @@ public sealed class VersionStore : IVersionStore {
     return document;
   }
 
-  public void Reroot(string collectionName, Ulid recordId, Ulid versionId, ObjectDocument image, Ulid cutFrom) {
-    throw NotYet("7.1");
+  //V-15 step 3. The node is written again as a root, the way a keyframe is written again when
+  //it gains its image (RewriteNode): it keeps its identity, which every other node refers to,
+  //and its address moves, which the head's pointer tolerates (HS-8). A tombstone keeps a
+  //distance of 1 rather than 0, as WV-3 gave it, so that it is never taken for a keyframe that
+  //should hold an image; every other rerooted node is a keyframe, with the image it was given
+  //or already held — or with none when it is the live head, whose image is live.
+  public void Reroot(string collectionName, Ulid recordId, Ulid versionId, ObjectDocument image, ushort imageSchemaVersion,
+      Ulid cutFrom) {
+    _transactionManager.RequireTransaction();
+    var node = Node(collectionName, recordId, versionId)
+      ?? throw new VersionNotFoundException(collectionName, recordId, versionId);
+    var storedImage = node.Image;
+    var storedSchema = node.ImageSchemaVersion;
+    if (storedImage is null && image is not null && DropRerootedImageForTests?.Invoke(node) != true) {
+      storedImage = (ObjectDocumentValue)image.Value;
+      storedSchema = imageSchemaVersion;
+    }
+    RewriteNode(collectionName, new VersionNode {
+      RecordId = recordId, VersionId = versionId, Kind = node.Kind, Parent = null, OperationId = node.OperationId,
+      SchemaVersion = node.SchemaVersion, Distance = node.Kind == VersionKind.Delete ? 1 : 0, Delta = null,
+      Image = storedImage, ImageSchemaVersion = storedImage is null ? (ushort)0 : storedSchema,
+      ReplacedHead = node.ReplacedHead, CutFrom = cutFrom, Address = node.Address
+    });
   }
 
+  //V-15 step 4. A version already gone is skipped rather than refused: the purge that removes
+  //it may have been interrupted after this record's commit and be running again (RP-1).
   public void Remove(string collectionName, Ulid recordId, IReadOnlyCollection<Ulid> versionIds) {
-    throw NotYet("7.1");
+    ArgumentNullException.ThrowIfNull(versionIds);
+    _transactionManager.RequireTransaction();
+    var history = HistoryOf(collectionName);
+    var index = Index(history);
+    foreach (var versionId in versionIds) {
+      var key = NodeKey(recordId, versionId);
+      if (index.Find(key) is not { } address) {
+        continue;
+      }
+      _dataPageManager.RetireRow(history, address, RecordFlags.Deleted);
+      index.Delete(key);
+    }
   }
 
+  //RP-1 and I-7. One range read from just above the last record of the previous batch; it
+  //stops as soon as it has the batch, so what it costs is the batch, not the history. An
+  //operation's key names no record and the schema history's names none either (V-5).
+  public IReadOnlyList<Ulid> NextRecords(string collectionName, Ulid? after, int limit) {
+    ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
+    var history = HistoryOf(collectionName);
+    var from = after is { } last ? CompositeKey.AboveValuePrefix(KeyEncoder.Encode(last)) : null;
+    var records = new List<Ulid>(limit);
+    Ulid? current = null;
+    foreach (var entry in Index(history).Range(from, null)) {
+      var recordId = DecodeRecordId(entry.Key);
+      if (recordId == current || recordId == SchemaHistoryKey || recordId == CompositeKey.ReadRecordId(entry.Key)) {
+        continue;
+      }
+      current = recordId;
+      records.Add(recordId);
+      if (records.Count == limit) {
+        break;
+      }
+    }
+    return records;
+  }
+
+  //V-15. The one scan a purge makes: every operation document in the history, and every
+  //operation a node still names; what is in the first set and not the second is retired. A
+  //scan, because nothing but a scan can know what no node references — which is why a
+  //per-record purge and an erase leave operations to the pass that ends a collection-wide
+  //purge (V-12).
+  public int RemoveUnreferencedOperations(string collectionName) {
+    _transactionManager.RequireTransaction();
+    var history = HistoryOf(collectionName);
+    var index = Index(history);
+    var operations = new Dictionary<Ulid, DocumentAddress>();
+    var referenced = new HashSet<Ulid>();
+    foreach (var entry in index.Scan()) {
+      var versionId = CompositeKey.ReadRecordId(entry.Key);
+      var recordId = DecodeRecordId(entry.Key);
+      if (recordId == SchemaHistoryKey) {
+        continue;
+      }
+      if (recordId == versionId) {
+        operations[versionId] = entry.Address;
+        continue;
+      }
+      referenced.Add(ReadNode(recordId, entry.Address).OperationId);
+    }
+    var removed = 0;
+    foreach (var (operationId, address) in operations) {
+      if (referenced.Contains(operationId)) {
+        continue;
+      }
+      _dataPageManager.RetireRow(history, address, RecordFlags.Deleted);
+      index.Delete(OperationKey(operationId));
+      removed++;
+    }
+    return removed;
+  }
+
+  //RP-5 and V-17. Every node of the record, tombstone included, retired with its index entry;
+  //the operation documents stay, holding no record values (V-12), for the collection's next
+  //purge. The transaction is marked to discard its frame, whose before images are the nodes.
   public void EraseRecord(string collectionName, Ulid recordId) {
-    throw NotYet("7.3");
+    var transaction = _transactionManager.RequireTransaction();
+    Remove(collectionName, recordId, Nodes(collectionName, recordId).Select(node => node.VersionId).ToList());
+    transaction.MarkForFrameDiscard();
   }
 
   //WV-10. The four invariants, checked by scanning the history collection, its index and the
-  //collection's live images — the one place a scan of a history collection is the point.
+  //collection's live images — the one place a scan of a history collection is the point. The
+  //first problem's node is named (RP-8).
   public HistoryVerification Verify(string collectionName) {
     var owner = _catalog.Get(collectionName);
     if (owner.HistoryCollectionId == default) {
@@ -644,6 +756,15 @@ public sealed class VersionStore : IVersionStore {
     }
     var history = HistoryOf(collectionName);
     var problems = new List<string>();
+    Ulid? failingRecord = null;
+    Ulid? failingVersion = null;
+    void Problem(string text, Ulid? recordId, Ulid? versionId) {
+      problems.Add(text);
+      if (failingRecord is null && failingVersion is null) {
+        failingRecord = recordId;
+        failingVersion = versionId;
+      }
+    }
 
     //Invariant 2, one way: every index entry addresses a live document of the kind its key says.
     var entries = 0;
@@ -656,21 +777,21 @@ public sealed class VersionStore : IVersionStore {
       if (recordId == versionId || recordId == SchemaHistoryKey) {
         //An operation, a schema node or a relation node: checked for presence only.
         if (_dataPageManager.LiveRowAt(entry.Address) is null) {
-          problems.Add($"index entry for document {versionId} addresses no live document");
+          Problem($"index entry for document {versionId} addresses no live document", null, null);
         }
         continue;
       }
       if (_dataPageManager.LiveRowAt(entry.Address) is not { } row) {
-        problems.Add($"index entry for version {versionId} of record {recordId} addresses no live document");
+        Problem($"index entry for version {versionId} of record {recordId} addresses no live document", recordId, versionId);
         continue;
       }
       var record = StoredRecordUtilities.FromBuffer(_dataPageManager.ReadRecordBuffer(row));
       if (record.Header.RecordId != versionId || HistoryDocuments.TypeOf(record.Document) != HistoryDocuments.NodeType) {
-        problems.Add($"index entry for version {versionId} of record {recordId} addresses document {record.Header.RecordId}");
+        Problem($"index entry for version {versionId} of record {recordId} addresses document {record.Header.RecordId}", recordId, versionId);
         continue;
       }
       if (nodesByVersion.ContainsKey(versionId)) {
-        problems.Add($"version {versionId} has more than one index entry");
+        Problem($"version {versionId} has more than one index entry", recordId, versionId);
         continue;
       }
       var node = HistoryDocuments.ReadNode(recordId, record).With(entry.Address);
@@ -690,7 +811,8 @@ public sealed class VersionStore : IVersionStore {
       }
       documents++;
       if (!nodesByVersion.TryGetValue(record.Header.RecordId, out var node) || node.Address != row.Address) {
-        problems.Add($"node {record.Header.RecordId} has no index entry addressing it");
+        //The document carries its version; which record it belongs to is what the missing entry said.
+        Problem($"node {record.Header.RecordId} has no index entry addressing it", null, record.Header.RecordId);
       }
     }
 
@@ -704,21 +826,19 @@ public sealed class VersionStore : IVersionStore {
       seen.Add(header.RecordId);
       if (!byRecord.TryGetValue(header.RecordId, out var nodes)) {
         if (header.PreviousVersion != default) {
-          problems.Add($"live record {header.RecordId} has no history but a pointer to page {header.PreviousVersion.PageIndex}");
+          Problem($"live record {header.RecordId} has no history but a pointer to page {header.PreviousVersion.PageIndex}", header.RecordId, header.VersionId);
         }
         continue;
       }
       var head = nodes.MaxBy(node => node.VersionId);
       if (head!.VersionId != header.VersionId) {
-        problems.Add(nodesByVersion.ContainsKey(header.VersionId)
+        Problem(nodesByVersion.ContainsKey(header.VersionId)
           ? $"record {header.RecordId} has two heads: the live image {header.VersionId} and node {head.VersionId}"
-          : $"live record {header.RecordId} at version {header.VersionId} has no head node");
+          : $"live record {header.RecordId} at version {header.VersionId} has no head node", header.RecordId, head.VersionId);
       }
-      if (header.PreviousVersion != default && nodesByVersion.TryGetValue(header.VersionId, out var own)
-          && own.Address != header.PreviousVersion) {
-        problems.Add($"live record {header.RecordId} points at page {header.PreviousVersion.PageIndex} slot {header.PreviousVersion.SlotIndex}, not at its head node");
-      }
-      CheckImages(nodes, head.VersionId, problems);
+      //The pointer is not an invariant: a purge that reroots the head moves its node and leaves
+      //the pointer behind, which HS-8 allows — it is checked before use and the index answers.
+      CheckImages(nodes, head.VersionId, Problem);
     }
     foreach (var (recordId, nodes) in byRecord) {
       if (seen.Contains(recordId)) {
@@ -726,21 +846,70 @@ public sealed class VersionStore : IVersionStore {
       }
       var head = nodes.MaxBy(node => node.VersionId);
       if (head!.Kind != VersionKind.Delete) {
-        problems.Add($"record {recordId} has no live image and its last node {head.VersionId} is not a tombstone");
+        Problem($"record {recordId} has no live image and its last node {head.VersionId} is not a tombstone", recordId, head.VersionId);
       }
-      CheckImages(nodes, head.VersionId, problems);
+      CheckImages(nodes, head.VersionId, Problem);
     }
 
     return new HistoryVerification {
-      Problems = problems, Records = seen.Union(byRecord.Keys).Count(), Nodes = documents, IndexEntries = entries
+      Problems = problems, Records = seen.Union(byRecord.Keys).Count(), Nodes = documents, IndexEntries = entries,
+      FailingRecord = failingRecord, FailingVersion = failingVersion
+    };
+  }
+
+  //RP-7. One scan of the index, reading each node once, and one of the history collection's
+  //rows for the page count.
+  public HistoryReport Report(string collectionName) {
+    var owner = _catalog.Get(collectionName);
+    if (owner.HistoryCollectionId == default) {
+      return new HistoryReport { CollectionName = collectionName };
+    }
+    var history = HistoryOf(collectionName);
+    var records = new HashSet<Ulid>();
+    int nodes = 0, keyframes = 0, operations = 0;
+    long deltaBytes = 0, imageBytes = 0;
+    ushort? oldest = null;
+    void Refer(ushort schemaVersion) {
+      oldest = oldest is { } known && known <= schemaVersion ? known : schemaVersion;
+    }
+    foreach (var entry in Index(history).Scan()) {
+      var versionId = CompositeKey.ReadRecordId(entry.Key);
+      var recordId = DecodeRecordId(entry.Key);
+      if (recordId == SchemaHistoryKey) {
+        continue;
+      }
+      if (recordId == versionId) {
+        operations++;
+        continue;
+      }
+      var node = ReadNode(recordId, entry.Address);
+      records.Add(recordId);
+      nodes++;
+      if (node.IsKeyframe) {
+        keyframes++;
+      }
+      if (node.Delta is not null) {
+        deltaBytes += CanonicalValue.Bytes(node.Delta.ToDocumentValue()).Length;
+      }
+      if (node.Image is not null) {
+        imageBytes += CanonicalValue.Bytes(node.Image).Length;
+        Refer(node.ImageSchemaVersion);
+      }
+      Refer(node.SchemaVersion);
+    }
+    var dataPages = _dataPageManager.GetAllRows(history).Select(row => row.Address.PageIndex).Distinct().Count();
+    return new HistoryReport {
+      CollectionName = collectionName, Records = records.Count, Nodes = nodes, Keyframes = keyframes, Operations = operations,
+      DeltaBytes = deltaBytes, ImageBytes = imageBytes, DataPages = dataPages, IndexPages = Index(history).Nodes().Count(),
+      OldestSchemaVersion = oldest
     };
   }
 
   //Invariant 4: every node that is not a head, and whose distance is 0, holds an image.
-  private static void CheckImages(List<VersionNode> nodes, Ulid head, List<string> problems) {
+  private static void CheckImages(List<VersionNode> nodes, Ulid head, Action<string, Ulid?, Ulid?> problem) {
     foreach (var node in nodes) {
       if (node.VersionId != head && node.Distance == 0 && node.Image is null) {
-        problems.Add($"keyframe {node.VersionId} of record {node.RecordId} has left the head and holds no image");
+        problem($"keyframe {node.VersionId} of record {node.RecordId} has left the head and holds no image", node.RecordId, node.VersionId);
       }
     }
   }
@@ -757,9 +926,5 @@ public sealed class VersionStore : IVersionStore {
       }
     }
     return KeyEncoder.DecodeUlid(bytes.ToArray());
-  }
-
-  private static NotImplementedException NotYet(string step) {
-    return new NotImplementedException($"Arrives at step {step} of docs/versioning-requirements-and-plan.md.");
   }
 }

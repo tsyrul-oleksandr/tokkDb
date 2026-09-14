@@ -87,6 +87,18 @@ public sealed class StoredVersion {
   public ReconstructionReport Report { get; init; }
 }
 
+//RB-1, RB-2 and RB-4. What a restore did: the version it wrote as the new head, the head it
+//replaced — a tombstone for a deleted record — and every value the current schema could not
+//take.
+public sealed class RestoreResult {
+  public Ulid RecordId { get; init; }
+  public Ulid RestoredVersion { get; init; }
+  public Ulid NewVersion { get; init; }
+  public Ulid ReplacedHead { get; init; }
+  public bool WasDeleted { get; init; }
+  public IReadOnlyList<Unmapped> Unmapped { get; init; } = [];
+}
+
 //RH-3. Why a moment has no version for a record: each a different answer, never a null.
 public enum AsOfOutcome {
   Found = 1,

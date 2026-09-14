@@ -209,7 +209,7 @@ public class DataPageManager {
       var page = LoadOverflowPage(next);
       next = page.NextPageIndex;
       page.NextPageIndex = default;
-      page.PayloadLength = 0;
+      page.ClearPayload();
       _transactionManager.Track(page);
       _freeSpace.RecordOverflowPage(collectionName, page.Index, inUse: false);
     }
@@ -302,6 +302,8 @@ public class DataPageManager {
         $"it occupies on page {address.PageIndex}.");
     }
     StoredRecordUtilities.ToBuffer(header, document, slot);
+    //V-17: the rest of the slot, beyond the shorter record now in it, is cleared.
+    slot.Clear(length, slot.Length - length);
     _transactionManager.Track(page);
   }
 
@@ -379,9 +381,10 @@ public class DataPageManager {
     return KeyEncoder.Encode(recordId).Bytes;
   }
 
-  //The catalogue's own collections are not indexed in this pass. A tree reads its root out
-  //of the catalogue document, and _collections has to be readable before any document can
-  //be read — page 0 keeps a CollectionsPrimaryIndexRoot for when that circle is closed.
+  //The reserved collections are not indexed (F-6). A tree reads its root out of the catalogue
+  //document, and _collections has to be readable before any document can be read — page 0
+  //keeps a CollectionsPrimaryIndexRoot for when that circle is closed. The version store
+  //owns its own tree over each history collection and never scans one (V-5).
   private bool IsIndexed(string collectionName) {
     return !_catalog.Get(collectionName).IsSystem;
   }
@@ -482,11 +485,12 @@ public class DataPageManager {
   //version is the version store's business, done beside this through the seam, never by
   //keeping the image where it lies (V-1, V-4).
   //
-  //Its callers (HS-3): the RemoveCurrentVersion seam of VR-12 in DbEntities, for user records;
-  //SystemDocumentStore.Write and Delete, the three catalogues (CollectionCatalog.DropCollection,
-  //IndexCatalog.Drop, RelationCatalog.Remove), which touch only reserved collections; and
-  //TokkDbConnection.DropCollection, which retires every record of a user collection together
-  //with its history.
+  //Its callers (HS-3): the RemoveCurrentVersion seam of VR-12 in DbEntities, for user records —
+  //reached by the seam's writes and by Erase (RP-5); SystemDocumentStore.Write and Delete, the
+  //three catalogues (CollectionCatalog.DropCollection, IndexCatalog.Drop, RelationCatalog.Remove),
+  //which touch only reserved collections; TokkDbConnection.DropCollection, which retires every
+  //record of a user collection together with its history; and the version store, for the
+  //documents of a history collection only.
   public void RetireRow(string collectionName, DocumentAddress address, RecordFlags flags) {
     var page = LoadPage(address.PageIndex);
     //The image is marked before it goes, so that keeping it instead becomes a matter of not
@@ -522,6 +526,22 @@ public class DataPageManager {
     _transactionManager.Track(page);
     _catalog.DecrementRecordCount(collectionName);
     RecordFreeSpace(collectionName, page);
+  }
+
+  //V-14 and WV-10 invariant 1. When a collection's history is dropped, every live image that
+  //pointed into it has its pointer zeroed, so that "no history" and "a zero pointer" stay one
+  //fact. The header alone is rewritten where it lies; the image is not touched, which is why
+  //this is not one of the in-place rewrites HS-3 lists.
+  public void ZeroPreviousVersion(DocumentAddress address) {
+    var page = LoadPage(address.PageIndex);
+    var slot = page.GetItem(address.SlotIndex);
+    var header = StoredRecordUtilities.ReadHeader(slot);
+    if (header.PreviousVersion == default) {
+      return;
+    }
+    header.PreviousVersion = default;
+    StoredRecordUtilities.WriteHeader(header, slot);
+    _transactionManager.Track(page);
   }
 
   private void RecordFreeSpace(string collectionName, DataPage page) {

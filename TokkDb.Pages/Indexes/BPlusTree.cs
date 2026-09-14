@@ -526,8 +526,24 @@ public class BPlusTree {
     return page;
   }
 
+  //V-17: a node a merge empties goes back to the pool cleared, which costs writing it once
+  //more; the merge already wrote its sibling and its parent.
   private void Retire(BaseIndexPage page) {
+    page.ClearForRelease();
+    Track(page);
     _freeSpace.RecordIndexPage(_collectionName, page.Index, inUse: false);
+  }
+
+  //RP-4 and V-17. Every node of the tree cleared and recorded as retired, for an index that is
+  //dropped — by DropIndex, a SetColumns rebuild or DropCollection — or a history's version
+  //index dropped with it. The nodes are listed before any is cleared, because the walk reads
+  //children out of the interior nodes it clears.
+  public void ReleasePages() {
+    foreach (var node in Nodes().ToList()) {
+      node.ClearForRelease();
+      Track(node);
+      _freeSpace.RecordIndexPage(_collectionName, node.Index, inUse: false);
+    }
   }
 
   //The identity map first: a node this transaction has already changed must not be read back

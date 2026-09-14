@@ -1,6 +1,7 @@
 using TokkDb.Pages;
 using TokkDb.Pages.Query;
 using TokkDb.Tests.Fixtures;
+using TokkDb.Values;
 using Xunit;
 
 namespace TokkDb.Tests;
@@ -13,7 +14,8 @@ public class RetentionPolicyTests {
     using var file = new TempDatabaseFile();
     using (var db = new TokkDbConnection(file.Path)) {
       db.CreateDatabase(config => config.CreateEntity<Person>());
-      Assert.Equal(RetentionPolicy.None, db.Collection(nameof(Person)).RetentionPolicy);
+      //I-4: a new user collection keeps versions from the start.
+      Assert.Equal(RetentionPolicy.KeepVersions, db.Collection(nameof(Person)).RetentionPolicy);
 
       var descriptor = db.SetRetentionPolicy(nameof(Person), RetentionPolicy.KeepVersions, snapshotInterval: 16,
         largeDeltaRatio: 0.75);
@@ -33,14 +35,80 @@ public class RetentionPolicyTests {
     Assert.Equal(RetentionPolicy.KeepVersions, reopened.Entities<Person>().RetentionPolicy);
   }
 
+  //I-1, I-2 and I-4: a user collection created through the connection keeps versions at k = 8
+  //and ratio 0.5, with its history collection made in the same transaction; a reserved one does
+  //not.
   [Fact]
-  public void TheDefaultsAreNoneAndTheStandInsForTheUnmeasuredValues() {
+  public void ANewUserCollectionKeepsVersionsAtTheAcceptedDefaults() {
     using var file = new TempDatabaseFile();
-    using var db = new TokkDbConnection(file.Path);
-    db.CreateDatabase(config => config.CreateEntity<Person>());
-    var descriptor = db.SetRetentionPolicy(nameof(Person), RetentionPolicy.KeepVersions);
-    Assert.Equal(8, descriptor.SnapshotInterval);
-    Assert.Equal(0.5, descriptor.LargeDeltaRatio);
+    using (var db = new TokkDbConnection(file.Path)) {
+      db.CreateDatabase(config => config.CreateEntity<Person>());
+      db.CreateCollection("City", [new ColumnDescriptor("Name", ValueTypeEnum.String, unique: true)]);
+      foreach (var name in new[] { nameof(Person), "City" }) {
+        var descriptor = db.Collection(name);
+        Assert.Equal(RetentionPolicy.KeepVersions, descriptor.RetentionPolicy);
+        Assert.Equal(8, descriptor.SnapshotInterval);
+        Assert.Equal(0.5, descriptor.LargeDeltaRatio);
+        Assert.NotEqual(default, descriptor.HistoryCollectionId);
+        Assert.Contains(db.Collections, collection => collection.Id == descriptor.HistoryCollectionId);
+      }
+      Assert.All(db.Collections.Where(collection => collection.IsSystem),
+        collection => Assert.Equal(RetentionPolicy.None, collection.RetentionPolicy));
+      //And the first write records a version without anyone asking for it (VR-1).
+      var people = db.Entities<Person>();
+      var id = people.Insert(TestPeople.Ivan());
+      Assert.Single(db.Versions.Nodes(nameof(Person), id));
+    }
+
+    using var reopened = new TokkDbConnection(file.Path);
+    reopened.Load();
+    Assert.Equal(RetentionPolicy.KeepVersions, reopened.Collection("City").RetentionPolicy);
+  }
+
+  //The collection and its history commit together: a failure anywhere leaves neither.
+  [Fact]
+  public void ACollectionAndItsHistoryAreCreatedTogether() {
+    int writes;
+    using (var file = new TempDatabaseFile()) {
+      using (var db = new TokkDbConnection(file.Path)) {
+        db.CreateDatabase(config => config.CreateEntity<Person>());
+      }
+      using var disk = new FaultInjectingDiskManager(file.Path);
+      using (var db = new TokkDbConnection(disk)) {
+        db.Load();
+        db.CreateCollection("City", [new ColumnDescriptor("Name", ValueTypeEnum.String)]);
+      }
+      writes = disk.WriteCount;
+    }
+    var fired = 0;
+    for (var killAfter = 1; killAfter <= writes; killAfter++) {
+      using var file = new TempDatabaseFile();
+      using (var db = new TokkDbConnection(file.Path)) {
+        db.CreateDatabase(config => config.CreateEntity<Person>());
+      }
+      var disk = new FaultInjectingDiskManager(file.Path, killAfter);
+      var attempt = new TokkDbConnection(disk);
+      try {
+        attempt.Load();
+        attempt.CreateCollection("City", [new ColumnDescriptor("Name", ValueTypeEnum.String)]);
+      } catch (SimulatedProcessKillException) {
+        fired++;
+      } finally {
+        attempt.Dispose();
+      }
+      using var reopened = new TokkDbConnection(file.Path);
+      reopened.Load();
+      var city = reopened.Collections.SingleOrDefault(collection => collection.Name == "City");
+      var histories = reopened.Collections.Count(collection => Pages.Versions.HistoryCollections.IsHistoryName(collection.Name));
+      if (city is null) {
+        Assert.Equal(1, histories);
+      } else {
+        Assert.Equal(2, histories);
+        Assert.Equal(RetentionPolicy.KeepVersions, city.RetentionPolicy);
+        Assert.Contains(reopened.Collections, collection => collection.Id == city.HistoryCollectionId);
+      }
+    }
+    Assert.True(fired > 0);
   }
 
   //A database written before this plan existed says nothing about retention, and that reads
@@ -86,9 +154,9 @@ public class RetentionPolicyTests {
     Assert.Throws<ArgumentOutOfRangeException>(() =>
       db.SetRetentionPolicy(nameof(Person), RetentionPolicy.KeepVersions, interval, ratio));
 
-    //Refused before anything was written.
+    //Refused before anything was written: the defaults the collection was created with stand.
     var descriptor = db.Collection(nameof(Person));
-    Assert.Equal(RetentionPolicy.None, descriptor.RetentionPolicy);
+    Assert.Equal(RetentionPolicy.KeepVersions, descriptor.RetentionPolicy);
     Assert.Equal(CollectionDescriptor.DefaultSnapshotInterval, descriptor.SnapshotInterval);
     Assert.Equal(CollectionDescriptor.DefaultLargeDeltaRatio, descriptor.LargeDeltaRatio);
   }

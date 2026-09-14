@@ -98,7 +98,7 @@ public sealed class LazyMigrationTests : IDisposable
         using (var connection = new TokkDbConnection(_databaseFilePath))
         {
             connection.Load();
-            connection.SetRetentionPolicy("Article", RetentionPolicy.None);
+            connection.SetRetentionPolicy("Article", RetentionPolicy.None, dropHistory: true);
         }
 
         using var storage = new TokkDbStorage(_databaseFilePath);

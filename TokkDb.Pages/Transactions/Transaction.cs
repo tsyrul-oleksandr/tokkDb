@@ -57,6 +57,16 @@ public class Transaction {
   public DateTime OperationRecordedAt { get; set; }
   public HashSet<string> HistoriesWithOperation { get; } = new(StringComparer.Ordinal);
 
+  //V-17's journal rule. A transaction that erased something, dropped a collection, purged
+  //history or dropped history discards its journal frame as soon as its commit record is
+  //durable, because the frame's before images are the very bytes it released. The mark is
+  //the outermost transaction's: a nested one that erases joins a commit that then discards.
+  public bool DiscardsJournalFrame { get; private set; }
+
+  public void MarkForFrameDiscard() {
+    Outermost.DiscardsJournalFrame = true;
+  }
+
   public void Commit() {
     RequireActive();
     if (IsRollbackOnly) {
@@ -68,7 +78,7 @@ public class Transaction {
       if (Pages.Count > 0) {
         _transactionManager.BeforeOutermostCommit?.Invoke();
       }
-      _pageManager.CommitPages(Id, Pages.ToArray());
+      _pageManager.CommitPages(Id, Pages.ToArray(), DiscardsJournalFrame);
     } else {
       //Nothing durable happens here. The pages become the containing transaction's problem.
       Parent.Absorb(this);

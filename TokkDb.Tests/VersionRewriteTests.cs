@@ -22,10 +22,12 @@ public class VersionRewriteTests {
     ];
   }
 
-  //Two records written before versioning, two after; then the changes and the rewrite.
+  //Two records written before versioning, two after; then the changes and the rewrite. The
+  //collection is created versioned (I-4), so it is switched off first, history and all.
   private static (List<Ulid> Before, List<Ulid> After) Populate(TokkDbConnection db) {
     db.Load();
     db.CreateCollection(Collection, PersonColumns());
+    db.SetRetentionPolicy(Collection, RetentionPolicy.None, dropHistory: true);
     var people = db.Entities<Person>();
     var before = Enumerable.Range(0, 2).Select(i => people.Insert(TestPeople.Numbered(i))).ToList();
     db.SetRetentionPolicy(Collection, RetentionPolicy.KeepVersions);

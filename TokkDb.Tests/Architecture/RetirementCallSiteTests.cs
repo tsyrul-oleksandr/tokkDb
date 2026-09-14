@@ -19,8 +19,8 @@ public class RetirementCallSiteTests {
 
   //(file, enclosing member, the call as written) → why it is safe.
   private static readonly Dictionary<(string File, string Member, string Call), string> Recorded = new() {
-    [("TokkDb/DbEntities.cs", "RemoveCurrentVersion", "_dataPageManager.RetireRow(_entityName, current.Address, flags);")] =
-      "the write seam: the one retirement of a user record's image, which records the version first (step 3.2)",
+    [("TokkDb/DbEntities.cs", "RemoveCurrentVersion", "_dataPageManager.RetireRow(collectionName, current.Address, flags);")] =
+      "the write seam: the one retirement of a user record's image, which records the version first (step 3.2); Erase reaches it too (RP-5)",
     [("TokkDb/TokkDbConnection.cs", "DropCollection", "_dataPageManager.RetireRow(collectionName, row.Address, RecordFlags.Deleted);")] =
       "DropCollection: removes the records together with their history (HS-2), one of the four paths",
     [("TokkDb.Pages/Relations/RelationCatalog.cs", "Remove", "_dataPageManager.RetireRow(SystemCollections.Relations, row.Address, RecordFlags.Deleted);")] =
@@ -42,7 +42,7 @@ public class RetirementCallSiteTests {
     [("TokkDb.Pages/Managers/DataPageManager.cs", "RewriteRow", "page.FreeItem(address.SlotIndex);")] =
       "RewriteRow frees the slot it moves out of; a user record reaches it only through MigrateRow, so through Rewrite",
     [("TokkDb.Pages/Managers/DataPageManager.cs", "RetireRow", "page.FreeItem(address.SlotIndex);")] =
-      "RetireRow frees the retired image's slot; a user record reaches it only through the seam, DropCollection or (step 7.3) Erase",
+      "RetireRow frees the retired image's slot; a user record reaches it only through the seam, DropCollection or Erase",
     [("TokkDb.Pages/Managers/SystemDocumentStore.cs", "Write", "_dataPageManager.UpdateRow(row.Value.Address, header, document);")] =
       "reserved collections only: Require refuses any other name",
     [("TokkDb.Pages/Managers/SystemDocumentStore.cs", "Write", "_dataPageManager.RetireRow(collectionName, row.Value.Address, RecordFlags.Superseded);")] =
@@ -54,7 +54,11 @@ public class RetirementCallSiteTests {
     [("TokkDb.Pages/Versions/VersionStore.cs", "DropHistory", "_dataPageManager.RetireRow(name, row.Address, RecordFlags.Deleted);")] =
       "a history collection only, on behalf of DropCollection or V-14, and never a live image",
     [("TokkDb.Pages/Versions/VersionStore.cs", "RewriteNode", "_dataPageManager.RetireRow(history, node.Address, RecordFlags.Deleted);")] =
-      "a history collection only: a node document written again with its image (WV-2 step 2), never a live image"
+      "a history collection only: a node document written again with its image (WV-2 step 2), never a live image",
+    [("TokkDb.Pages/Versions/VersionStore.cs", "Remove", "_dataPageManager.RetireRow(history, address, RecordFlags.Deleted);")] =
+      "a history collection only: the nodes a purge removes (V-15 step 4), on behalf of layer 4, never a live image",
+    [("TokkDb.Pages/Versions/VersionStore.cs", "RemoveUnreferencedOperations", "_dataPageManager.RetireRow(history, address, RecordFlags.Deleted);")] =
+      "a history collection only: the operation documents no node references, at the end of a collection-wide purge (V-15)"
   };
 
   public static string RepositoryRoot() {

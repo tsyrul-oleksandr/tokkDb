@@ -1,6 +1,7 @@
 namespace TokkDb.Pages;
 
-//D-5 and V-13. What becomes of a record image once it stops being the current one. Persisted
+//V-1 and V-13, which settled D-5. What becomes of a record image once it stops being the
+//current one. Persisted
 //per collection in its catalogue document (HS-1) and set through
 //TokkDbConnection.SetRetentionPolicy.
 public enum RetentionPolicy {

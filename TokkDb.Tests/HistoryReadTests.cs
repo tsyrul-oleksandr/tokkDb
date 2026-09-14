@@ -131,6 +131,7 @@ public class HistoryReadTests {
 
     //A collection that keeps no versions has no history to read.
     db.CreateCollection("Plain", [new ColumnDescriptor("Title", ValueTypeEnum.String)]);
+    db.SetRetentionPolicy("Plain", RetentionPolicy.None, dropHistory: true);
     var plain = db.Entities(new FieldMapSerializer(), "Plain");
     var plainId = plain.Insert(new Dictionary<string, IDocumentValue> { ["Title"] = new StringDocumentValue("p") });
     Assert.True(plain.History(plainId).IsEmpty);

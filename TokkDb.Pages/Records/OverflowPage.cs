@@ -35,6 +35,13 @@ public class OverflowPage : BasePage {
     PayloadLength = (ushort)length;
   }
 
+  //V-17: a page leaving its chain clears its payload; the header says it is empty and the
+  //bytes say the same.
+  public void ClearPayload() {
+    Buffer.Clear(StartContentBufferPosition, Capacity);
+    PayloadLength = 0;
+  }
+
   public void CopyPayloadTo(byte[] destination, int destinationIndex) {
     var payload = Buffer.ReadBytes(PayloadLength, StartContentBufferPosition, out _);
     Array.Copy(payload, 0, destination, destinationIndex, PayloadLength);

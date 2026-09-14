@@ -101,7 +101,7 @@ public sealed class MemoryStorage : IStorage
             throw new CollectionAlreadyExistsException(definition.Name);
         }
 
-        _things[definition.Name] = new Thing(definition, []);
+        _things[definition.Name] = new Thing(definition, [], []);
     }
 
     public CollectionDefinition? GetCollectionDefinition(string collectionName) =>
@@ -156,6 +156,7 @@ public sealed class MemoryStorage : IStorage
         var record = new StorageRecord(RecordIdentity.Next(), thing.Definition.Name, judged);
 
         thing.Records[record.Id] = record;
+        thing.Remember(record.Id, record);
         return record;
     }
 
@@ -183,7 +184,9 @@ public sealed class MemoryStorage : IStorage
             .Where(column => judged.TryGetValue(column, out var value) && Equals(value, existing[column]))
             .ToArray();
 
-        thing.Records[record.Id] = new StorageRecord(record.Id, thing.Definition.Name, judged, attention);
+        var written = new StorageRecord(record.Id, thing.Definition.Name, judged, attention);
+        thing.Records[record.Id] = written;
+        thing.Remember(record.Id, written);
         return true;
     }
 
@@ -207,7 +210,7 @@ public sealed class MemoryStorage : IStorage
         {
             foreach (var reference in effect.WouldAlsoBeRemoved)
             {
-                if (Require(reference.CollectionName).Records.Remove(reference.Id)) removed.Add(reference);
+                if (Require(reference.CollectionName).Forget(reference.Id)) removed.Add(reference);
             }
 
             foreach (var reference in effect.WouldBeCleared)
@@ -215,7 +218,7 @@ public sealed class MemoryStorage : IStorage
                 if (Clear(reference, thing.Definition.Name)) cleared.Add(reference);
             }
 
-            thing.Records.Remove(id);
+            thing.Forget(id);
         });
 
         return new DeletionResult(true, removed, cleared);
@@ -754,19 +757,114 @@ public sealed class MemoryStorage : IStorage
         CollectionDefinition definition,
         Action<Dictionary<string, object?>, HashSet<string>> change)
     {
-        var records = new Dictionary<Ulid, StorageRecord>();
-
-        foreach (var (id, record) in thing.Records)
+        StorageRecord Changed(Ulid id, StorageRecord record)
         {
             var fields = new Dictionary<string, object?>(record.Fields, StorageNames.Comparer);
             var attention = new HashSet<string>(record.NeedsAttention, StorageNames.Comparer);
 
             change(fields, attention);
 
-            records[id] = new StorageRecord(id, definition.Name, fields, attention);
+            return new StorageRecord(id, definition.Name, fields, attention);
         }
 
-        _things[definition.Name] = new Thing(definition, records);
+        var records = thing.Records.ToDictionary(static entry => entry.Key, entry => Changed(entry.Key, entry.Value));
+
+        // Every kept version is read through the current shape, as the engine reads a stored
+        // version through the changes since it was written.
+        var histories = thing.Histories.ToDictionary(
+            static entry => entry.Key,
+            entry => entry.Value.Select(version =>
+                version with { Snapshot = version.Snapshot is null ? null : Changed(entry.Key, version.Snapshot) }).ToList());
+
+        _things[definition.Name] = new Thing(definition, records, histories);
+    }
+
+    // ---- Versions (SC-12): a full copy per version, which changes the cost and not the meaning --
+
+    public Ulid? HeadVersion(string collectionName, Ulid id) =>
+        Require(collectionName).Histories.TryGetValue(id, out var history) && history.Count > 0
+            ? history[^1].Version
+            : null;
+
+    public bool Keeps(string collectionName, Ulid id, Ulid versionId) =>
+        Require(collectionName).Histories.TryGetValue(id, out var history)
+        && history.Any(version => version.Version == versionId);
+
+    public VersionDifference DiffVersions(string collectionName, Ulid id, Ulid fromVersionId, Ulid toVersionId)
+    {
+        var thing = Require(collectionName);
+        var from = Version(thing, id, fromVersionId);
+        var to = Version(thing, id, toVersionId);
+
+        var before = from.Snapshot?.Fields ?? new Dictionary<string, object?>(StorageNames.Comparer);
+        var after = to.Snapshot?.Fields ?? new Dictionary<string, object?>(StorageNames.Comparer);
+
+        var changes = before.Keys.Concat(after.Keys).Distinct(StorageNames.Comparer)
+            .OrderBy(static column => column, StringComparer.Ordinal)
+            .Where(column => !Equals(before.GetValueOrDefault(column), after.GetValueOrDefault(column)))
+            .Select(column => new ColumnChange(column, before.GetValueOrDefault(column), after.GetValueOrDefault(column)))
+            .ToList();
+
+        return new VersionDifference(thing.Definition.Name, id, fromVersionId, toVersionId, changes,
+            from.Snapshot is null, to.Snapshot is null);
+    }
+
+    public StorageRecord RestoreVersion(string collectionName, Ulid id, Ulid versionId)
+    {
+        var thing = Require(collectionName);
+        var version = Version(thing, id, versionId);
+
+        if (version.Snapshot is null) throw new VersionNotRestorableException(thing.Definition.Name, id, versionId);
+
+        var existing = thing.Records.GetValueOrDefault(id);
+        if (existing is not null && HeadVersion(collectionName, id) == versionId) return existing;
+
+        // Judged as a write is judged, except that the record's own value in a unique column is
+        // not a duplicate of itself.
+        var judged = SharedRules.ForCreate(thing.Definition, version.Snapshot.Fields,
+            (column, value) => thing.HolderOf(column, value) is { } holder && holder != id ? holder : null);
+
+        SharedRules.CheckReferences(thing.Definition, judged, From(thing.Definition.Name), Exists);
+
+        var restored = new StorageRecord(id, thing.Definition.Name, judged, version.Snapshot.NeedsAttention);
+        thing.Records[id] = restored;
+        thing.Remember(id, restored);
+        return restored;
+    }
+
+    /// <summary>
+    /// V-15 of the versioning plan on a list: the version the record was at before the moment
+    /// stays, with everything after it; the rest goes.
+    /// </summary>
+    public int PurgeRecordHistory(string collectionName, Ulid id, DateTimeOffset before)
+    {
+        var thing = Require(collectionName);
+        if (!thing.Histories.TryGetValue(id, out var history)) return 0;
+
+        var atMoment = history.LastOrDefault(version => version.Version.Time <= before);
+        var kept = history.Where(version => version.Version.Time > before || version == atMoment).ToList();
+        var removed = history.Count - kept.Count;
+
+        thing.Histories[id] = kept;
+        return removed;
+    }
+
+    public bool Erase(string collectionName, Ulid id)
+    {
+        var thing = Require(collectionName);
+        var held = thing.Records.Remove(id);
+        return thing.Histories.Remove(id) || held;
+    }
+
+    private static MemoryVersion Version(Thing thing, Ulid id, Ulid versionId)
+    {
+        if (thing.Histories.TryGetValue(id, out var history)
+            && history.FirstOrDefault(version => version.Version == versionId) is { } found)
+        {
+            return found;
+        }
+
+        throw new VersionNotKeptException(thing.Definition.Name, id, versionId);
     }
 
     private Thing Require(string collectionName)
@@ -799,11 +897,38 @@ public sealed class MemoryStorage : IStorage
     private static Dictionary<string, Thing> Copy(Dictionary<string, Thing> things) =>
         things.ToDictionary(
             static entry => entry.Key,
-            static entry => new Thing(entry.Value.Definition, new Dictionary<Ulid, StorageRecord>(entry.Value.Records)),
+            static entry => new Thing(
+                entry.Value.Definition,
+                new Dictionary<Ulid, StorageRecord>(entry.Value.Records),
+                entry.Value.Histories.ToDictionary(static history => history.Key, static history => new List<MemoryVersion>(history.Value))),
             StorageNames.Comparer);
 
-    private sealed record Thing(CollectionDefinition Definition, Dictionary<Ulid, StorageRecord> Records)
+    /// <summary>One version of one record: the record as it then was, or null for its deletion.</summary>
+    private sealed record MemoryVersion(Ulid Version, StorageRecord? Snapshot);
+
+    private sealed record Thing(
+        CollectionDefinition Definition,
+        Dictionary<Ulid, StorageRecord> Records,
+        Dictionary<Ulid, List<MemoryVersion>> Histories)
     {
+        /// <summary>
+        /// A new version of the record, with an identity from the same source records get, so
+        /// that versions and records sort together in the order they were made.
+        /// </summary>
+        public void Remember(Ulid id, StorageRecord? snapshot)
+        {
+            if (!Histories.TryGetValue(id, out var history)) Histories[id] = history = [];
+            history.Add(new MemoryVersion(RecordIdentity.Next(), snapshot));
+        }
+
+        /// <summary>Removes the record and records its deletion as a version.</summary>
+        public bool Forget(Ulid id)
+        {
+            if (!Records.Remove(id)) return false;
+            Remember(id, null);
+            return true;
+        }
+
         /// <summary>
         /// The record already holding a value in a unique column. A scan, which is the honest
         /// thing for a dictionary; the engine will seek an index for the same answer.

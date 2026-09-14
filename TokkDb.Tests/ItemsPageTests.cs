@@ -262,3 +262,44 @@ public class ItemsPageTests {
     Assert.All(all, person => Assert.StartsWith("Person-", person.Name));
   }
 }
+
+//RP-4 and V-17 at the page: what FreeItem and Compact release reads back as zeros.
+public class ItemsPageClearingTests {
+  private static DataPage NewPage() {
+    return new DataPage {
+      Buffer = new PageBuffer(new byte[TokkConstants.DefaultPageSize]), Index = 1, Type = PageType.Data,
+      PageSize = TokkConstants.DefaultPageSize
+    };
+  }
+
+  private static void Fill(BufferSlice slice, byte value) {
+    for (var i = 0; i < slice.Length; i++) {
+      slice.WriteByte(value, i);
+    }
+  }
+
+  [Fact]
+  public void AFreedSlotAndACompactedRunReadBackCleared() {
+    var page = NewPage();
+    Fill(page.RegisterItem(100), 0xA1);
+    var middle = page.RegisterItem(200);
+    Fill(middle, 0xB2);
+    Fill(page.RegisterItem(50), 0xC3);
+    var middlePosition = BasePage.StartContentBufferPosition + 100;
+
+    page.FreeItem(1);
+    for (var i = 0; i < 200; i++) {
+      Assert.Equal(0, page.Buffer.ReadByte(middlePosition + i));
+    }
+
+    page.Compact();
+    //The third item slid down over the gap; the 200 bytes above it, where it used to lie and
+    //the freed run was, are cleared.
+    var third = page.GetItem(2);
+    Assert.Equal(0xC3, third.ReadByte(0));
+    for (var i = BasePage.StartContentBufferPosition + 150; i < BasePage.StartContentBufferPosition + 350; i++) {
+      Assert.Equal(0, page.Buffer.ReadByte(i));
+    }
+    Assert.Equal(0, page.FreeListBytes);
+  }
+}

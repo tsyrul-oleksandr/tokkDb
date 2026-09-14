@@ -9,9 +9,24 @@ using Xunit;
 namespace TokkDb.Tests;
 
 public class CollectionCatalogTests {
+  //Step 3.1 of the versioning plan: what these tests count — collections, catalogue records,
+  //pages read at open — is what only RetentionPolicy.None gives, since a versioned collection
+  //brings a history collection into the catalogue and open reads its schema history (HS-4).
   private static void CreateDatabase(TempDatabaseFile file) {
     using var db = new TokkDbConnection(file.Path);
     db.CreateDatabase(config => config.CreateEntity<Person>(description: "People"));
+    db.SetRetentionPolicy(nameof(Person), RetentionPolicy.None, dropHistory: true);
+  }
+
+  //Collections created without history, in one transaction so that the switch-off costs no
+  //commit of its own.
+  private static void CreateUnversionedCollections(TokkDbConnection db, int count) {
+    db.InTransaction(() => {
+      for (var i = 0; i < count; i++) {
+        db.CreateCollection<Person>($"Collection{i}");
+        db.SetRetentionPolicy($"Collection{i}", RetentionPolicy.None, dropHistory: true);
+      }
+    });
   }
 
   private static TokkDbConnection Reopen(TempDatabaseFile file) {
@@ -190,9 +205,8 @@ public class CollectionCatalogTests {
     using var file = new TempDatabaseFile();
     using (var db = new TokkDbConnection(file.Path)) {
       db.CreateDatabase(config => config.CreateEntity<Person>());
-      for (var i = 0; i < 120; i++) {
-        db.CreateCollection<Person>($"Collection{i}");
-      }
+      db.SetRetentionPolicy(nameof(Person), RetentionPolicy.None, dropHistory: true);
+      CreateUnversionedCollections(db, 120);
     }
 
     using var reopened = Reopen(file);
@@ -267,9 +281,8 @@ public class CollectionCatalogTests {
     using var file = new TempDatabaseFile();
     using (var db = new TokkDbConnection(file.Path)) {
       db.CreateDatabase(config => config.CreateEntity<Person>());
-      for (var i = 0; i < 60; i++) {
-        db.CreateCollection<Person>($"Collection{i}");
-      }
+      db.SetRetentionPolicy(nameof(Person), RetentionPolicy.None, dropHistory: true);
+      CreateUnversionedCollections(db, 60);
     }
 
     using var reopened = Reopen(file);
@@ -305,9 +318,8 @@ public class CollectionCatalogTests {
     const int count = 1000;
     using (var db = new TokkDbConnection(file.Path)) {
       db.CreateDatabase(config => config.CreateEntity<Person>());
-      for (var i = 0; i < count; i++) {
-        db.CreateCollection<Person>($"Collection{i}");
-      }
+      db.SetRetentionPolicy(nameof(Person), RetentionPolicy.None, dropHistory: true);
+      CreateUnversionedCollections(db, count);
     }
 
     using var reopened = Reopen(file);

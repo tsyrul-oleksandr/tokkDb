@@ -1,4 +1,5 @@
 using TokkDb.Pages;
+using TokkDb.Pages.Versions;
 using TokkDb.Tests.Fixtures;
 using Xunit;
 
@@ -83,5 +84,34 @@ public class PreVersioningFixtureTests {
     Assert.Equal((uint)PreVersioningFixture.LiveExpenseCount, descriptor.RecordCount);
     Assert.Equal((uint)PreVersioningFixture.ConferenceCount,
       db.Collection(PreVersioningFixture.Conferences).RecordCount);
+  }
+}
+
+//NF-7 and ST-9: no page layout and no root-page format version changed. The step 0.2 fixture
+//opens, reads, starts versioning when switched on, and the file still says format version 2.
+public class CompatibilityTests {
+  [Fact]
+  public void TheFixtureOpensReadsSwitchesOnAndKeepsFormatVersionTwo() {
+    using var file = PreVersioningFixture.Copy();
+    using (var db = new TokkDbConnection(file.Path)) {
+      db.Load();
+      var expenses = db.Entities<PreVersioningFixture.Expense>(PreVersioningFixture.Expenses);
+      var conferences = db.Entities<PreVersioningFixture.Conference>(PreVersioningFixture.Conferences);
+      Assert.Equal(PreVersioningFixture.LiveExpenseCount, expenses.GetAll().Count());
+      Assert.Equal(PreVersioningFixture.ConferenceCount, conferences.GetAll().Count());
+
+      db.SetRetentionPolicy(PreVersioningFixture.Expenses, RetentionPolicy.KeepVersions);
+      var updated = expenses.GetAllRecords().First();
+      var value = updated.Value;
+      value.Amount += 5;
+      expenses.Update(updated.RecordId, value);
+
+      Assert.Equal([VersionKind.Baseline, VersionKind.Update], expenses.History(updated.RecordId).Versions.Select(version => version.Kind));
+      Assert.Equal(value.Amount, expenses.GetById(updated.RecordId).Value.Amount);
+    }
+    Assert.Equal(2, RootPage.CurrentFormatVersion);
+    using var disk = new Disk.DiskManager(file.Path, accessMode: Disk.TokkDbAccessMode.ReadOnly);
+    var pageManager = new PageManager(disk);
+    Assert.Equal(RootPage.CurrentFormatVersion, RootPage.ReadPrefix(pageManager.ReadPrefix(RootPage.PrefixByteSize)).FormatVersion);
   }
 }
