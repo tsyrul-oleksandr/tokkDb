@@ -1,5 +1,6 @@
 using TokkDb.Pages;
 using TokkDb.Pages.Transactions;
+using TokkDb.Pages.Versions;
 
 namespace TokkDb.Transactions;
 
@@ -8,7 +9,16 @@ public class TransactionManager {
   private ulong _lastTransactionId;
 
   public Transaction Current { get; set; }
-  
+
+  //Runs inside every outermost transaction that has pages to write, just before its pages are
+  //committed, while it is still the current transaction. The connection wires the catalogue's
+  //identifier mark here (HS-7): what the hook dirties joins the same commit.
+  public Action BeforeOutermostCommit { get; set; }
+
+  //HS-9: what an outermost transaction is stamped with as it begins. The connection wires its
+  //attribution scope here; null means no scope, which stamps the empty attribution.
+  public Func<VersionAttribution> AttributionSource { get; set; }
+
   public TransactionManager(PageManager pageManager) {
     _pageManager = pageManager;
   }
@@ -17,6 +27,9 @@ public class TransactionManager {
     var transaction = new Transaction(++_lastTransactionId, _pageManager, this) {
       Parent = Current
     };
+    if (transaction.IsOutermost) {
+      transaction.Attribution = AttributionSource?.Invoke() ?? VersionAttribution.None;
+    }
     Current = transaction;
     return transaction;
   }

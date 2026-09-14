@@ -1,8 +1,9 @@
 namespace TokkDb.Pages;
 
-//The state of a stored image. Only Live is written in this pass — nothing supersedes or
-//deletes anything yet — but the byte is there so that a version store can start setting it
-//without the format changing.
+//The state of a stored image. A new image is Live; RetireRow marks the image an update
+//replaces Superseded and the one a delete removes Deleted, before it frees the slot, so that
+//keeping the image instead is a matter of not freeing it rather than of writing something
+//different (VR-12).
 [Flags]
 public enum RecordFlags : byte {
   None = 0,

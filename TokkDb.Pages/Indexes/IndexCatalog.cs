@@ -114,8 +114,7 @@ public class IndexCatalog {
     }
     _catalog.RemoveSecondaryIndexRoot(collectionName, index.Descriptor.Name);
     if (_dataPageManager.FindLiveRow(SystemCollections.Indexes, index.Descriptor.Id) is { } row) {
-      _dataPageManager.RetireRow(SystemCollections.Indexes, row.Address, RecordFlags.Deleted,
-        RetentionPolicy.None);
+      _dataPageManager.RetireRow(SystemCollections.Indexes, row.Address, RecordFlags.Deleted);
     }
     _byCollection[collectionName].Remove(index);
     return true;

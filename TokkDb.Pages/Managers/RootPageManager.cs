@@ -50,7 +50,7 @@ public class RootPageManager {
     var rootPage = _pageManager.CreateNewMemoryPage<RootPage>(PageType.Root, TokkConstants.RootPageIndex);
     rootPage.MagicNumber = RootPage.ExpectedMagicNumber;
     rootPage.FormatVersion = RootPage.CurrentFormatVersion;
-    rootPage.CreatedAt = DateTime.UtcNow;
+    rootPage.CreatedAt = EngineClock.Now.UtcDateTime;
     //Page 0 is the last page allocated so far; the catalogue and the data pages follow it.
     rootPage.LastAllocatedPageId = TokkConstants.RootPageIndex;
     _transactionManager.Track(rootPage);

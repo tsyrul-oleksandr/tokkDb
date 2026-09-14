@@ -2,6 +2,7 @@ using TokkDb.Assistant.Storage;
 using TokkDb.Assistant.Storage.Engine;
 using TokkDb;
 using TokkDb.Disk;
+using TokkDb.Pages;
 
 namespace TokkDb.Assistant.Tests;
 
@@ -22,6 +23,32 @@ public sealed class TokkDbStorageTests : IDisposable
     public void Dispose() => _database.Dispose();
 
     private TokkDbStorage Open() => new(_path);
+
+    /// <summary>
+    /// HS-2. A collection that keeps versions has a history collection beside it in the engine's
+    /// catalogue, and that collection is the engine's, not the user's: it never appears here.
+    /// </summary>
+    [Fact]
+    public void A_history_collection_is_not_listed()
+    {
+        using (var storage = Open())
+        {
+            storage.CreateCollection(new CollectionDefinition("expenses", "money I spent",
+                [new ColumnDefinition("event", ColumnType.Text)]));
+        }
+
+        using (var connection = new TokkDbConnection(_path))
+        {
+            connection.Load();
+            connection.SetRetentionPolicy("expenses", RetentionPolicy.KeepVersions);
+            Assert.Contains(connection.Collections, descriptor => descriptor.Name.StartsWith("_history:", StringComparison.Ordinal));
+        }
+
+        using var reopened = Open();
+        Assert.Equal(["expenses"], reopened.GetCollectionDefinitions().Select(definition => definition.Name).ToArray());
+        //A reserved name is not even a name to the assistant, let alone a collection.
+        Assert.Throws<InvalidDefinitionException>(() => reopened.GetCollectionDefinition("_history:anything"));
+    }
 
     /// <summary>
     /// The definition, exactly as it was written, after the file has been closed and opened

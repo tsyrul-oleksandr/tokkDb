@@ -32,9 +32,19 @@ public class CollectionDescriptor {
   //not enough, because dropping the newest one lowers it.
   public uint LastOwningCollectionId { get; set; }
 
+  //On the _collections descriptor only: the greatest identifier RecordIdentity had issued when
+  //the last commit that moved it ran (HS-7, V-8). Loaded into RecordIdentity at open and never
+  //lowered, so that a restart with the clock set behind the last write cannot mint an
+  //identifier below one already stored. Stamped at the moment the descriptor is written, after
+  //its own header's version identifier has been minted, so the mark covers that one too.
+  public Ulid LastIdentifier { get; set; }
+
   public uint DataFirstPage { get; set; }
   public uint DataLastPage { get; set; }
   public uint PrimaryIndexRoot { get; set; }
+
+  //On a history collection's descriptor only: the root of its version index (V-5, HS-4).
+  public uint VersionIndexRoot { get; set; }
 
   //Index name to root page. A bare list could not say which root belonged to which index,
   //and the descriptors in _indexes name themselves.
@@ -42,10 +52,24 @@ public class CollectionDescriptor {
   public uint FreeSpaceRoot { get; set; }
   public uint RecordCount { get; set; }
 
-  //Written with default values and never read in this pass. They exist so that versioning
-  //(D-5) arrives as a later addition rather than a later format break.
+  //V-4: the identifier of the collection's history collection, named by HistoryCollections,
+  //or default while the collection keeps no versions. Set and cleared only by the version
+  //store's lifecycle operations (HS-2).
   public Ulid HistoryCollectionId { get; set; }
-  public string RetentionPolicy { get; set; } = string.Empty;
+
+  //HS-1 and V-13: the one source of truth for what becomes of a retired image, read by the
+  //write seam. Stored by name; a database written before versioning existed holds an empty
+  //name here, which reads as None.
+  public RetentionPolicy RetentionPolicy { get; set; } = RetentionPolicy.None;
+
+  //V-1: the keyframe interval k and the large-delta ratio, per collection. Their defaults
+  //are I-1 and I-2, decided at step 5.1; until then these stand in. Read only under
+  //KeepVersions.
+  public int SnapshotInterval { get; set; } = DefaultSnapshotInterval;
+  public double LargeDeltaRatio { get; set; } = DefaultLargeDeltaRatio;
+
+  public const int DefaultSnapshotInterval = 8;
+  public const double DefaultLargeDeltaRatio = 0.5;
 
   //Where this descriptor's own document lives, once it has been written.
   public DocumentAddress? Address { get; set; }

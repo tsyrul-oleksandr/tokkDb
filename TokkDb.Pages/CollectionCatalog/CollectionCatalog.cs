@@ -40,7 +40,24 @@ public class CollectionCatalog {
       return;
     }
     LoadCatalog();
+    //HS-7, before anything in this process mints against this database: the source of every
+    //identifier is raised to the greatest one stored, and never lowered.
+    RecordIdentity.RaiseTo(Get(SystemCollections.Collections).LastIdentifier);
     CreateMissingSystemCollections();
+  }
+
+  //HS-7's high-water mark. Called by every outermost commit that has pages to write, before
+  //its journal frame is written: if any identifier minted since the mark was last stored is
+  //above it, the catalogue's own descriptor is saved with the new mark, and Save stamps the mark
+  //after minting the descriptor's own header, so nothing minted in the transaction escapes it.
+  //A transaction that minted nothing finds the mark where it was and dirties no page for it.
+  public void RecordIdentifierMark() {
+    if (!_descriptors.TryGetValue(SystemCollections.Collections, out var catalogue) || catalogue.Address is null) {
+      return;
+    }
+    if (RecordIdentity.Last.CompareTo(catalogue.LastIdentifier) > 0) {
+      Save(catalogue);
+    }
   }
 
   //D-4 said the reserved list would grow — "(later: _events, _versions)" — so a database
@@ -70,6 +87,39 @@ public class CollectionCatalog {
     return CreateCollectionCore(name, columns, description);
   }
 
+  //V-4 and HS-2. The internal creation and drop paths for a history collection, which carries
+  //the reserved prefix and so cannot go through CreateCollection or DropCollection. The refusal
+  //of reserved names stays whole for everything else: these two accept one prefix, and only
+  //the version store calls them.
+  public CollectionDescriptor CreateHistoryCollection(string name, IEnumerable<ColumnDescriptor> columns,
+      string description) {
+    RequireHistoryName(name);
+    return CreateCollectionCore(name, columns, description);
+  }
+
+  public bool DropHistoryCollection(string name) {
+    _transactionManager.RequireTransaction();
+    RequireHistoryName(name);
+    return DropCollectionCore(name);
+  }
+
+  private static void RequireHistoryName(string name) {
+    if (!Versions.HistoryCollections.IsHistoryName(name)) {
+      throw new ArgumentException(
+        $"'{name}' is not a history collection name: those begin with '{Versions.HistoryCollections.Prefix}'.",
+        nameof(name));
+    }
+  }
+
+  //V-4: the link from a versioned collection to its history collection, default when it has
+  //none.
+  public void SetHistoryCollectionId(string collectionName, Ulid historyCollectionId) {
+    _transactionManager.RequireTransaction();
+    var descriptor = Get(collectionName);
+    descriptor.HistoryCollectionId = historyCollectionId;
+    Save(descriptor);
+  }
+
   public uint GetOwningCollectionId(string collectionName) {
     return Get(collectionName).OwningCollectionId;
   }
@@ -97,6 +147,15 @@ public class CollectionCatalog {
     _transactionManager.RequireTransaction();
     var descriptor = Get(collectionName);
     descriptor.PrimaryIndexRoot = pageIndex;
+    Save(descriptor);
+  }
+
+  //V-5: where a history collection's version index begins, kept with the other physical
+  //pointers of its descriptor (D-2).
+  public void SetVersionIndexRoot(string historyCollectionName, uint pageIndex) {
+    _transactionManager.RequireTransaction();
+    var descriptor = Get(historyCollectionName);
+    descriptor.VersionIndexRoot = pageIndex;
     Save(descriptor);
   }
 
@@ -199,6 +258,33 @@ public class CollectionCatalog {
     return descriptor;
   }
 
+  //HS-1 and V-13. The retention settings of a collection, in its catalogue document and
+  //nowhere else. A reserved collection cannot keep versions (F-6): the catalogue would have to
+  //be readable before its own history. The interval is at least 1 — k = 1 is the full-copy
+  //layout — and the ratio is in (0, 1]: a delta larger than its image never happens, and a
+  //ratio of 0 would make every version a keyframe by a rule meant for the exceptional ones.
+  public CollectionDescriptor SetRetentionPolicy(string collectionName, RetentionPolicy policy,
+      int snapshotInterval, double largeDeltaRatio) {
+    _transactionManager.RequireTransaction();
+    var descriptor = Get(collectionName);
+    if (descriptor.IsSystem && policy != RetentionPolicy.None) {
+      throw new ReservedCollectionNameException(collectionName);
+    }
+    if (snapshotInterval < 1) {
+      throw new ArgumentOutOfRangeException(nameof(snapshotInterval), snapshotInterval,
+        "The keyframe interval is at least 1.");
+    }
+    if (!(largeDeltaRatio > 0 && largeDeltaRatio <= 1)) {
+      throw new ArgumentOutOfRangeException(nameof(largeDeltaRatio), largeDeltaRatio,
+        "The large-delta ratio is in (0, 1].");
+    }
+    descriptor.RetentionPolicy = policy;
+    descriptor.SnapshotInterval = snapshotInterval;
+    descriptor.LargeDeltaRatio = largeDeltaRatio;
+    Save(descriptor);
+    return descriptor;
+  }
+
   //Every record is at the current version, so there is nothing left for a read to replay.
   //Rewrite calls this last, after the records have converged — before that the steps are the
   //only thing that can read them.
@@ -225,12 +311,15 @@ public class CollectionCatalog {
     if (SystemCollections.IsReservedName(collectionName)) {
       throw new ReservedCollectionNameException(collectionName);
     }
+    return DropCollectionCore(collectionName);
+  }
+
+  private bool DropCollectionCore(string collectionName) {
     if (!_descriptors.TryGetValue(collectionName, out var descriptor)) {
       return false;
     }
     if (descriptor.Address is { } address) {
-      _dataPageManager.RetireRow(SystemCollections.Collections, address, RecordFlags.Deleted,
-        RetentionPolicy.None);
+      _dataPageManager.RetireRow(SystemCollections.Collections, address, RecordFlags.Deleted);
     }
     _descriptors.Remove(collectionName);
     return true;
@@ -346,6 +435,7 @@ public class CollectionCatalog {
     //The catalogue's records carry the VR-11 header like any other, and the descriptor's own
     //identifier is the record identity (D-1) rather than a second one beside it.
     var header = CreateHeader(descriptor);
+    StampIdentifierMark(descriptor);
     //Written through the same path as any other record, so a descriptor that outgrew a page
     //would take an overflow chain like anything else.
     var row = _dataPageManager.WriteRecord(SystemCollections.Collections, header,
@@ -353,6 +443,14 @@ public class CollectionCatalog {
     //The record count moved while the row was being made; write what the descriptor says now.
     _dataPageManager.UpdateRow(row.Address, header, CollectionDescriptorDocument.Write(descriptor));
     descriptor.Address = row.Address;
+  }
+
+  //HS-7: the catalogue's own descriptor carries the mark, taken after its header was minted so
+  //that the header's own version identifier is under it.
+  private static void StampIdentifierMark(CollectionDescriptor descriptor) {
+    if (descriptor.Name == SystemCollections.Collections) {
+      descriptor.LastIdentifier = RecordIdentity.Last;
+    }
   }
 
   //A fresh version identifier on every write, as VR-11 requires, even though nothing reads
@@ -367,12 +465,26 @@ public class CollectionCatalog {
       : (ushort)1;
   }
 
+  //Set while the catalogue's own descriptor is being moved to a new slot. Moving it can need
+  //a new catalogue page, and a new page is recorded on that same descriptor — a save of the
+  //descriptor from inside its own move, into a slot it has just left. The inner save is
+  //deferred, and the move writes the descriptor again once it has landed, in place, because
+  //what changed meanwhile (the last page, the free-space root) is fixed-width.
+  private bool _movingSelf;
+  private bool _selfChangedWhileMoving;
+
   protected virtual void Save(CollectionDescriptor descriptor) {
     if (descriptor.Address is null) {
       //Not written yet: the append in progress will put the current values on the page.
       return;
     }
+    var self = descriptor.Name == SystemCollections.Collections;
+    if (self && _movingSelf) {
+      _selfChangedWhileMoving = true;
+      return;
+    }
     var header = CreateHeader(descriptor);
+    StampIdentifierMark(descriptor);
     var document = CollectionDescriptorDocument.Write(descriptor);
     //A descriptor grows: gaining a secondary index adds a root to it (DC-4), and the slot it
     //was first written into was sized for the descriptor as it then was. An image that no
@@ -381,7 +493,26 @@ public class CollectionCatalog {
       _dataPageManager.UpdateRow(descriptor.Address.Value, header, document);
       return;
     }
-    descriptor.Address = _dataPageManager
-      .RewriteRow(SystemCollections.Collections, descriptor.Address.Value, header, document).Address;
+    if (!self) {
+      descriptor.Address = _dataPageManager
+        .RewriteRow(SystemCollections.Collections, descriptor.Address.Value, header, document).Address;
+      return;
+    }
+    _movingSelf = true;
+    _selfChangedWhileMoving = false;
+    try {
+      descriptor.Address = MoveSelf(descriptor.Address.Value, header, document);
+    } finally {
+      _movingSelf = false;
+    }
+    if (_selfChangedWhileMoving) {
+      _selfChangedWhileMoving = false;
+      Save(descriptor);
+    }
+  }
+
+  //The catalogue's own descriptor, moved to a slot that holds it (see _movingSelf).
+  private DocumentAddress MoveSelf(DocumentAddress address, RecordHeader header, ObjectDocument document) {
+    return _dataPageManager.RewriteRow(SystemCollections.Collections, address, header, document).Address;
   }
 }

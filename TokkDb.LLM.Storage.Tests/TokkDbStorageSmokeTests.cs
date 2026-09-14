@@ -1,5 +1,6 @@
 using TokkDb.LLM.Core;
 using TokkDb.LLM.Storage.Engine;
+using TokkDb.Pages;
 using TokkDb.Pages.Query;
 
 namespace TokkDb.LLM.Storage.Tests;
@@ -102,6 +103,30 @@ public sealed class TokkDbStorageSmokeTests : IDisposable
             Assert.Equal("The title as published", definition.Columns.First().Description);
 
             // The engine's own system collections stay on its side of the boundary.
+            Assert.Equal(["Article"], storage.GetCollectionDefinitions().Select(item => item.Name).ToArray());
+        }
+    }
+
+    /// <summary>
+    /// HS-2. The history collection of a collection that keeps versions is the engine's own and
+    /// stays on its side of the boundary with the system collections.
+    /// </summary>
+    [Fact]
+    public void AHistoryCollectionIsNotListed()
+    {
+        using (var storage = new TokkDbStorage(_databaseFilePath))
+        {
+            storage.CreateCollection(Article());
+        }
+
+        using (var connection = new TokkDbConnection(_databaseFilePath))
+        {
+            connection.Load();
+            connection.SetRetentionPolicy("Article", RetentionPolicy.KeepVersions);
+        }
+
+        using (var storage = new TokkDbStorage(_databaseFilePath))
+        {
             Assert.Equal(["Article"], storage.GetCollectionDefinitions().Select(item => item.Name).ToArray());
         }
     }

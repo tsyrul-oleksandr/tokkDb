@@ -201,12 +201,17 @@ contract.
 ### 3.1 `IVersionStore`
 
 The whole of layer 1's contract. A step may refine a signature, and updates this list when it does.
+Step 2.6 added `Initialize`, which reads the schema and relation nodes of every history collection into
+memory at open and after a catalogue reload, and the two readers of what it loaded; `SchemaAt` takes two
+schema versions and returns the migration steps between them. Step 3.4 added `PreserveImage`, the one
+recording operation `Rewrite` uses (WV-8). `RecordSupersede` takes the delta the seam computed, so that
+the seam decides whether anything changed (WV-2 step 1) and the store decides where it is kept.
 
 | Group | Operation | Used by |
 |---|---|---|
-| Lifecycle | `CreateHistory(collection)`, `DropHistory(collection)` | `SetRetentionPolicy` and `DropCollection` only |
-| Recording | `RecordInsert`, `RecordSupersede` (update or restore), `RecordDelete`, `RecordSchema`, `RecordRelation` | the write seam and schema changes only |
-| Reading | `Head(record)`, `Node(record, version)`, `Nodes(record)`, `Floor(record, moment)`, `Operation(id)`, `SchemaAt(version)`, `Reconstruct(record, version)` | layers 2–4 |
+| Lifecycle | `Initialize()`, `CreateHistory(collection)`, `DropHistory(collection)` | the connection at open, `SetRetentionPolicy` and `DropCollection` only |
+| Recording | `RecordInsert`, `RecordSupersede` (update or restore), `RecordDelete`, `RecordSchema`, `RecordRelation`, `PreserveImage` | the write seam and schema changes only; `PreserveImage` by `Rewrite` only (WV-8) |
+| Reading | `Head(record)`, `Node(record, version)`, `Nodes(record)`, `Floor(record, moment)`, `Operation(id)`, `SchemaNodes(collection)`, `RelationNodes(collection)`, `SchemaAt(from, to)`, `Reconstruct(record, version)` | layers 2–4 |
 | Maintenance | `Reroot(record, version, image)`, `Remove(record, versions)`, `EraseRecord(record)` | layer 4 only |
 | Verification | `Verify(collection)` | layer 4, tests |
 
@@ -215,7 +220,7 @@ The whole of layer 1's contract. A step may refine a signature, and updates this
 | Where | Member | Step |
 |---|---|---|
 | `TokkDb.Documents.Delta` | `DeltaPath`, `DeltaOperation`, `DeltaElement`, `DocumentDelta`, `DocumentDiff.Compute(a, b, options)`, `DocumentDelta.ApplyTo(value)`, `DocumentDelta.Invert()`, `CanonicalValue.Equal(a, b)`, `DeltaMismatchException` | 1.1–1.5 |
-| `TokkDb.Pages.Versions` | `IVersionStore`, `VersionStore`, `VersionNode`, `VersionKind`, `Operation`, `SchemaNode`, `VersionIndexRoot`, `VersionAttribution`, `Unmapped`, `ReconstructionReport`, `HistoryReport`, `HistoryVerification` | 2.3–4.4 |
+| `TokkDb.Pages.Versions` | `IVersionStore`, `VersionStore`, `VersionNode`, `VersionKind`, `Operation`, `SchemaNode`, `RelationNode`, `VersionIndexRoot`, `VersionAttribution`, `Unmapped`, `Reconstruction`, `ReconstructionReport`, `HistoryReport`, `HistoryVerification`, `VersionHistory`, `VersionEntry`, `VersionedValue<T>`, `StoredVersion`, `AsOfResult<T>`, `AsOfOutcome`, `SchemaSnapshot`, `SchemaMapping`, `VersionDiff`, `LogicalTime`, `HistoryCollections`, `HistoryDocuments`, `VersionNotFoundException` | 2.3–4.4 |
 | `BPlusTree` | `Floor(key)` | 2.4 |
 | `TokkDbConnection` | `SetRetentionPolicy(collection, policy, snapshotInterval, largeDeltaRatio, dropHistory)`, `Attribute(VersionAttribution)`, `PurgeHistory(collection, before)`, `SchemaAsOf(collection, moment)`, `HistoryReport(collection)`, `VerifyHistory(collection)` | 2.2, 2.3, 2.5, 4.3, 7.1, 7.4 |
 | `DbEntities<T>` | `RetentionPolicy { get; }`, `HeadVersion(recordId)`, `History(recordId)`, `GetAsOf(recordId, versionId)`, `GetAsOf(recordId, moment)`, `GetStoredAsOf(recordId, versionId)`, `Diff(recordId, from, to)`, `Restore(recordId, versionId)`, `RestoreAsOf(recordId, moment, followRelations)`, `PurgeHistory(recordId, before)`, `Erase(recordId)` | 3.2–7.3 |
@@ -262,7 +267,7 @@ Every decision has one of three classes.
 | I-2 | The large-delta ratio | Implementation-time | step 5.1 |
 | I-3 | Whether a cumulative-bytes keyframe rule is added to the count rule | Future — see F-12 | — |
 | I-4 | Flipping the default to `KeepVersions` | Implementation-time, with your sign-off | step 5.2 |
-| I-5 | Where an array column's element key is declared | Implementation-time | step 1.5 |
+| I-5 | Where an array column's element key is declared | Implementation-time | Settled at step 1.5: `ColumnDescriptor.ElementKey`, a field of the column's declaration in the collection's catalogue document (D-4), empty by default. Nested arrays have no declaration and are positional |
 | I-6 | The cap on a related restore | Implementation-time | step 6.3 |
 | I-7 | The purge batch size | Implementation-time | step 7.1 |
 | F-1 | Turning versioning off with a recorded gap | Future | A "history gap" outcome for `GetAsOf` and a gap node |

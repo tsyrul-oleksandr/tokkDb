@@ -21,11 +21,19 @@ public class ColumnDescriptor {
   public string SemanticTypeName { get; set; } = string.Empty;
   public List<string> ValidationPatterns { get; set; } = [];
 
+  //I-5 and DL-8: for an Array column whose elements are objects, the field that identifies an
+  //element, so that a delta of the column matches its elements by that field rather than by
+  //position. Declared here because a column's declaration is where the catalogue keeps what
+  //it knows about a column (D-4); empty means the elements have no key and are matched by
+  //position. The engine stores it and does not check it: a key the elements do not honour
+  //makes the diff fall back to positions and say so (V-2).
+  public string ElementKey { get; set; } = string.Empty;
+
   public ColumnDescriptor() { }
 
   public ColumnDescriptor(string name, ValueTypeEnum type, string description = "", bool unique = false,
       bool readOnly = false, IDocumentValue defaultValue = null, string semanticTypeName = "",
-      IEnumerable<string> validationPatterns = null) {
+      IEnumerable<string> validationPatterns = null, string elementKey = "") {
     Name = name;
     Type = type;
     Description = description;
@@ -34,5 +42,6 @@ public class ColumnDescriptor {
     DefaultValue = defaultValue ?? new NullDocumentValue();
     SemanticTypeName = semanticTypeName ?? string.Empty;
     ValidationPatterns = validationPatterns?.ToList() ?? [];
+    ElementKey = elementKey ?? string.Empty;
   }
 }

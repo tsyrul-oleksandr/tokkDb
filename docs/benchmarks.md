@@ -13,6 +13,412 @@ Each run is appended below, newest first.
 
 <!-- runs -->
 
+## 2026-09-14 — Versioning — measurement
+
+> **Step 5.1 of `docs/versioning-requirements-and-plan.md`: the numbers behind I-1 and I-2, and a
+> proposal.** Six workloads, each replayed for 100 versions under every interval *k* in 1, 2, 4, 8,
+> 16 and 32 at ratio 0.5, and under every large-delta ratio in 0.25, 0.5, 0.75 and 1 (which is the
+> rule off: a delta is then stored only when it is smaller than its image) at *k* = 8. History size
+> is the file's growth over the same workload under `None`, so it counts nodes, images, the version
+> index and the pages they part-fill; the file grows a page at a time, so small histories read as
+> 8 KiB steps. *k* = 1 is the full-copy layout NFR-4 compares against.
+>
+> | workload, 100 versions | full copy (*k* = 1) | *k* = 8 | *k* = 32 | worst reconstruction at *k* = 8 |
+> |---|---|---|---|---|
+> | small edits, 50-field record | 160 KiB | 56 KiB (35%) | 48 KiB | 0.81 ms |
+> | array appends | 344 KiB | 88 KiB (26%) | 64 KiB | 0.60 ms |
+> | complete rewrites | 176 KiB | 176 KiB (100%) | 176 KiB | 0.93 ms |
+> | Publication documents | 144 KiB | 72 KiB (50%) | 72 KiB | 0.41 ms |
+> | assistant import, 200 rows, 300 corrections | 240 KiB | 216 KiB (90%) | 216 KiB | 0.47 ms |
+> | wide record, 200 fields | 808 KiB | 120 KiB (15%) | 64 KiB | 1.25 ms |
+>
+> **Where deltas lose.** Complete rewrites cost exactly full copy at every *k* and every ratio,
+> because a rewrite's delta carries both the old and the new value of every field and is larger
+> than the image, so the large-delta rule makes every such version a keyframe; the rule is what
+> keeps that workload from costing about twice full copy. The assistant workload sits at 90% of
+> full copy because most of its records have one version, and a single version costs a node and an
+> index entry whichever layout is in force. Nothing in these runs stores a delta larger than its
+> image, and no workload shows reconstruction cost unbounded in bytes: the count rule bounds the
+> deltas applied to *k* − 1 and the ratio bounds each of them to half an image. Nothing here argues
+> for F-12.
+>
+> **The ratio.** At *k* = 8, the ratio changed nothing on four of the six workloads and moved the
+> other two by one page: a stricter ratio (0.25) cost the assistant workload 232 KiB against 216,
+> by making more corrections keyframes. A one-field change to a record under about 150 bytes is
+> half its image and becomes a keyframe at 0.5, which the tests show and which costs nothing, since
+> such a delta is about the size of the image anyway.
+>
+> **Proposal.** I-1: *k* = 8. Chosen for the assistant-like import-and-corrections workload, the
+> first consumer of versioning (V-18), where history size is flat from *k* = 4, and for small edits,
+> where *k* = 8 holds history at 35% of full copy. What the same default costs elsewhere: wide
+> records pay 1.9 times the size *k* = 32 would give (120 against 64 KiB) and array appends 1.4
+> times (88 against 64), in exchange for a reconstruction that applies at most seven deltas and
+> took 1.25 ms at worst against 2.9 ms at *k* = 32; a collection of wide records edited one field
+> at a time should set *k* = 16 or 32. I-2: ratio 0.5. Chosen for the Publication and small-edit
+> workloads, where it is neutral, and kept at 0.5 rather than higher because it is what stops a
+> rewrite from costing more than full copy; a collection of tiny records may set it to 1.
+>
+> **What `KeepVersions` by default would cost, plainly.** Importing 10,000 rows of 12 columns in one
+> unit of work takes 72 µs a row instead of 31 (2.3 times), writes 0.087 pages a row instead of
+> 0.066, and grows the file by 705 bytes a row instead of 539 — 166 bytes a row for the node, its
+> index entry and its share of the operation; with three secondary indexes the same numbers are 83
+> against 43 µs and 1,349 against 1,184 bytes. A one-field edit to a 50-field record in a bulk unit
+> of work costs 249 µs instead of 134 (1.9 times), 0.20 pages instead of 0.09, about 0.8 KiB of
+> file growth each at *k* = 8, and 15% more journal. A mix with deletes costs 1.3 times. A durable
+> write — one unit of work per record — costs the same 15 ms either way, because the three fsyncs
+> of the commit protocol are the cost and versioning does not add one. Opening a database with 500
+> versioned collections takes 74 ms against 10 for 500 unversioned ones, because every history
+> collection's schema nodes are read at open (1,504 pages); NFR-2's 500 ms holds with room. Secure
+> release (step 7.2) is not in these numbers yet.
+>
+> The catalogue set one limit on the workloads: a column declaration costs about 170 bytes in the
+> collection's descriptor, and the descriptor has to fit a page, so a collection cannot declare more
+> than about 45 columns. The 50- and 200-field records therefore declare their first twelve
+> columns; the records carry every field, and a delta costs the same either way.
+
+| | |
+|---|---|
+| Records | 5,000 |
+| Collections | 500 |
+| Runtime | .NET 10.0.11 |
+| OS | macOS 26.5.2 (Arm64) |
+| Processors | 10 |
+| Commit | 73fc569 |
+
+| Benchmark | Metric | Measured | Target | Requirement | Verdict |
+|---|---|---|---|---|---|
+| Insert throughput | Insert of one record | 15.812 ms | < 5 ms | NFR-2 | **missed** |
+| Insert throughput | Throughput | 63.241 records/s | — | — | — |
+| Insert throughput | Total for the run | 79.062 s | — | — | — |
+| Lookup latency | Lookup by DOI | 8.52 ms | < 10 ms | NFR-2 | met |
+| Lookup latency | Pages read per lookup | 177 pages | — | — | — |
+| Primary index | Lookup by record id | 0.087 ms | < 10 ms | NFR-2 | met |
+| Primary index | Pages read per lookup | 3 pages | — | DC-4 | — |
+| Primary index | Index height | 2 levels | — | — | — |
+| Primary index | Leaf splits building the index | 15 splits | — | D-1 | — |
+| Primary index | Index pages | 17 pages | — | — | — |
+| Index maintenance | Bulk insert, 0 indexes | 23.062 µs | — | DC-6 | — |
+| Index maintenance | Durable insert, 0 indexes | 15.883 ms | < 5 ms | NFR-2 | **missed** |
+| Index maintenance | File size, 0 indexes | 6.281 MiB | — | — | — |
+| Index maintenance | Bulk insert, 1 index | 30.409 µs | — | DC-6 | — |
+| Index maintenance | Durable insert, 1 index | 16.655 ms | < 5 ms | NFR-2 | **missed** |
+| Index maintenance | File size, 1 index | 8.281 MiB | — | — | — |
+| Index maintenance | Lookup by DOI, 1 index | 0.211 ms | < 10 ms | NFR-2 | met |
+| Index maintenance | Bulk insert, 3 indexes | 35.074 µs | — | DC-6 | — |
+| Index maintenance | Durable insert, 3 indexes | 16.274 ms | < 5 ms | NFR-2 | **missed** |
+| Index maintenance | File size, 3 indexes | 12.602 MiB | — | — | — |
+| Index maintenance | Lookup by DOI, 3 indexes | 0.248 ms | < 10 ms | NFR-2 | met |
+| Index maintenance | Bulk insert, 5 indexes | 40.801 µs | — | DC-6 | — |
+| Index maintenance | Durable insert, 5 indexes | 15.05 ms | < 5 ms | NFR-2 | **missed** |
+| Index maintenance | File size, 5 indexes | 16.023 MiB | — | — | — |
+| Index maintenance | Lookup by DOI, 5 indexes | 0.198 ms | < 10 ms | NFR-2 | met |
+| Database open | Open with 5,000 records | 0.295 ms | < 500 ms | NFR-2 | met |
+| Database open | Open with 500 collections | 9.649 ms | < 500 ms | NFR-2 | met |
+| Database open | Open with 500 versioned collections | 73.57 ms | < 500 ms | NFR-2 | met |
+| Database open | Definition lookup after open | 0 page reads | — | — | — |
+| File size growth | File size | 1.594 MiB | — | — | — |
+| File size growth | Bytes per record | 330.924 bytes | — | — | — |
+| File size growth | Overhead over payload | 4.012 x | — | — | — |
+| History size | Small edits, 50 fields: history bytes, k = 1 | 160 KiB | — | NFR-4 | — |
+| History size | Small edits, 50 fields: worst reconstruction, k = 1 | 0.126 ms | < 50 ms | NFR-2 | met |
+| History size | Small edits, 50 fields: history bytes, k = 2 | 104 KiB | — | NFR-4 | — |
+| History size | Small edits, 50 fields: worst reconstruction, k = 2 | 0.736 ms | < 50 ms | NFR-2 | met |
+| History size | Small edits, 50 fields: history bytes, k = 4 | 72 KiB | — | NFR-4 | — |
+| History size | Small edits, 50 fields: worst reconstruction, k = 4 | 0.118 ms | < 50 ms | NFR-2 | met |
+| History size | Small edits, 50 fields: history bytes, k = 8 | 56 KiB | — | NFR-4 | — |
+| History size | Small edits, 50 fields: worst reconstruction, k = 8 | 0.809 ms | < 50 ms | NFR-2 | met |
+| History size | Small edits, 50 fields: history bytes, k = 16 | 56 KiB | — | NFR-4 | — |
+| History size | Small edits, 50 fields: worst reconstruction, k = 16 | 0.978 ms | < 50 ms | NFR-2 | met |
+| History size | Small edits, 50 fields: history bytes, k = 32 | 48 KiB | — | NFR-4 | — |
+| History size | Small edits, 50 fields: worst reconstruction, k = 32 | 2.116 ms | < 50 ms | NFR-2 | met |
+| History size | Small edits, 50 fields: history bytes, k = 8, ratio 0.25 | 56 KiB | — | NFR-4 | — |
+| History size | Small edits, 50 fields: history bytes, k = 8, ratio 0.5 | 56 KiB | — | NFR-4 | — |
+| History size | Small edits, 50 fields: history bytes, k = 8, ratio 0.75 | 56 KiB | — | NFR-4 | — |
+| History size | Small edits, 50 fields: history bytes, k = 8, ratio off | 56 KiB | — | NFR-4 | — |
+| History size | Array appends: history bytes, k = 1 | 344 KiB | — | NFR-4 | — |
+| History size | Array appends: worst reconstruction, k = 1 | 0.12 ms | < 50 ms | NFR-2 | met |
+| History size | Array appends: history bytes, k = 2 | 184 KiB | — | NFR-4 | — |
+| History size | Array appends: worst reconstruction, k = 2 | 0.12 ms | < 50 ms | NFR-2 | met |
+| History size | Array appends: history bytes, k = 4 | 120 KiB | — | NFR-4 | — |
+| History size | Array appends: worst reconstruction, k = 4 | 0.837 ms | < 50 ms | NFR-2 | met |
+| History size | Array appends: history bytes, k = 8 | 88 KiB | — | NFR-4 | — |
+| History size | Array appends: worst reconstruction, k = 8 | 0.602 ms | < 50 ms | NFR-2 | met |
+| History size | Array appends: history bytes, k = 16 | 72 KiB | — | NFR-4 | — |
+| History size | Array appends: worst reconstruction, k = 16 | 1.514 ms | < 50 ms | NFR-2 | met |
+| History size | Array appends: history bytes, k = 32 | 64 KiB | — | NFR-4 | — |
+| History size | Array appends: worst reconstruction, k = 32 | 2.901 ms | < 50 ms | NFR-2 | met |
+| History size | Array appends: history bytes, k = 8, ratio 0.25 | 80 KiB | — | NFR-4 | — |
+| History size | Array appends: history bytes, k = 8, ratio 0.5 | 88 KiB | — | NFR-4 | — |
+| History size | Array appends: history bytes, k = 8, ratio 0.75 | 80 KiB | — | NFR-4 | — |
+| History size | Array appends: history bytes, k = 8, ratio off | 80 KiB | — | NFR-4 | — |
+| History size | Complete rewrites, 50 fields: history bytes, k = 1 | 176 KiB | — | NFR-4 | — |
+| History size | Complete rewrites, 50 fields: worst reconstruction, k = 1 | 0.119 ms | < 50 ms | NFR-2 | met |
+| History size | Complete rewrites, 50 fields: history bytes, k = 2 | 176 KiB | — | NFR-4 | — |
+| History size | Complete rewrites, 50 fields: worst reconstruction, k = 2 | 0.122 ms | < 50 ms | NFR-2 | met |
+| History size | Complete rewrites, 50 fields: history bytes, k = 4 | 176 KiB | — | NFR-4 | — |
+| History size | Complete rewrites, 50 fields: worst reconstruction, k = 4 | 0.115 ms | < 50 ms | NFR-2 | met |
+| History size | Complete rewrites, 50 fields: history bytes, k = 8 | 176 KiB | — | NFR-4 | — |
+| History size | Complete rewrites, 50 fields: worst reconstruction, k = 8 | 0.928 ms | < 50 ms | NFR-2 | met |
+| History size | Complete rewrites, 50 fields: history bytes, k = 16 | 176 KiB | — | NFR-4 | — |
+| History size | Complete rewrites, 50 fields: worst reconstruction, k = 16 | 0.12 ms | < 50 ms | NFR-2 | met |
+| History size | Complete rewrites, 50 fields: history bytes, k = 32 | 176 KiB | — | NFR-4 | — |
+| History size | Complete rewrites, 50 fields: worst reconstruction, k = 32 | 0.113 ms | < 50 ms | NFR-2 | met |
+| History size | Complete rewrites, 50 fields: history bytes, k = 8, ratio 0.25 | 176 KiB | — | NFR-4 | — |
+| History size | Complete rewrites, 50 fields: history bytes, k = 8, ratio 0.5 | 176 KiB | — | NFR-4 | — |
+| History size | Complete rewrites, 50 fields: history bytes, k = 8, ratio 0.75 | 176 KiB | — | NFR-4 | — |
+| History size | Complete rewrites, 50 fields: history bytes, k = 8, ratio off | 176 KiB | — | NFR-4 | — |
+| History size | Publications: history bytes, k = 1 | 144 KiB | — | NFR-4 | — |
+| History size | Publications: worst reconstruction, k = 1 | 0.141 ms | < 50 ms | NFR-2 | met |
+| History size | Publications: history bytes, k = 2 | 104 KiB | — | NFR-4 | — |
+| History size | Publications: worst reconstruction, k = 2 | 0.191 ms | < 50 ms | NFR-2 | met |
+| History size | Publications: history bytes, k = 4 | 88 KiB | — | NFR-4 | — |
+| History size | Publications: worst reconstruction, k = 4 | 0.322 ms | < 50 ms | NFR-2 | met |
+| History size | Publications: history bytes, k = 8 | 72 KiB | — | NFR-4 | — |
+| History size | Publications: worst reconstruction, k = 8 | 0.409 ms | < 50 ms | NFR-2 | met |
+| History size | Publications: history bytes, k = 16 | 72 KiB | — | NFR-4 | — |
+| History size | Publications: worst reconstruction, k = 16 | 1.015 ms | < 50 ms | NFR-2 | met |
+| History size | Publications: history bytes, k = 32 | 72 KiB | — | NFR-4 | — |
+| History size | Publications: worst reconstruction, k = 32 | 1.032 ms | < 50 ms | NFR-2 | met |
+| History size | Publications: history bytes, k = 8, ratio 0.25 | 72 KiB | — | NFR-4 | — |
+| History size | Publications: history bytes, k = 8, ratio 0.5 | 72 KiB | — | NFR-4 | — |
+| History size | Publications: history bytes, k = 8, ratio 0.75 | 72 KiB | — | NFR-4 | — |
+| History size | Publications: history bytes, k = 8, ratio off | 72 KiB | — | NFR-4 | — |
+| History size | Assistant import and corrections: history bytes, k = 1 | 240 KiB | — | NFR-4 | — |
+| History size | Assistant import and corrections: worst reconstruction, k = 1 | 0.298 ms | < 50 ms | NFR-2 | met |
+| History size | Assistant import and corrections: history bytes, k = 2 | 224 KiB | — | NFR-4 | — |
+| History size | Assistant import and corrections: worst reconstruction, k = 2 | 0.218 ms | < 50 ms | NFR-2 | met |
+| History size | Assistant import and corrections: history bytes, k = 4 | 216 KiB | — | NFR-4 | — |
+| History size | Assistant import and corrections: worst reconstruction, k = 4 | 0.305 ms | < 50 ms | NFR-2 | met |
+| History size | Assistant import and corrections: history bytes, k = 8 | 216 KiB | — | NFR-4 | — |
+| History size | Assistant import and corrections: worst reconstruction, k = 8 | 0.471 ms | < 50 ms | NFR-2 | met |
+| History size | Assistant import and corrections: history bytes, k = 16 | 216 KiB | — | NFR-4 | — |
+| History size | Assistant import and corrections: worst reconstruction, k = 16 | 0.486 ms | < 50 ms | NFR-2 | met |
+| History size | Assistant import and corrections: history bytes, k = 32 | 216 KiB | — | NFR-4 | — |
+| History size | Assistant import and corrections: worst reconstruction, k = 32 | 0.466 ms | < 50 ms | NFR-2 | met |
+| History size | Assistant import and corrections: history bytes, k = 8, ratio 0.25 | 232 KiB | — | NFR-4 | — |
+| History size | Assistant import and corrections: history bytes, k = 8, ratio 0.5 | 216 KiB | — | NFR-4 | — |
+| History size | Assistant import and corrections: history bytes, k = 8, ratio 0.75 | 216 KiB | — | NFR-4 | — |
+| History size | Assistant import and corrections: history bytes, k = 8, ratio off | 216 KiB | — | NFR-4 | — |
+| History size | Wide record edits, 200 fields: history bytes, k = 1 | 808 KiB | — | NFR-4 | — |
+| History size | Wide record edits, 200 fields: worst reconstruction, k = 1 | 0.134 ms | < 50 ms | NFR-2 | met |
+| History size | Wide record edits, 200 fields: history bytes, k = 2 | 416 KiB | — | NFR-4 | — |
+| History size | Wide record edits, 200 fields: worst reconstruction, k = 2 | 0.13 ms | < 50 ms | NFR-2 | met |
+| History size | Wide record edits, 200 fields: history bytes, k = 4 | 216 KiB | — | NFR-4 | — |
+| History size | Wide record edits, 200 fields: worst reconstruction, k = 4 | 0.127 ms | < 50 ms | NFR-2 | met |
+| History size | Wide record edits, 200 fields: history bytes, k = 8 | 120 KiB | — | NFR-4 | — |
+| History size | Wide record edits, 200 fields: worst reconstruction, k = 8 | 1.252 ms | < 50 ms | NFR-2 | met |
+| History size | Wide record edits, 200 fields: history bytes, k = 16 | 80 KiB | — | NFR-4 | — |
+| History size | Wide record edits, 200 fields: worst reconstruction, k = 16 | 1.392 ms | < 50 ms | NFR-2 | met |
+| History size | Wide record edits, 200 fields: history bytes, k = 32 | 64 KiB | — | NFR-4 | — |
+| History size | Wide record edits, 200 fields: worst reconstruction, k = 32 | 2.388 ms | < 50 ms | NFR-2 | met |
+| History size | Wide record edits, 200 fields: history bytes, k = 8, ratio 0.25 | 120 KiB | — | NFR-4 | — |
+| History size | Wide record edits, 200 fields: history bytes, k = 8, ratio 0.5 | 120 KiB | — | NFR-4 | — |
+| History size | Wide record edits, 200 fields: history bytes, k = 8, ratio 0.75 | 120 KiB | — | NFR-4 | — |
+| History size | Wide record edits, 200 fields: history bytes, k = 8, ratio off | 120 KiB | — | NFR-4 | — |
+| History size | History bytes after 1 version | 24 KiB | — | VR-10 | — |
+| History size | History bytes after 2 versions | 24 KiB | — | VR-10 | — |
+| History size | History bytes after 5 versions | 24 KiB | — | VR-10 | — |
+| History size | History bytes after 10 versions | 24 KiB | — | VR-10 | — |
+| History size | History bytes after 20 versions | 32 KiB | — | VR-10 | — |
+| History size | History bytes after 50 versions | 40 KiB | — | VR-10 | — |
+| History size | History bytes after 100 versions | 56 KiB | — | VR-10 | — |
+| Write amplification | Import: bulk insert, None, 0 indexes | 31.337 µs | — | NFR-4 | — |
+| Write amplification | Import: pages per row, None, 0 indexes | 0.066 pages | — | — | — |
+| Write amplification | Import: file growth per row, None, 0 indexes | 539.034 bytes | — | — | — |
+| Write amplification | Import: durable insert, None, 0 indexes | 15.149 ms | < 5 ms | NFR-2 | **missed** |
+| Write amplification | Wide edits: bulk update, None, 0 indexes | 133.802 µs | — | NFR-4 | — |
+| Write amplification | Wide edits: pages per edit, None, 0 indexes | 0.089 pages | — | — | — |
+| Write amplification | Wide edits: durable update, None, 0 indexes | 15.749 ms | < 5 ms | NFR-2 | **missed** |
+| Write amplification | Mix with deletes: per operation, None, 0 indexes | 304.241 µs | — | — | — |
+| Write amplification | Import: bulk insert, None, 3 indexes | 42.916 µs | — | NFR-4 | — |
+| Write amplification | Import: pages per row, None, 3 indexes | 0.145 pages | — | — | — |
+| Write amplification | Import: file growth per row, None, 3 indexes | 1,184 bytes | — | — | — |
+| Write amplification | Import: durable insert, None, 3 indexes | 15.942 ms | < 5 ms | NFR-2 | **missed** |
+| Write amplification | Wide edits: bulk update, None, 3 indexes | 147.527 µs | — | NFR-4 | — |
+| Write amplification | Wide edits: pages per edit, None, 3 indexes | 0.119 pages | — | — | — |
+| Write amplification | Wide edits: durable update, None, 3 indexes | 14.23 ms | < 5 ms | NFR-2 | **missed** |
+| Write amplification | Mix with deletes: per operation, None, 3 indexes | 268.799 µs | — | — | — |
+| Write amplification | Import: bulk insert, KeepVersions, 0 indexes | 72.455 µs | — | NFR-4 | — |
+| Write amplification | Import: pages per row, KeepVersions, 0 indexes | 0.087 pages | — | — | — |
+| Write amplification | Import: file growth per row, KeepVersions, 0 indexes | 704.512 bytes | — | — | — |
+| Write amplification | Import: durable insert, KeepVersions, 0 indexes | 15.899 ms | < 5 ms | NFR-2 | **missed** |
+| Write amplification | Wide edits: bulk update, KeepVersions, 0 indexes | 248.774 µs | — | NFR-4 | — |
+| Write amplification | Wide edits: pages per edit, KeepVersions, 0 indexes | 0.203 pages | — | — | — |
+| Write amplification | Wide edits: durable update, KeepVersions, 0 indexes | 15.37 ms | < 5 ms | NFR-2 | **missed** |
+| Write amplification | Mix with deletes: per operation, KeepVersions, 0 indexes | 387.106 µs | — | — | — |
+| Write amplification | Import: bulk insert, KeepVersions, 3 indexes | 83.021 µs | — | NFR-4 | — |
+| Write amplification | Import: pages per row, KeepVersions, 3 indexes | 0.165 pages | — | — | — |
+| Write amplification | Import: file growth per row, KeepVersions, 3 indexes | 1,349 bytes | — | — | — |
+| Write amplification | Import: durable insert, KeepVersions, 3 indexes | 14.75 ms | < 5 ms | NFR-2 | **missed** |
+| Write amplification | Wide edits: bulk update, KeepVersions, 3 indexes | 263.959 µs | — | NFR-4 | — |
+| Write amplification | Wide edits: pages per edit, KeepVersions, 3 indexes | 0.233 pages | — | — | — |
+| Write amplification | Wide edits: durable update, KeepVersions, 3 indexes | 15.97 ms | < 5 ms | NFR-2 | **missed** |
+| Write amplification | Mix with deletes: per operation, KeepVersions, 3 indexes | 355.348 µs | — | — | — |
+
+### Notes
+
+- **Insert throughput** — One record per transaction through the full commit protocol.
+- **Lookup latency** — Lookup of one record by a non-key field, today a full scan.
+- **Primary index** — Lookup by record identity through the B+Tree, and what a time-ordered identity costs it.
+- **Index maintenance** — Insert throughput against the number of secondary indexes, and what those indexes buy back.
+- **Database open** — Open, recover the journal and load the catalogue.
+- **File size growth** — What a stored record costs on disk, and what the overhead is.
+- **History size** — History size and reconstruction time against the keyframe interval k and the large-delta ratio, per workload; size ratios are against k = 1, the full-copy layout, and a ratio of 1 means the large-delta rule is off.
+- **Write amplification** — Pages written, journal bytes, file growth and latency per operation under None and KeepVersions, with 0 and 3 indexes.
+- *Insert of one record:* One transaction per record: three fsyncs each (journal images, database file, commit record).
+- *Total for the run:* 5,000 records.
+- *Lookup by DOI:* Sequential scan of 5,000 records; DOI has no index of its own yet. 50 of 50 targets found.
+- *Pages read per lookup:* Every data page of the collection. Compare the primary index below, which reads a descent.
+- *Lookup by record id:* One descent of the tree, 200 of 200 targets found.
+- *Pages read per lookup:* A tree of height 2 over 5,000 records: 2 index pages and the one data page the entry addresses. O(log n), against the whole collection for a scan.
+- *Index height:* 16 leaves holding 312 entries each.
+- *Leaf splits building the index:* 20 for the same number of random identities — the comparison D-1 rests on. A monotonic identity appends, so only the rightmost leaf ever splits and the leaves behind it stay full.
+- *Index pages:* 22 for random identities, which is what a Guid identity would have cost.
+- *Bulk insert, 0 indexes:* 20,000 records in one transaction, so the three fsyncs of a commit are paid once and what is left is the work of the write itself.
+- *Durable insert, 0 indexes:* 300 records, one transaction each.
+- *File size, 0 indexes:* 20,500 records and their indexes.
+- *Bulk insert, 1 index:* 20,000 records in one transaction, so the three fsyncs of a commit are paid once and what is left is the work of the write itself.
+- *Durable insert, 1 index:* 300 records, one transaction each.
+- *File size, 1 index:* 20,500 records and their indexes.
+- *Lookup by DOI, 1 index:* Through the index on Doi. 200 of 200 targets found, 4 pages for one.
+- *Bulk insert, 3 indexes:* 20,000 records in one transaction, so the three fsyncs of a commit are paid once and what is left is the work of the write itself.
+- *Durable insert, 3 indexes:* 300 records, one transaction each.
+- *File size, 3 indexes:* 20,500 records and their indexes.
+- *Lookup by DOI, 3 indexes:* Through the index on Doi. 200 of 200 targets found, 4 pages for one.
+- *Bulk insert, 5 indexes:* 20,000 records in one transaction, so the three fsyncs of a commit are paid once and what is left is the work of the write itself.
+- *Durable insert, 5 indexes:* 300 records, one transaction each.
+- *File size, 5 indexes:* 20,500 records and their indexes.
+- *Lookup by DOI, 5 indexes:* Through the index on Doi. 200 of 200 targets found, 4 pages for one.
+- *Open with 5,000 records:* 4 pages read; the record count does not enter into it.
+- *Open with 500 collections:* 129 pages read: one pass over the catalogue's own pages.
+- *Open with 500 versioned collections:* 1504 pages read: the catalogue, twice as many entries, and the schema history of every history collection read into memory (HS-4).
+- *Definition lookup after open:* The catalogue is cached at open, so reading a definition costs no page read at all (DC-7).
+- *File size:* 5,050 records.
+- *Overhead over payload:* File size divided by the bytes of user data in it; slot directories, page headers, control areas and part-filled pages make up the difference.
+- *Small edits, 50 fields: history bytes, k = 1:* 100 versions, ratio 0.5; 100 % of full copy.
+- *Small edits, 50 fields: worst reconstruction, k = 1:* at most 0 deltas applied; mean 0.121 ms over 25 versions.
+- *Small edits, 50 fields: history bytes, k = 2:* 100 versions, ratio 0.5; 65 % of full copy.
+- *Small edits, 50 fields: worst reconstruction, k = 2:* at most 0 deltas applied; mean 0.139 ms over 25 versions.
+- *Small edits, 50 fields: history bytes, k = 4:* 100 versions, ratio 0.5; 45 % of full copy.
+- *Small edits, 50 fields: worst reconstruction, k = 4:* at most 0 deltas applied; mean 0.113 ms over 25 versions.
+- *Small edits, 50 fields: history bytes, k = 8:* 100 versions, ratio 0.5; 35 % of full copy.
+- *Small edits, 50 fields: worst reconstruction, k = 8:* at most 4 deltas applied; mean 0.269 ms over 25 versions.
+- *Small edits, 50 fields: history bytes, k = 16:* 100 versions, ratio 0.5; 35 % of full copy.
+- *Small edits, 50 fields: worst reconstruction, k = 16:* at most 12 deltas applied; mean 0.52 ms over 25 versions.
+- *Small edits, 50 fields: history bytes, k = 32:* 100 versions, ratio 0.5; 30 % of full copy.
+- *Small edits, 50 fields: worst reconstruction, k = 32:* at most 28 deltas applied; mean 1.109 ms over 25 versions.
+- *Small edits, 50 fields: history bytes, k = 8, ratio 0.25:* 13 keyframes among 100 nodes; 35 % of full copy.
+- *Small edits, 50 fields: history bytes, k = 8, ratio 0.5:* 13 keyframes among 100 nodes; 35 % of full copy.
+- *Small edits, 50 fields: history bytes, k = 8, ratio 0.75:* 13 keyframes among 100 nodes; 35 % of full copy.
+- *Small edits, 50 fields: history bytes, k = 8, ratio off:* 13 keyframes among 100 nodes; 35 % of full copy.
+- *Array appends: history bytes, k = 1:* 100 versions, ratio 0.5; 100 % of full copy.
+- *Array appends: worst reconstruction, k = 1:* at most 0 deltas applied; mean 0.114 ms over 25 versions.
+- *Array appends: history bytes, k = 2:* 100 versions, ratio 0.5; 53 % of full copy.
+- *Array appends: worst reconstruction, k = 2:* at most 0 deltas applied; mean 0.114 ms over 25 versions.
+- *Array appends: history bytes, k = 4:* 100 versions, ratio 0.5; 35 % of full copy.
+- *Array appends: worst reconstruction, k = 4:* at most 2 deltas applied; mean 0.272 ms over 25 versions.
+- *Array appends: history bytes, k = 8:* 100 versions, ratio 0.5; 26 % of full copy.
+- *Array appends: worst reconstruction, k = 8:* at most 6 deltas applied; mean 0.4 ms over 25 versions.
+- *Array appends: history bytes, k = 16:* 100 versions, ratio 0.5; 21 % of full copy.
+- *Array appends: worst reconstruction, k = 16:* at most 14 deltas applied; mean 0.719 ms over 25 versions.
+- *Array appends: history bytes, k = 32:* 100 versions, ratio 0.5; 19 % of full copy.
+- *Array appends: worst reconstruction, k = 32:* at most 30 deltas applied; mean 1.232 ms over 25 versions.
+- *Array appends: history bytes, k = 8, ratio 0.25:* 18 keyframes among 100 nodes; 23 % of full copy.
+- *Array appends: history bytes, k = 8, ratio 0.5:* 15 keyframes among 100 nodes; 26 % of full copy.
+- *Array appends: history bytes, k = 8, ratio 0.75:* 13 keyframes among 100 nodes; 23 % of full copy.
+- *Array appends: history bytes, k = 8, ratio off:* 13 keyframes among 100 nodes; 23 % of full copy.
+- *Complete rewrites, 50 fields: history bytes, k = 1:* 100 versions, ratio 0.5; 100 % of full copy.
+- *Complete rewrites, 50 fields: worst reconstruction, k = 1:* at most 0 deltas applied; mean 0.118 ms over 25 versions.
+- *Complete rewrites, 50 fields: history bytes, k = 2:* 100 versions, ratio 0.5; 100 % of full copy.
+- *Complete rewrites, 50 fields: worst reconstruction, k = 2:* at most 0 deltas applied; mean 0.116 ms over 25 versions.
+- *Complete rewrites, 50 fields: history bytes, k = 4:* 100 versions, ratio 0.5; 100 % of full copy.
+- *Complete rewrites, 50 fields: worst reconstruction, k = 4:* at most 0 deltas applied; mean 0.113 ms over 25 versions.
+- *Complete rewrites, 50 fields: history bytes, k = 8:* 100 versions, ratio 0.5; 100 % of full copy.
+- *Complete rewrites, 50 fields: worst reconstruction, k = 8:* at most 0 deltas applied; mean 0.145 ms over 25 versions.
+- *Complete rewrites, 50 fields: history bytes, k = 16:* 100 versions, ratio 0.5; 100 % of full copy.
+- *Complete rewrites, 50 fields: worst reconstruction, k = 16:* at most 0 deltas applied; mean 0.113 ms over 25 versions.
+- *Complete rewrites, 50 fields: history bytes, k = 32:* 100 versions, ratio 0.5; 100 % of full copy.
+- *Complete rewrites, 50 fields: worst reconstruction, k = 32:* at most 0 deltas applied; mean 0.113 ms over 25 versions.
+- *Complete rewrites, 50 fields: history bytes, k = 8, ratio 0.25:* 100 keyframes among 100 nodes; 100 % of full copy.
+- *Complete rewrites, 50 fields: history bytes, k = 8, ratio 0.5:* 100 keyframes among 100 nodes; 100 % of full copy.
+- *Complete rewrites, 50 fields: history bytes, k = 8, ratio 0.75:* 100 keyframes among 100 nodes; 100 % of full copy.
+- *Complete rewrites, 50 fields: history bytes, k = 8, ratio off:* 100 keyframes among 100 nodes; 100 % of full copy.
+- *Publications: history bytes, k = 1:* 100 versions, ratio 0.5; 100 % of full copy.
+- *Publications: worst reconstruction, k = 1:* at most 0 deltas applied; mean 0.118 ms over 25 versions.
+- *Publications: history bytes, k = 2:* 100 versions, ratio 0.5; 72 % of full copy.
+- *Publications: worst reconstruction, k = 2:* at most 1 deltas applied; mean 0.138 ms over 25 versions.
+- *Publications: history bytes, k = 4:* 100 versions, ratio 0.5; 61 % of full copy.
+- *Publications: worst reconstruction, k = 4:* at most 3 deltas applied; mean 0.184 ms over 25 versions.
+- *Publications: history bytes, k = 8:* 100 versions, ratio 0.5; 50 % of full copy.
+- *Publications: worst reconstruction, k = 8:* at most 4 deltas applied; mean 0.243 ms over 25 versions.
+- *Publications: history bytes, k = 16:* 100 versions, ratio 0.5; 50 % of full copy.
+- *Publications: worst reconstruction, k = 16:* at most 4 deltas applied; mean 0.263 ms over 25 versions.
+- *Publications: history bytes, k = 32:* 100 versions, ratio 0.5; 50 % of full copy.
+- *Publications: worst reconstruction, k = 32:* at most 4 deltas applied; mean 0.263 ms over 25 versions.
+- *Publications: history bytes, k = 8, ratio 0.25:* 37 keyframes among 100 nodes; 50 % of full copy.
+- *Publications: history bytes, k = 8, ratio 0.5:* 21 keyframes among 100 nodes; 50 % of full copy.
+- *Publications: history bytes, k = 8, ratio 0.75:* 20 keyframes among 100 nodes; 50 % of full copy.
+- *Publications: history bytes, k = 8, ratio off:* 19 keyframes among 100 nodes; 50 % of full copy.
+- *Assistant import and corrections: history bytes, k = 1:* 500 versions, ratio 0.5; 100 % of full copy.
+- *Assistant import and corrections: worst reconstruction, k = 1:* at most 0 deltas applied; mean 0.141 ms over 25 versions.
+- *Assistant import and corrections: history bytes, k = 2:* 500 versions, ratio 0.5; 93 % of full copy.
+- *Assistant import and corrections: worst reconstruction, k = 2:* at most 1 deltas applied; mean 0.149 ms over 25 versions.
+- *Assistant import and corrections: history bytes, k = 4:* 500 versions, ratio 0.5; 90 % of full copy.
+- *Assistant import and corrections: worst reconstruction, k = 4:* at most 2 deltas applied; mean 0.17 ms over 25 versions.
+- *Assistant import and corrections: history bytes, k = 8:* 500 versions, ratio 0.5; 90 % of full copy.
+- *Assistant import and corrections: worst reconstruction, k = 8:* at most 4 deltas applied; mean 0.188 ms over 25 versions.
+- *Assistant import and corrections: history bytes, k = 16:* 500 versions, ratio 0.5; 90 % of full copy.
+- *Assistant import and corrections: worst reconstruction, k = 16:* at most 4 deltas applied; mean 0.181 ms over 25 versions.
+- *Assistant import and corrections: history bytes, k = 32:* 500 versions, ratio 0.5; 90 % of full copy.
+- *Assistant import and corrections: worst reconstruction, k = 32:* at most 4 deltas applied; mean 0.181 ms over 25 versions.
+- *Assistant import and corrections: history bytes, k = 8, ratio 0.25:* 412 keyframes among 500 nodes; 97 % of full copy.
+- *Assistant import and corrections: history bytes, k = 8, ratio 0.5:* 200 keyframes among 500 nodes; 90 % of full copy.
+- *Assistant import and corrections: history bytes, k = 8, ratio 0.75:* 200 keyframes among 500 nodes; 90 % of full copy.
+- *Assistant import and corrections: history bytes, k = 8, ratio off:* 200 keyframes among 500 nodes; 90 % of full copy.
+- *Wide record edits, 200 fields: history bytes, k = 1:* 100 versions, ratio 0.5; 100 % of full copy.
+- *Wide record edits, 200 fields: worst reconstruction, k = 1:* at most 0 deltas applied; mean 0.125 ms over 25 versions.
+- *Wide record edits, 200 fields: history bytes, k = 2:* 100 versions, ratio 0.5; 51 % of full copy.
+- *Wide record edits, 200 fields: worst reconstruction, k = 2:* at most 0 deltas applied; mean 0.121 ms over 25 versions.
+- *Wide record edits, 200 fields: history bytes, k = 4:* 100 versions, ratio 0.5; 27 % of full copy.
+- *Wide record edits, 200 fields: worst reconstruction, k = 4:* at most 0 deltas applied; mean 0.123 ms over 25 versions.
+- *Wide record edits, 200 fields: history bytes, k = 8:* 100 versions, ratio 0.5; 15 % of full copy.
+- *Wide record edits, 200 fields: worst reconstruction, k = 8:* at most 4 deltas applied; mean 0.32 ms over 25 versions.
+- *Wide record edits, 200 fields: history bytes, k = 16:* 100 versions, ratio 0.5; 10 % of full copy.
+- *Wide record edits, 200 fields: worst reconstruction, k = 16:* at most 12 deltas applied; mean 0.656 ms over 25 versions.
+- *Wide record edits, 200 fields: history bytes, k = 32:* 100 versions, ratio 0.5; 8 % of full copy.
+- *Wide record edits, 200 fields: worst reconstruction, k = 32:* at most 28 deltas applied; mean 1.269 ms over 25 versions.
+- *Wide record edits, 200 fields: history bytes, k = 8, ratio 0.25:* 13 keyframes among 100 nodes; 15 % of full copy.
+- *Wide record edits, 200 fields: history bytes, k = 8, ratio 0.5:* 13 keyframes among 100 nodes; 15 % of full copy.
+- *Wide record edits, 200 fields: history bytes, k = 8, ratio 0.75:* 13 keyframes among 100 nodes; 15 % of full copy.
+- *Wide record edits, 200 fields: history bytes, k = 8, ratio off:* 13 keyframes among 100 nodes; 15 % of full copy.
+- *History bytes after 1 version:* small edits, k = 8, ratio 0.5; full copy 24 KiB.
+- *History bytes after 2 versions:* small edits, k = 8, ratio 0.5; full copy 24 KiB.
+- *History bytes after 5 versions:* small edits, k = 8, ratio 0.5; full copy 24 KiB.
+- *History bytes after 10 versions:* small edits, k = 8, ratio 0.5; full copy 32 KiB.
+- *History bytes after 20 versions:* small edits, k = 8, ratio 0.5; full copy 48 KiB.
+- *History bytes after 50 versions:* small edits, k = 8, ratio 0.5; full copy 88 KiB.
+- *History bytes after 100 versions:* small edits, k = 8, ratio 0.5; full copy 160 KiB.
+- *Import: bulk insert, None, 0 indexes:* 10,000 rows of 12 columns in one unit of work: 661 pages written, 24 KiB journalled, 2 flushes.
+- *Import: durable insert, None, 0 indexes:* 100 rows, one unit of work each: 5.2 pages and 40.7 KiB of journal per row.
+- *Wide edits: bulk update, None, 0 indexes:* 1,000 one-field edits to 50-field records in one unit of work: 89 pages written, 712 KiB journalled, 0 KiB of file growth.
+- *Wide edits: durable update, None, 0 indexes:* 100 edits, one unit of work each: 5 pages and 40 KiB of journal per edit.
+- *Mix with deletes: per operation, None, 0 indexes:* 200 operations, a quarter of them deletes and a quarter inserts, in one unit of work: 78 pages written, 624 KiB journalled, 0 KiB of file growth.
+- *Import: bulk insert, None, 3 indexes:* 10,000 rows of 12 columns in one unit of work: 1,449 pages written, 32 KiB journalled, 2 flushes.
+- *Import: durable insert, None, 3 indexes:* 100 rows, one unit of work each: 9.3 pages and 73.4 KiB of journal per row.
+- *Wide edits: bulk update, None, 3 indexes:* 1,000 one-field edits to 50-field records in one unit of work: 119 pages written, 952 KiB journalled, 0 KiB of file growth.
+- *Wide edits: durable update, None, 3 indexes:* 100 edits, one unit of work each: 8.1 pages and 64.5 KiB of journal per edit.
+- *Mix with deletes: per operation, None, 3 indexes:* 200 operations, a quarter of them deletes and a quarter inserts, in one unit of work: 108 pages written, 864 KiB journalled, 0 KiB of file growth.
+- *Import: bulk insert, KeepVersions, 0 indexes:* 10,000 rows of 12 columns in one unit of work: 866 pages written, 48 KiB journalled, 2 flushes.
+- *Import: durable insert, KeepVersions, 0 indexes:* 100 rows, one unit of work each: 8.3 pages and 65.1 KiB of journal per row.
+- *Wide edits: bulk update, KeepVersions, 0 indexes:* 1,000 one-field edits to 50-field records in one unit of work: 203 pages written, 824 KiB journalled, 800 KiB of file growth.
+- *Wide edits: durable update, KeepVersions, 0 indexes:* 100 edits, one unit of work each: 9.6 pages and 76.2 KiB of journal per edit.
+- *Mix with deletes: per operation, KeepVersions, 0 indexes:* 200 operations, a quarter of them deletes and a quarter inserts, in one unit of work: 111 pages written, 824 KiB journalled, 64 KiB of file growth.
+- *Import: bulk insert, KeepVersions, 3 indexes:* 10,000 rows of 12 columns in one unit of work: 1,654 pages written, 56 KiB journalled, 2 flushes.
+- *Import: durable insert, KeepVersions, 3 indexes:* 100 rows, one unit of work each: 12.4 pages and 97.8 KiB of journal per row.
+- *Wide edits: bulk update, KeepVersions, 3 indexes:* 1,000 one-field edits to 50-field records in one unit of work: 233 pages written, 1,064 KiB journalled, 800 KiB of file growth.
+- *Wide edits: durable update, KeepVersions, 3 indexes:* 100 edits, one unit of work each: 12.7 pages and 100.6 KiB of journal per edit.
+- *Mix with deletes: per operation, KeepVersions, 3 indexes:* 200 operations, a quarter of them deletes and a quarter inserts, in one unit of work: 141 pages written, 1,064 KiB journalled, 64 KiB of file growth.
+
 ## 2026-09-05 — Phase 5 — unique and secondary indexes
 
 > **DC-6's table, and the read/write trade-off of §2.3 in one place.** The four

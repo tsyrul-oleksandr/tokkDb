@@ -1,5 +1,6 @@
 using TokkDb.LLM.Core;
 using TokkDb.LLM.Storage.Engine;
+using TokkDb.Pages;
 
 namespace TokkDb.LLM.Storage.Tests;
 
@@ -82,12 +83,25 @@ public sealed class LazyMigrationTests : IDisposable
     [Fact]
     public void ChangingAColumnRewritesNoRecord()
     {
-        using var storage = NewStorage();
-        for (var i = 0; i < 500; i++)
+        using (var seeded = NewStorage())
         {
-            Insert(storage, $"Article {i}", 2000 + i % 20);
+            for (var i = 0; i < 500; i++)
+            {
+                Insert(seeded, $"Article {i}", 2000 + i % 20);
+            }
         }
 
+        // Step 3.1 of the versioning plan: an unchanged page count after a schema change is what
+        // only RetentionPolicy.None gives, since a versioned collection records the change in its
+        // history. The adapter keeps its connection to itself, so the policy is set between two
+        // sessions of it.
+        using (var connection = new TokkDbConnection(_databaseFilePath))
+        {
+            connection.Load();
+            connection.SetRetentionPolicy("Article", RetentionPolicy.None);
+        }
+
+        using var storage = new TokkDbStorage(_databaseFilePath);
         var pagesBefore = PageCount();
         storage.UpdateColumn("Article", "Year", new ColumnDefinition("Published", ColumnType.Int64));
         storage.RemoveColumn("Article", "Note");

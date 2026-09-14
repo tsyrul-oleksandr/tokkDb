@@ -57,6 +57,9 @@ public class DataPageManager {
     return tree;
   }
 
+  //Physical page reads so far, for the reports of RH-8.
+  public long PageReadCount => _pageManager.PageReadCount;
+
   //Forgets the cached trees, as the free-space structures are forgotten, because the
   //catalogue they read their roots from has been reloaded.
   public void Reset() {
@@ -474,16 +477,17 @@ public class DataPageManager {
     }
   }
 
-  //The one mechanism that takes a record image out of use. It is called from exactly one
-  //place — the RemoveCurrentVersion seam of VR-12 — and nothing else in the engine frees or
-  //retires an image.
-  public void RetireRow(string collectionName, DocumentAddress address, RecordFlags flags,
-      RetentionPolicy retentionPolicy) {
-    if (retentionPolicy != RetentionPolicy.None) {
-      throw new NotSupportedException(
-        $"{nameof(RetentionPolicy)}.{retentionPolicy} is not implemented in this pass (D-5). " +
-        $"Only {nameof(RetentionPolicy)}.{nameof(RetentionPolicy.None)} retires an image.");
-    }
+  //The one mechanism that takes a record image out of use, and it behaves the same under every
+  //retention policy: the slot is freed, the chain is freed, the index entries go. Keeping a
+  //version is the version store's business, done beside this through the seam, never by
+  //keeping the image where it lies (V-1, V-4).
+  //
+  //Its callers (HS-3): the RemoveCurrentVersion seam of VR-12 in DbEntities, for user records;
+  //SystemDocumentStore.Write and Delete, the three catalogues (CollectionCatalog.DropCollection,
+  //IndexCatalog.Drop, RelationCatalog.Remove), which touch only reserved collections; and
+  //TokkDbConnection.DropCollection, which retires every record of a user collection together
+  //with its history.
+  public void RetireRow(string collectionName, DocumentAddress address, RecordFlags flags) {
     var page = LoadPage(address.PageIndex);
     //The image is marked before it goes, so that keeping it instead becomes a matter of not
     //freeing the slot rather than of writing something different.
@@ -529,8 +533,14 @@ public class DataPageManager {
 
   //ST-1. The free-space structure says which pages are worth trying, so this no longer walks
   //the whole chain for every insert.
+  //
+  //Worth trying means room for the record and its slot: a page whose reclaimable bytes are
+  //between the record's length and that plus a slot can neither take the record nor be
+  //compacted into taking it, and every such page — most pages end that way, once nothing
+  //smaller than the last record arrives — would otherwise be loaded and rejected on every
+  //insert after it, so the cost of an insert grew with the collection.
   private DataPage GetAvailablePage(string collectionName, ushort bytesLength) {
-    foreach (var pageIndex in _freeSpace.FindPagesWithRoom(collectionName, bytesLength)) {
+    foreach (var pageIndex in _freeSpace.FindPagesWithRoom(collectionName, (ushort)(bytesLength + SlotByteSize))) {
       DataPage page;
       try {
         page = LoadPage(pageIndex);

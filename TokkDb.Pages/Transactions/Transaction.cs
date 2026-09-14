@@ -1,4 +1,5 @@
-﻿using TokkDb.Transactions;
+﻿using TokkDb.Pages.Versions;
+using TokkDb.Transactions;
 
 namespace TokkDb.Pages.Transactions;
 
@@ -32,6 +33,30 @@ public class Transaction {
 
   public bool IsOutermost => Parent is null;
 
+  //The transaction that reaches the device: this one, or the one it is nested in, however
+  //deep. An operation belongs to it (V-7).
+  public Transaction Outermost {
+    get {
+      var transaction = this;
+      while (transaction.Parent is not null) {
+        transaction = transaction.Parent;
+      }
+      return transaction;
+    }
+  }
+
+  //HS-9: the attribution in force when this outermost transaction began, taken from the
+  //connection's scope by the transaction manager. Empty outside any scope.
+  public VersionAttribution Attribution { get; internal set; } = VersionAttribution.None;
+
+  //V-7: an outermost transaction that records at least one version is an operation. Its
+  //identifier is minted at the first recording, and the version store writes one operation
+  //document into each history collection it touches, remembering which ones here so that a
+  //second recording in the same collection adds no second document (HS-6).
+  public Ulid? OperationId { get; set; }
+  public DateTime OperationRecordedAt { get; set; }
+  public HashSet<string> HistoriesWithOperation { get; } = new(StringComparer.Ordinal);
+
   public void Commit() {
     RequireActive();
     if (IsRollbackOnly) {
@@ -39,6 +64,10 @@ public class Transaction {
         $"Transaction {Id} cannot commit: a transaction nested inside it was rolled back.");
     }
     if (IsOutermost) {
+      //Before the page set is taken: the hook may dirty a page that belongs in this commit.
+      if (Pages.Count > 0) {
+        _transactionManager.BeforeOutermostCommit?.Invoke();
+      }
       _pageManager.CommitPages(Id, Pages.ToArray());
     } else {
       //Nothing durable happens here. The pages become the containing transaction's problem.

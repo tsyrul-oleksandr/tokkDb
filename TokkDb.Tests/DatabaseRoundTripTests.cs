@@ -146,6 +146,8 @@ public class DatabaseRoundTripTests {
   public void PagesFillUpBeforeANewOneIsAllocated() {
     using var file = new TempDatabaseFile();
     using var db = NewDatabase(file);
+    //Step 3.1 of the versioning plan: what this asserts is what only RetentionPolicy.None gives.
+    db.SetRetentionPolicy("Person", RetentionPolicy.None);
     var entities = db.Entities<Person>();
     for (var i = 0; i < 200; i++) {
       entities.Insert(TestPeople.Numbered(i));

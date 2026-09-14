@@ -26,6 +26,13 @@ public sealed class SchemaMigrator {
 
   public bool IsIdentity => _steps.Count == 0;
 
+  //V-3 and V-11: the steps as schema history gives them, for reconstruction, which must never
+  //read the catalogue's log — Rewrite empties it. Already ordered by whoever holds them.
+  public static SchemaMigrator FromSteps(IEnumerable<ColumnMigration> steps) {
+    var ordered = steps.OrderBy(step => step.Version).ToArray();
+    return ordered.Length == 0 ? None : new SchemaMigrator(ordered);
+  }
+
   public static SchemaMigrator For(CollectionDescriptor descriptor, ushort recordVersion) {
     if (descriptor.Migrations.Count == 0 || recordVersion >= descriptor.SchemaVersion) {
       return None;

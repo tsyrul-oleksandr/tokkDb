@@ -124,6 +124,8 @@ public class OverflowTests {
     using var file = new TempDatabaseFile();
     using var db = new TokkDbConnection(file.Path);
     db.CreateDatabase(config => config.CreateEntity<LargeDocument>());
+    //Step 3.1 of the versioning plan: what this asserts is what only RetentionPolicy.None gives.
+    db.SetRetentionPolicy(nameof(LargeDocument), RetentionPolicy.None);
     var entities = db.Entities<LargeDocument>();
 
     entities.Insert(LargeDocument.OfSize(1, 300_000));
