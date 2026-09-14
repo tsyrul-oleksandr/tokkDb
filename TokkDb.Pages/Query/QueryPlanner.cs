@@ -26,13 +26,18 @@ public static class QueryPlanner {
       IReadOnlyList<Ulid> ids, IndexCatalog indexes) {
     query ??= NormalizedQuery.Everything;
     var path = ChoosePath(collectionName, query, ids, indexes);
-    //Everything the path does not settle. A path that answers a conjunct exactly takes it out
-    //of the per-record work; one that only narrows by it leaves it in, which is what D-3's
-    //re-check rule requires of a folded or truncated key.
-    var filters = path.IsExact
-      ? query.Conjuncts.Where(conjunct => !path.Answers.Contains(conjunct)).ToArray()
-      : query.Conjuncts.ToArray();
-    return new QueryPlan(collectionName, path, filters, query.Residual);
+    return new QueryPlan(collectionName, path, Filters(path, query.Conjuncts), query.Residual);
+  }
+
+  //Everything the path does not settle. A path that answers a conjunct exactly takes it out
+  //of the per-record work; one that only narrows by it leaves it in, which is what D-3's
+  //re-check rule requires of a folded or truncated key. Written once, because the executor
+  //applies it again after it has bound a projected key set into a plan (RL-3a): a set of string
+  //keys makes a seek that was exact over integers inexact.
+  public static IReadOnlyList<QueryPredicate> Filters(AccessPath path, IReadOnlyList<QueryPredicate> conjuncts) {
+    return path.IsExact
+      ? conjuncts.Where(conjunct => !path.Answers.Contains(conjunct)).ToArray()
+      : conjuncts.ToArray();
   }
 
   private static AccessPath ChoosePath(string collectionName, NormalizedQuery query,
@@ -81,7 +86,14 @@ public static class QueryPlanner {
     if (candidate.IsUnique != best.IsUnique) {
       return candidate.IsUnique;
     }
-    return candidate.Values.Count < best.Values.Count;
+    return Width(candidate) < Width(best);
+  }
+
+  //How many descents a seek makes. A key set a relation step has yet to project is as wide as a
+  //set can be, because nothing is known about it yet: a seek whose values are written in the
+  //query is preferred over one whose values an inner query will produce.
+  private static long Width(IndexSeekPath path) {
+    return path.Keys is { IsProjected: false } ? long.MaxValue : path.Values.Count;
   }
 
   //Then range. The bounds on one column are gathered together, so "between" — which arrives
@@ -161,7 +173,13 @@ public static class QueryPlanner {
   //Why the scan happened, in the terms the reader can act on: an index that does not exist is
   //a different problem from a predicate no index could answer.
   private static string NoIndexReason(string collectionName, NormalizedQuery query, IndexCatalog indexes) {
-    var unindexed = query.Conjuncts
+    //Q-8 and RL-5: an anti-join narrows nothing an index could find, and a scan chosen for that
+    //reason is a different thing from one chosen because an index was missing.
+    var answerable = query.Conjuncts.Where(conjunct => conjunct.Operator != ComparisonOperator.NotIn).ToList();
+    if (answerable.Count == 0) {
+      return "the only condition is an anti-join, which no index shape answers";
+    }
+    var unindexed = answerable
       .Where(conjunct => indexes?.Find(collectionName, conjunct.ColumnName) is null)
       .Select(conjunct => conjunct.ColumnName)
       .Distinct(StringComparer.Ordinal)
@@ -169,7 +187,7 @@ public static class QueryPlanner {
     if (unindexed.Count > 0) {
       return $"no index on {string.Join(", ", unindexed)}";
     }
-    if (query.Conjuncts.Any(conjunct => !conjunct.IsIndexable)) {
+    if (answerable.Any(conjunct => !conjunct.IsIndexable)) {
       return "the conjuncts name values an index cannot be keyed by";
     }
     return "no conjunct an index can answer";

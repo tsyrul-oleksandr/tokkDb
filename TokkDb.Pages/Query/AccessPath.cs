@@ -89,16 +89,75 @@ public sealed class IndexSeekPath : AccessPath {
 
   public IReadOnlyList<IDocumentValue> Values => Predicate.Constants;
 
-  //True only when every value seeks an exact key. A string is folded and may be truncated,
-  //so a seek on one narrows the records to examine but does not settle the predicate.
-  public override bool IsExact =>
-    Values.All(value => !KeyEncoder.Encode(value).RequiresRecheck);
+  //RL-3a: the values are the keys a relation step projects, or will project when the plan runs.
+  public KeySet Keys => Values as KeySet;
 
+  //True only when every value seeks an exact key. A string is folded and may be truncated,
+  //so a seek on one narrows the records to examine but does not settle the predicate. A key set
+  //not yet projected settles nothing either: what it will hold is not known until it has.
+  public override bool IsExact => Keys is { } keys
+    ? keys.IsProjected && !keys.RequiresRecheck
+    : Values.All(value => !KeyEncoder.Encode(value).RequiresRecheck);
+
+  //The executor visits the values in key order, one descent each, so the records come off in
+  //the index's key order whatever order the query wrote the values in (OrderRules).
   public override string Describe() {
     var kind = IsUnique ? "unique index" : "index";
+    if (Keys is { } keys) {
+      return $"{kind} seek on {CollectionName}.{ColumnName} for {keys.Describe()}";
+    }
     return Values.Count == 1
       ? $"{kind} seek on {CollectionName}.{ColumnName}"
       : $"{kind} seek on {CollectionName}.{ColumnName} for {Values.Count} values";
+  }
+}
+
+//OR-2a and Q-14: a walk of a whole index in its key order, chosen for the order and not for the
+//predicate, which is applied as a filter over what the walk yields. An index range with both
+//bounds open is exactly this walk and needs no new executor; it has a name of its own so that a
+//reader can tell a walk chosen for the order from a range chosen for a bound, because the two
+//cost differently — the walk reads entries until the page is full, and with an unselective
+//predicate that is the whole index (PG-3a).
+public sealed class OrderedIndexWalkPath : AccessPath {
+  public OrderedIndexWalkPath(string collectionName, string columnName) : base(collectionName, []) {
+    ColumnName = columnName;
+  }
+
+  public string ColumnName { get; }
+
+  //Answers no conjunct at all: every one of them is re-checked against what the walk yields.
+  public override bool IsExact => false;
+
+  public override string Describe() {
+    return $"ordered walk of the index on {CollectionName}.{ColumnName}";
+  }
+}
+
+//RL-3c and Q-13: the second In strategy — one sequential pass over the collection, testing each
+//record's key against the projected set, instead of one descent of the tree per key. Its own
+//path rather than a full scan with a filter, so that a reader cannot mistake it for a scan chosen
+//because no index existed, nor for the seeks it replaced.
+public sealed class MembershipPassPath : AccessPath {
+  public MembershipPassPath(string collectionName, string columnName, QueryPredicate predicate, KeySet keys,
+      string reason) : base(collectionName, [predicate]) {
+    ColumnName = columnName;
+    Predicate = predicate;
+    Keys = keys;
+    Reason = reason;
+  }
+
+  public string ColumnName { get; }
+  public QueryPredicate Predicate { get; }
+  public KeySet Keys { get; }
+
+  //The two figures the crossover compared, so the choice can be measured rather than assumed.
+  public string Reason { get; }
+
+  //The pass yields every live record; membership is tested per record by the predicate stage.
+  public override bool IsExact => false;
+
+  public override string Describe() {
+    return $"membership pass over {CollectionName}.{ColumnName} against {Keys.Count} keys ({Reason})";
   }
 }
 

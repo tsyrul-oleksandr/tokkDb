@@ -42,6 +42,12 @@ internal static class IlReferences {
   }
 
   public static IEnumerable<MemberInfo> ReferencedMembers(MethodBase method) {
+    return ReferencedMembersWithOpCodes(method).Select(reference => reference.Member);
+  }
+
+  //The same, with the instruction that made the reference: a store to a field and a load of it
+  //are different facts to a test about who may change a counter (DG-4).
+  public static IEnumerable<(OpCode OpCode, MemberInfo Member)> ReferencedMembersWithOpCodes(MethodBase method) {
     var body = method.GetMethodBody();
     if (body is null) {
       yield break;
@@ -99,7 +105,7 @@ internal static class IlReferences {
             //A token this method's generic context cannot resolve names nothing we check.
           }
           if (member is not null) {
-            yield return member;
+            yield return (opCode, member);
           }
           break;
         }

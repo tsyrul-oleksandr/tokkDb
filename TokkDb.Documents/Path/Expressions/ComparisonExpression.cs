@@ -16,7 +16,12 @@ public enum ComparisonOperator {
   Contains,
   //One operand list rather than an OR of equalities, because a set of equalities is a shape
   //an index can answer and an OR is not.
-  In
+  In,
+  //RL-5 and Q-8: set membership, negated — the value is in none of the operands. It is not
+  //SQL's three-valued NOT IN: a null is a member of no set, so a null satisfies it. No index
+  //shape answers it (the records not carrying one of the values are no stretch of any tree),
+  //so QueryPredicate.IsIndexable is false for it and the planner never chooses a path by it.
+  NotIn
 }
 
 public static class ComparisonOperators {
@@ -61,6 +66,7 @@ public class ComparisonExpression : IExpression {
     var left = Left.Execute(value, root);
     return new BooleanDocumentValue(Operator switch {
       ComparisonOperator.In => Matches(left, ((ConstantExpression)Right).Values),
+      ComparisonOperator.NotIn => !Matches(left, ((ConstantExpression)Right).Values),
       ComparisonOperator.StartsWith or ComparisonOperator.EndsWith or ComparisonOperator.Contains =>
         MatchesText(left, Right.Execute(value, root)),
       _ => Compare(left, Right.Execute(value, root)) is { } sign && Satisfies(sign)

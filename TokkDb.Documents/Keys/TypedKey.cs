@@ -22,6 +22,11 @@ public static class TypedKey {
     if (value is null or NullDocumentValue) {
       return KeyEncoder.EncodeNull();
     }
+    //A key is already in the form the column's type would encode to; there is nothing to read
+    //it as.
+    if (value is EncodedKeyValue key) {
+      return key.Key;
+    }
     var typed = ValueMigration.To(type, value);
     if (typed is NullDocumentValue) {
       return null;

@@ -23,4 +23,24 @@ internal static class KeyTag {
   public const byte Guid = 0x60;
   public const byte Ulid = 0x61;
   public const byte String = 0x70;
+
+  //The widest type a tag stands for, for a value that is known only by its key. The tag order
+  //is the cross-type order of OR-6: null, boolean, signed integer, unsigned integer, floating
+  //point, decimal, date and time, time span, guid, ulid, text.
+  public static TokkDb.Values.ValueTypeEnum ValueType(byte tag) {
+    return tag switch {
+      Null => TokkDb.Values.ValueTypeEnum.Null,
+      Boolean => TokkDb.Values.ValueTypeEnum.Boolean,
+      SignedInteger => TokkDb.Values.ValueTypeEnum.Long,
+      UnsignedInteger => TokkDb.Values.ValueTypeEnum.ULong,
+      FloatingPoint => TokkDb.Values.ValueTypeEnum.Double,
+      Decimal => TokkDb.Values.ValueTypeEnum.Decimal,
+      DateTime => TokkDb.Values.ValueTypeEnum.DateTime,
+      TimeSpan => TokkDb.Values.ValueTypeEnum.TimeSpan,
+      Guid => TokkDb.Values.ValueTypeEnum.Guid,
+      Ulid => TokkDb.Values.ValueTypeEnum.Ulid,
+      String => TokkDb.Values.ValueTypeEnum.String,
+      _ => throw new ArgumentOutOfRangeException(nameof(tag), tag, "Not a key tag.")
+    };
+  }
 }
