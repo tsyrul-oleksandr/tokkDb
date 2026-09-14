@@ -2073,14 +2073,14 @@ test named is in `TokkDb.Tests` unless said otherwise.
 | Engine | NFR-5 | DL-7, RP-8 | 1.4, 7.4 | `Delta/DeltaApplyTests`, `HistoryVerificationTests` |
 | Engine | NFR-8 | NF-6, §6 | 8.1, 8.2 | `Model/VersioningModelTests`, `VersioningGuaranteeTests` |
 | Engine | UI-1 | F-10 | — | — |
-| Assistant | D-17, "full undo waits for versioning" | V-18, AJ-4, AJ-5 | 9.3 | |
-| Assistant | SC-12, the six version operations | AJ-2 | 9.2 | |
-| Assistant | SC-12a, every assistant collection versioned | AJ-3 | 9.2 | |
-| Assistant | TR-2b, for record changes | AJ-1 | 9.1 | |
-| Assistant | TR-6, the before-and-after table | AJ-6 | 9.4 | |
-| Assistant | TR-8, no purge inside the compensation window | AJ-8 | 9.3 | |
-| Assistant | AG-11a to AG-11f, compensation | AJ-4 | 9.3 | |
-| Assistant | NF-4d, NF-4d1 | V-17, RP-4, AJ-7 | 7.2, 9.4 | `SecureReleaseTests`, `EraseTests` (7.2, 7.3); the assistant's half at 9.4 |
+| Assistant | D-17, "full undo waits for versioning" | V-18, AJ-4, AJ-5 | 9.3 | `CompensationTests` and `UndoGuaranteeTests` (both backends), in `TokkDb.Assistant.Tests`; the compensation itself is the test-local `Compensation` there, for step 4.7 of the assistant plan to adopt |
+| Assistant | SC-12, the six version operations | AJ-2 | 9.2 | `StorageContractTests.Versions` (both backends), `ContractShapeTests` |
+| Assistant | SC-12a, every assistant collection versioned | AJ-3 | 9.2 | `TokkDbStorageTests.Every_collection_the_assistant_writes_to_keeps_versions` |
+| Assistant | TR-2b, for record changes | AJ-1 | 9.1 | `ChangeJournalTests`, `TraceStoreTests` (an old document reads with null versions) |
+| Assistant | TR-6, the before-and-after table | AJ-6 | 9.4 | `AssistantErasureAndTraceTests.The_before_and_after_table_comes_from_the_versions_and_says_when_they_are_gone` |
+| Assistant | TR-8, no purge inside the compensation window | AJ-8 | 9.3 | `CompensationTests.A_configuration_that_purges_inside_the_compensation_window_is_refused` (`RetentionWindows`) |
+| Assistant | AG-11a to AG-11f, compensation | AJ-4 | 9.3 | `CompensationTests` (both backends) |
+| Assistant | NF-4d, NF-4d1 | V-17, RP-4, AJ-7 | 7.2, 9.4 | `SecureReleaseTests`, `EraseTests` (7.2, 7.3); `AssistantErasureAndTraceTests.S7_erase_through_the_assistant` (9.4) |
 
 The requirements of §5 by group, and the tests that cover each (step 8.3):
 
@@ -2101,13 +2101,13 @@ The requirements of §5 by group, and the tests that cover each (step 8.3):
 | NF-6 | `Model/VersioningModelTests` |
 | NF-7 | `CompatibilityTests` (in `PreVersioningFixtureTests.cs`), `PreVersioningFixtureTests` |
 | G-1 to G-9 | `VersioningGuaranteeTests` |
+| G-10, AJ-1 to AJ-8 | `UndoGuaranteeTests`, `CompensationTests`, `StorageContractTests.Versions`, `ChangeJournalTests`, `AssistantErasureAndTraceTests`, in `TokkDb.Assistant.Tests` |
 
 The scenarios of §7, and where each is a test: S-1 `RestoreDeletedTests`; S-2, S-3 and S-5 `ScenarioTests`; S-4
-`VersionDeleteTests`; S-6 `PurgeTests`; S-7, S-8 and S-10 the assistant's `UndoGuaranteeTests` (step 9.4);
-S-9 `RelatedRestoreTests`. N-1 `RetentionPolicyTests`; N-2 `HistoryCollectionTests`; N-3 `PurgeTests`; N-4, N-5 and N-12
+`VersionDeleteTests`; S-6 `PurgeTests`; S-7, S-8 and S-10 `UndoGuaranteeTests` and `AssistantErasureAndTraceTests` in `TokkDb.Assistant.Tests`; S-9 `RelatedRestoreTests`. N-1 `RetentionPolicyTests`; N-2 `HistoryCollectionTests`; N-3 `PurgeTests`; N-4, N-5 and N-12
 `RestoreTests`; N-6 `HistoryVerificationTests`; N-7 `VersionAtomicityTests`; N-8 `SchemaHistoryTests` and
 `VersionRewriteTests`; N-9 `AsOfTests` and `EraseTests`; N-10 `AsOfTests`; N-11 `RelatedRestoreTests`; N-13
-`VersionDiffTests`; N-14 the assistant's tests (step 9.3).
+`VersionDiffTests`; N-14 `CompensationTests`.
 
 ---
 

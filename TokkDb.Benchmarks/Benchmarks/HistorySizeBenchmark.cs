@@ -78,7 +78,8 @@ public class HistorySizeBenchmark : IBenchmark {
     using var db = new TokkDbConnection(path);
     db.Load();
     db.CreateCollection("W", workload.Columns);
-    db.SetRetentionPolicy("W", policy, k, ratio);
+    //A new collection keeps versions (I-4); the None baseline drops that empty history.
+    db.SetRetentionPolicy("W", policy, k, ratio, dropHistory: policy == RetentionPolicy.None);
     var entities = db.Entities(new FieldMapSerializer(), "W");
     var ids = new Ulid?[workload.Records];
     var versions = new List<(Ulid Record, Ulid Version)>();

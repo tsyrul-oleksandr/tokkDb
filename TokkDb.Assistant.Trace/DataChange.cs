@@ -392,7 +392,34 @@ public static class DataChanges
 
     private static int Weigh(IEnumerable<FieldChange> fields) => fields.Sum(static field => field.Weight);
 
-    private static Ulid Next() => Ulid.NewUlid();
+    private static readonly object Gate = new();
+    private static Ulid _last;
+
+    /// <summary>
+    /// A change's identity, strictly increasing: the order changes were made in is the order an
+    /// undo replays them backwards (AG-11f), and a plain Ulid is random within a millisecond.
+    /// The clock's value when it has moved on, the previous identity plus one when it has not.
+    /// </summary>
+    private static Ulid Next()
+    {
+        lock (Gate)
+        {
+            var next = Ulid.NewUlid();
+            if (next.CompareTo(_last) <= 0)
+            {
+                var bytes = _last.ToByteArray();
+                for (var i = bytes.Length - 1; i >= 0; i--)
+                {
+                    if (++bytes[i] != 0) break;
+                }
+
+                next = new Ulid(bytes);
+            }
+
+            _last = next;
+            return next;
+        }
+    }
 
     private static string Name(string collectionName) =>
         string.IsNullOrWhiteSpace(collectionName)

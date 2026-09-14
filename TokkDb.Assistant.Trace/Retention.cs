@@ -57,3 +57,66 @@ public enum RetentionClass
     /// </summary>
     UserOwned
 }
+
+/// <summary>
+/// How long each class is kept, and the one rule that ties them together (TR-7, TR-8, AJ-8 of
+/// the versioning plan): <b>the engine's version history for the assistant's collections is
+/// purged no earlier than the start of the compensation window</b>, so that the window can never
+/// promise an undo whose versions are gone. A configuration that would purge inside the window
+/// is refused, naming both moments, rather than quietly honoured.
+/// </summary>
+public sealed record RetentionWindows(
+    TimeSpan Diagnostics,
+    TimeSpan Changes,
+    TimeSpan Compensation,
+    TimeSpan History)
+{
+    /// <summary>
+    /// Thirty days of diagnostics, a year of changes, ninety days in which a request can still
+    /// be undone, and history kept for the same ninety days - the least that keeps the promise.
+    /// </summary>
+    public static readonly RetentionWindows Default = new(
+        Diagnostics: TimeSpan.FromDays(30),
+        Changes: TimeSpan.FromDays(365),
+        Compensation: TimeSpan.FromDays(90),
+        History: TimeSpan.FromDays(90));
+
+    /// <summary>The moment before which diagnostics may go, as of <paramref name="now"/>.</summary>
+    public DateTimeOffset PurgeDiagnosticsBefore(DateTimeOffset now) => now - Diagnostics;
+
+    /// <summary>The moment the compensation window starts: a request that finished before it can no longer be undone.</summary>
+    public DateTimeOffset CompensationWindowStart(DateTimeOffset now) => now - Compensation;
+
+    /// <summary>
+    /// The moment before which version history may be purged, as of <paramref name="now"/>:
+    /// never later than the start of the compensation window (AJ-8).
+    /// </summary>
+    /// <exception cref="RetentionConflictException">The history window is shorter than the compensation window.</exception>
+    public DateTimeOffset PurgeHistoryBefore(DateTimeOffset now)
+    {
+        var purge = now - History;
+        var window = CompensationWindowStart(now);
+
+        if (purge > window)
+        {
+            throw new RetentionConflictException(purge, window);
+        }
+
+        return purge;
+    }
+}
+
+/// <summary>AJ-8: the history purge would reach inside the compensation window. Both moments are named.</summary>
+public sealed class RetentionConflictException : Exception
+{
+    public RetentionConflictException(DateTimeOffset purgeHistoryBefore, DateTimeOffset compensationWindowStart)
+        : base($"History would be purged before {purgeHistoryBefore:O}, which is later than the start of the compensation " +
+               $"window at {compensationWindowStart:O}: an undo inside the window could find its versions gone.")
+    {
+        PurgeHistoryBefore = purgeHistoryBefore;
+        CompensationWindowStart = compensationWindowStart;
+    }
+
+    public DateTimeOffset PurgeHistoryBefore { get; }
+    public DateTimeOffset CompensationWindowStart { get; }
+}

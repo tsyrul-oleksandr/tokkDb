@@ -1048,19 +1048,16 @@ public sealed class TokkDbStorage : IStorage, IDisposable
         }
         catch (UniqueConstraintViolationException duplicate)
         {
+            // The engine describes the value as text; the record that holds it is what the
+            // contract's answer needs, and it is named exactly.
             throw new StorageValidationException([
-                new DuplicateValue(definition.Name, duplicate.ColumnName,
-                    EngineValues.FromDocument(definition.Column(duplicate.ColumnName)?.Type ?? ColumnType.Text,
-                        DocumentValues.From(duplicate.Value)),
-                    duplicate.ConflictingRecordId)
+                new DuplicateValue(definition.Name, duplicate.ColumnName, duplicate.Value, duplicate.ConflictingRecordId)
             ]);
         }
         catch (ReferentialIntegrityException missing)
         {
-            var column = definition.Column(missing.Relation.SourceColumn);
             throw new StorageValidationException([
-                new ReferenceMissing(definition.Name, missing.Relation.SourceColumn,
-                    EngineValues.FromDocument(column?.Type ?? ColumnType.Text, DocumentValues.From(missing.Value)),
+                new ReferenceMissing(definition.Name, missing.Relation.SourceColumn, missing.Value,
                     missing.Relation.Name, missing.Relation.TargetCollection)
             ]);
         }
@@ -1088,9 +1085,15 @@ public sealed class TokkDbStorage : IStorage, IDisposable
 
         try
         {
+            // One unit of work: the record, every version of it, and the diagnostic payloads of
+            // every request that changed it (AJ-7). The engine discards the journal frame of the
+            // commit as soon as its commit record is durable (V-17), so no byte of the record
+            // outlives it in the database file or the journal. Conversations are outside, and
+            // the confirmation says so: Erasure.ConversationsAreKept.
             _connection.InTransaction(() =>
             {
                 entities.Erase(id);
+                _traces.ClearPayloadsNaming(id);
 
                 if (pending.Count > 0)
                 {

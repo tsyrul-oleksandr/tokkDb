@@ -58,7 +58,7 @@ public class WriteAmplificationBenchmark : IBenchmark {
     foreach (var column in columns.Where(column => column.Type == ValueTypeEnum.String).Take(indexes)) {
       db.CreateIndex("W", column.Name);
     }
-    db.SetRetentionPolicy("W", policy);
+    db.SetRetentionPolicy("W", policy, dropHistory: policy == RetentionPolicy.None);
     return (db, disk);
   }
 

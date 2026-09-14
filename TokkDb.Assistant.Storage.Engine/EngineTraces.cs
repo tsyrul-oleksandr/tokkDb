@@ -183,6 +183,45 @@ internal sealed class EngineTraces : ITraceRecorder
             .OrderBy(static change => change.Id)];
     }
 
+    /// <summary>
+    /// AJ-7 and V-17: the step input and output payloads of every request whose change names the
+    /// record, cleared - the steps stay, with their names, times and statuses, so the diagram
+    /// still draws; what a person typed into them or what they produced, which may quote the
+    /// record's values, goes. The change journal keeps the record's identifier, an audit
+    /// reference that carries no value (TR-2b). Called inside the erase's transaction.
+    /// </summary>
+    /// <returns>How many steps had a payload cleared.</returns>
+    public int ClearPayloadsNaming(Ulid recordId)
+    {
+        Describe();
+
+        var requests = _connection.SystemDocuments
+            .ReadAll(SystemCollections.DataChanges)
+            .Select(static entry => ToChange(entry.Id, entry.Document))
+            .Where(change => change.RecordId == recordId)
+            .Select(static change => change.RequestId)
+            .ToHashSet();
+
+        if (requests.Count == 0) return 0;
+
+        var cleared = 0;
+
+        _connection.InTransaction(() =>
+        {
+            foreach (var entry in _connection.SystemDocuments.ReadAll(SystemCollections.TraceSteps).ToList())
+            {
+                var step = ToStep(entry.Id, entry.Document);
+                if (!requests.Contains(step.RequestId) || (step.Input is null && step.Output is null)) continue;
+
+                _connection.SystemDocuments.Write(SystemCollections.TraceSteps, step.Id,
+                    ToDocument(step with { Input = null, Output = null }));
+                cleared++;
+            }
+        });
+
+        return cleared;
+    }
+
     // ---- Retention ------------------------------------------------------------------------------
 
     public int PurgeDiagnostics(DateTimeOffset moment)
