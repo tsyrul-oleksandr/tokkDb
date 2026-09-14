@@ -17,4 +17,10 @@
       <ProjectReference Include="..\TokkDb\TokkDb.csproj" />
     </ItemGroup>
 
+    <!-- The checked-in database of docs/versioning-requirements-and-plan.md step 0.2 and its README,
+         beside the test assembly so that tests can copy the file and open the copy. -->
+    <ItemGroup>
+      <None Update="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
 </Project>

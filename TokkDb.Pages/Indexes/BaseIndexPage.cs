@@ -28,6 +28,17 @@ public abstract class BaseIndexPage : BasePage {
   //variable-length entries to expect.
   protected ushort EntriesCount { get; set; }
 
+  //V-17: a node's content is written whole from the start of the content area, so whatever
+  //lay beyond it — entries a delete removed, the half a split moved out, a merged-away
+  //sibling's whole content — is cleared each time the node is saved.
+  protected void ClearBeyond(int position) {
+    Buffer.Clear(position, ChecksumPosition - position);
+  }
+
+  //Empties the node for release: its pages go back to the pool cleared, whether a merge, a
+  //dropped index or a dropped collection released them (RP-4).
+  public abstract void ClearForRelease();
+
   protected static int EntryByteSize(byte[] key, int payloadByteSize) {
     return TypesConstants.UShortByteSize + key.Length + payloadByteSize;
   }

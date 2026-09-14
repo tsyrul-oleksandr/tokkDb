@@ -57,6 +57,9 @@ public class DataPageManager {
     return tree;
   }
 
+  //Physical page reads so far, for the reports of RH-8.
+  public long PageReadCount => _pageManager.PageReadCount;
+
   //Forgets the cached trees, as the free-space structures are forgotten, because the
   //catalogue they read their roots from has been reloaded.
   public void Reset() {
@@ -206,7 +209,7 @@ public class DataPageManager {
       var page = LoadOverflowPage(next);
       next = page.NextPageIndex;
       page.NextPageIndex = default;
-      page.PayloadLength = 0;
+      page.ClearPayload();
       _transactionManager.Track(page);
       _freeSpace.RecordOverflowPage(collectionName, page.Index, inUse: false);
     }
@@ -299,6 +302,8 @@ public class DataPageManager {
         $"it occupies on page {address.PageIndex}.");
     }
     StoredRecordUtilities.ToBuffer(header, document, slot);
+    //V-17: the rest of the slot, beyond the shorter record now in it, is cleared.
+    slot.Clear(length, slot.Length - length);
     _transactionManager.Track(page);
   }
 
@@ -376,9 +381,10 @@ public class DataPageManager {
     return KeyEncoder.Encode(recordId).Bytes;
   }
 
-  //The catalogue's own collections are not indexed in this pass. A tree reads its root out
-  //of the catalogue document, and _collections has to be readable before any document can
-  //be read — page 0 keeps a CollectionsPrimaryIndexRoot for when that circle is closed.
+  //The reserved collections are not indexed (F-6). A tree reads its root out of the catalogue
+  //document, and _collections has to be readable before any document can be read — page 0
+  //keeps a CollectionsPrimaryIndexRoot for when that circle is closed. The version store
+  //owns its own tree over each history collection and never scans one (V-5).
   private bool IsIndexed(string collectionName) {
     return !_catalog.Get(collectionName).IsSystem;
   }
@@ -474,16 +480,18 @@ public class DataPageManager {
     }
   }
 
-  //The one mechanism that takes a record image out of use. It is called from exactly one
-  //place — the RemoveCurrentVersion seam of VR-12 — and nothing else in the engine frees or
-  //retires an image.
-  public void RetireRow(string collectionName, DocumentAddress address, RecordFlags flags,
-      RetentionPolicy retentionPolicy) {
-    if (retentionPolicy != RetentionPolicy.None) {
-      throw new NotSupportedException(
-        $"{nameof(RetentionPolicy)}.{retentionPolicy} is not implemented in this pass (D-5). " +
-        $"Only {nameof(RetentionPolicy)}.{nameof(RetentionPolicy.None)} retires an image.");
-    }
+  //The one mechanism that takes a record image out of use, and it behaves the same under every
+  //retention policy: the slot is freed, the chain is freed, the index entries go. Keeping a
+  //version is the version store's business, done beside this through the seam, never by
+  //keeping the image where it lies (V-1, V-4).
+  //
+  //Its callers (HS-3): the RemoveCurrentVersion seam of VR-12 in DbEntities, for user records —
+  //reached by the seam's writes and by Erase (RP-5); SystemDocumentStore.Write and Delete, the
+  //three catalogues (CollectionCatalog.DropCollection, IndexCatalog.Drop, RelationCatalog.Remove),
+  //which touch only reserved collections; TokkDbConnection.DropCollection, which retires every
+  //record of a user collection together with its history; and the version store, for the
+  //documents of a history collection only.
+  public void RetireRow(string collectionName, DocumentAddress address, RecordFlags flags) {
     var page = LoadPage(address.PageIndex);
     //The image is marked before it goes, so that keeping it instead becomes a matter of not
     //freeing the slot rather than of writing something different.
@@ -520,6 +528,22 @@ public class DataPageManager {
     RecordFreeSpace(collectionName, page);
   }
 
+  //V-14 and WV-10 invariant 1. When a collection's history is dropped, every live image that
+  //pointed into it has its pointer zeroed, so that "no history" and "a zero pointer" stay one
+  //fact. The header alone is rewritten where it lies; the image is not touched, which is why
+  //this is not one of the in-place rewrites HS-3 lists.
+  public void ZeroPreviousVersion(DocumentAddress address) {
+    var page = LoadPage(address.PageIndex);
+    var slot = page.GetItem(address.SlotIndex);
+    var header = StoredRecordUtilities.ReadHeader(slot);
+    if (header.PreviousVersion == default) {
+      return;
+    }
+    header.PreviousVersion = default;
+    StoredRecordUtilities.WriteHeader(header, slot);
+    _transactionManager.Track(page);
+  }
+
   private void RecordFreeSpace(string collectionName, DataPage page) {
     //A page holding nothing is Free and can take anything; one still holding records is
     //Occupied and offers whatever it has left.
@@ -529,8 +553,14 @@ public class DataPageManager {
 
   //ST-1. The free-space structure says which pages are worth trying, so this no longer walks
   //the whole chain for every insert.
+  //
+  //Worth trying means room for the record and its slot: a page whose reclaimable bytes are
+  //between the record's length and that plus a slot can neither take the record nor be
+  //compacted into taking it, and every such page — most pages end that way, once nothing
+  //smaller than the last record arrives — would otherwise be loaded and rejected on every
+  //insert after it, so the cost of an insert grew with the collection.
   private DataPage GetAvailablePage(string collectionName, ushort bytesLength) {
-    foreach (var pageIndex in _freeSpace.FindPagesWithRoom(collectionName, bytesLength)) {
+    foreach (var pageIndex in _freeSpace.FindPagesWithRoom(collectionName, (ushort)(bytesLength + SlotByteSize))) {
       DataPage page;
       try {
         page = LoadPage(pageIndex);

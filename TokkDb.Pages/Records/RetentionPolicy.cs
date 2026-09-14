@@ -1,14 +1,17 @@
 namespace TokkDb.Pages;
 
-//D-5. What becomes of a record image once it stops being the current one.
+//V-1 and V-13, which settled D-5. What becomes of a record image once it stops being the
+//current one. Persisted
+//per collection in its catalogue document (HS-1) and set through
+//TokkDbConnection.SetRetentionPolicy.
 public enum RetentionPolicy {
-  //The only policy implemented in this pass: the retired image's space returns to the free
-  //list at once and nothing of it is kept.
+  //The retired image's space returns to the free list at once and nothing of it is kept.
   None = 1,
 
-  //Reserved. The retired image is kept and the image replacing it links back to it through
-  //previousVersion. Declared now so that turning versioning on is a change of policy rather
-  //than a change of format.
+  //Every write records a version in the collection's history collection (V-4): a node with the
+  //delta from the version before it, and the full image where the keyframe rule keeps one
+  //(V-1). The retired image's space returns to the free list exactly as under None; the live
+  //image's previousVersion addresses the node of its own version (V-6).
   KeepVersions
 }
 

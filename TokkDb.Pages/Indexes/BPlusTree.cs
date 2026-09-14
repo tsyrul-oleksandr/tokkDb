@@ -55,6 +55,45 @@ public class BPlusTree {
       : null;
   }
 
+  //V-5 and HS-4. The greatest entry at or below a key, or null when nothing is. One descent,
+  //remembering at each level the child just to the left of the path — the nearest subtree
+  //whose every key is below the key — and, when the leaf the descent ends in holds nothing at
+  //or below the key, one more descent down that subtree's rightmost path. Twice the height at
+  //most, and no walk along the chain, which only runs the other way.
+  public IndexEntry? Floor(byte[] key) {
+    if (IsEmpty) {
+      return null;
+    }
+    uint? leftSubtree = null;
+    var node = LoadNode(RootPageIndex);
+    while (node is IndexInteriorPage interior) {
+      var childPosition = FindChildPosition(interior, key);
+      if (childPosition > 0) {
+        leftSubtree = interior.ChildAt(childPosition - 1);
+      }
+      node = LoadNode(interior.ChildAt(childPosition));
+    }
+    var leaf = (IndexLeafPage)node;
+    var position = FindEntryPosition(leaf, key);
+    if (position < leaf.Entries.Count && KeyComparer.Compare(leaf.Entries[position].Key, key) == 0) {
+      return leaf.Entries[position];
+    }
+    if (position > 0) {
+      return leaf.Entries[position - 1];
+    }
+    //Every entry of this leaf is above the key — its separator was copied from a first key
+    //that has since been deleted — so the answer is the last entry of the subtree to its left.
+    if (leftSubtree is null) {
+      return null;
+    }
+    var rightmost = LoadNode(leftSubtree.Value);
+    while (rightmost is IndexInteriorPage interior) {
+      rightmost = LoadNode(interior.ChildAt(interior.ChildCount - 1));
+    }
+    var last = (IndexLeafPage)rightmost;
+    return last.Entries.Count > 0 ? last.Entries[^1] : null;
+  }
+
   //How often the tree has had to change shape. D-1 chose a time-ordered identifier so that
   //this stays small for the primary index: every insert goes to the right-hand edge, so the
   //same few pages split over and over instead of pages all over the file.
@@ -487,8 +526,24 @@ public class BPlusTree {
     return page;
   }
 
+  //V-17: a node a merge empties goes back to the pool cleared, which costs writing it once
+  //more; the merge already wrote its sibling and its parent.
   private void Retire(BaseIndexPage page) {
+    page.ClearForRelease();
+    Track(page);
     _freeSpace.RecordIndexPage(_collectionName, page.Index, inUse: false);
+  }
+
+  //RP-4 and V-17. Every node of the tree cleared and recorded as retired, for an index that is
+  //dropped — by DropIndex, a SetColumns rebuild or DropCollection — or a history's version
+  //index dropped with it. The nodes are listed before any is cleared, because the walk reads
+  //children out of the interior nodes it clears.
+  public void ReleasePages() {
+    foreach (var node in Nodes().ToList()) {
+      node.ClearForRelease();
+      Track(node);
+      _freeSpace.RecordIndexPage(_collectionName, node.Index, inUse: false);
+    }
   }
 
   //The identity map first: a node this transaction has already changed must not be read back

@@ -23,7 +23,10 @@ IBenchmark[] benchmarks = [
   new PrimaryIndexBenchmark(),
   new IndexMaintenanceBenchmark(),
   new DatabaseOpenBenchmark(),
-  new FileSizeGrowthBenchmark()
+  new FileSizeGrowthBenchmark(),
+  //Versioning (docs/versioning-requirements-and-plan.md, step 5.1): NF-2 to NF-5.
+  new HistorySizeBenchmark(),
+  new WriteAmplificationBenchmark()
 ];
 
 Console.WriteLine($"TokkDb benchmarks — {recordCount:N0} records, {collectionCount:N0} collections");

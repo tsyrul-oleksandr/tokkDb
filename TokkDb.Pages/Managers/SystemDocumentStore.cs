@@ -54,8 +54,7 @@ public class SystemDocumentStore {
       return;
     }
     //Retired before the new image exists, so "the current document" means one thing (VR-12).
-    _dataPageManager.RetireRow(collectionName, row.Value.Address, RecordFlags.Superseded,
-      RetentionPolicy.None);
+    _dataPageManager.RetireRow(collectionName, row.Value.Address, RecordFlags.Superseded);
     _dataPageManager.WriteRecord(collectionName, header, document);
   }
 
@@ -65,7 +64,7 @@ public class SystemDocumentStore {
     if (_dataPageManager.FindLiveRow(collectionName, id) is not { } row) {
       return false;
     }
-    _dataPageManager.RetireRow(collectionName, row.Address, RecordFlags.Deleted, RetentionPolicy.None);
+    _dataPageManager.RetireRow(collectionName, row.Address, RecordFlags.Deleted);
     return true;
   }
 

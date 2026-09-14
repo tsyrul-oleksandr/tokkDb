@@ -70,5 +70,11 @@ public class IndexLeafPage : BaseIndexPage {
       Buffer.WriteUShort(entry.Address.SlotIndex, position, out var writeBytes);
       position += writeBytes;
     }
+    ClearBeyond(position);
+  }
+
+  public override void ClearForRelease() {
+    Entries.Clear();
+    NextPageIndex = default;
   }
 }

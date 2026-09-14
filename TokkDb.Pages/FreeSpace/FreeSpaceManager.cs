@@ -31,6 +31,13 @@ public class FreeSpaceManager {
     _entries.Clear();
   }
 
+  //Forgets one collection's structure: the collection is being dropped, and a collection
+  //created later under the same name must not be handed the dropped one's pages as if they
+  //had room — they are not in its chain, and a record written there would be lost to a scan.
+  public void Forget(string collectionName) {
+    _entries.Remove(collectionName);
+  }
+
   public IReadOnlyList<FreeSpaceEntry> GetEntries(string collectionName) {
     return Load(collectionName);
   }

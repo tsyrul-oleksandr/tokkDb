@@ -8,6 +8,9 @@ public class IsolationTests {
   private static void CreateDatabase(TempDatabaseFile file) {
     using var db = new TokkDbConnection(file.Path);
     db.CreateDatabase(config => config.CreateEntity<Person>());
+    //Step 3.1 of the versioning plan: the collection count asserted below is what only
+    //RetentionPolicy.None gives, since a versioned collection brings its history collection.
+    db.SetRetentionPolicy(nameof(Person), Pages.RetentionPolicy.None, dropHistory: true);
     db.Entities<Person>().Insert(TestPeople.Ivan());
   }
 

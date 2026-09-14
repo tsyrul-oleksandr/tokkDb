@@ -9,6 +9,7 @@ using TokkDb.Pages;
 using TokkDb.Pages.Indexes;
 using TokkDb.Pages.Records;
 using TokkDb.Pages.Relations;
+using TokkDb.Pages.Versions;
 using EngineConnection = TokkDb.TokkDbConnection;
 using EngineEntities = TokkDb.DbEntities<System.Collections.Generic.Dictionary<string, object?>>;
 
@@ -87,6 +88,7 @@ public sealed class TokkDbStorage : IStorage, IDisposable
         _connection.Load();
         _conversations = new EngineConversations(_connection);
         _traces = new EngineTraces(_connection);
+        EnsureVersioned();
     }
 
     /// <summary>Takes a connection someone else opened, and does not close it.</summary>
@@ -96,6 +98,34 @@ public sealed class TokkDbStorage : IStorage, IDisposable
         Borrowed = !ownsConnection;
         _conversations = new EngineConversations(_connection);
         _traces = new EngineTraces(_connection);
+        EnsureVersioned();
+    }
+
+    /// <summary>
+    /// SC-12a: every user collection keeps versions, whatever the engine's default was when it
+    /// was made. A collection still at <c>None</c> is switched on here, at open, in one unit of
+    /// work; switching on rewrites no record - a record gains history only when it is next
+    /// changed, with a <c>Baseline</c> of what it was. A storage opened on a read-only connection
+    /// cannot switch anything and leaves it, so that reading is still possible.
+    /// </summary>
+    private void EnsureVersioned()
+    {
+        if (_connection.AccessMode != Disk.TokkDbAccessMode.ReadWrite) return;
+
+        var unversioned = _connection.Collections
+            .Where(static descriptor => !descriptor.IsSystem && descriptor.RetentionPolicy != RetentionPolicy.KeepVersions)
+            .Select(static descriptor => descriptor.Name)
+            .ToList();
+
+        if (unversioned.Count == 0) return;
+
+        _connection.InTransaction(() =>
+        {
+            foreach (var name in unversioned)
+            {
+                _connection.SetRetentionPolicy(name, RetentionPolicy.KeepVersions);
+            }
+        });
     }
 
     private bool Borrowed { get; }
@@ -162,6 +192,12 @@ public sealed class TokkDbStorage : IStorage, IDisposable
                 definition.Name,
                 EngineSchema.ToEngineColumns(definition),
                 definition.Purpose ?? string.Empty);
+
+            // SC-12a: versioned whatever the engine's default is, said here rather than assumed.
+            if (_connection.Collection(definition.Name).RetentionPolicy != RetentionPolicy.KeepVersions)
+            {
+                _connection.SetRetentionPolicy(definition.Name, RetentionPolicy.KeepVersions);
+            }
 
             var settings = EngineSchema.ToSettings(definition);
             if (settings.Count > 0)
@@ -905,6 +941,174 @@ public sealed class TokkDbStorage : IStorage, IDisposable
     /// builds the index when the relation is created, precisely because a reference cannot be
     /// checked without one (DC-4).
     /// </summary>
+    // ---- Versions (SC-12) -----------------------------------------------------------------------
+    //
+    // Over DbEntities, the way every other operation here is: the engine keeps the history and
+    // answers by version and by moment; this maps its refusals to the contract's own errors, so
+    // that a caller sees a DuplicateValue whether the write was an update or a restore.
+
+    public Ulid? HeadVersion(string collectionName, Ulid id)
+    {
+        var definition = Require(collectionName);
+
+        try
+        {
+            return Entities(definition).HeadVersion(id);
+        }
+        catch (RecordNotFoundException)
+        {
+            // Neither a live image nor a tombstone: the record never existed, or was erased.
+            return null;
+        }
+    }
+
+    public bool Keeps(string collectionName, Ulid id, Ulid versionId)
+    {
+        var definition = Require(collectionName);
+
+        return Entities(definition).History(id).Versions.Any(version => version.VersionId == versionId);
+    }
+
+    public VersionDifference DiffVersions(string collectionName, Ulid id, Ulid fromVersionId, Ulid toVersionId)
+    {
+        var definition = Require(collectionName);
+        var entities = Entities(definition);
+
+        var from = Read(definition, entities, id, fromVersionId);
+        var to = Read(definition, entities, id, toVersionId);
+
+        var columns = from.Fields.Keys.Concat(to.Fields.Keys).Distinct(StorageNames.Comparer)
+            .OrderBy(static column => column, StringComparer.Ordinal);
+
+        var changes = new List<ColumnChange>();
+
+        foreach (var column in columns)
+        {
+            var before = from.Fields.GetValueOrDefault(column);
+            var after = to.Fields.GetValueOrDefault(column);
+
+            if (!Equals(before, after)) changes.Add(new ColumnChange(column, before, after));
+        }
+
+        return new VersionDifference(definition.Name, id, fromVersionId, toVersionId, changes, from.Deleted, to.Deleted);
+    }
+
+    /// <summary>One version's values through the current schema, or nothing for a deletion.</summary>
+    private static (IReadOnlyDictionary<string, object?> Fields, bool Deleted) Read(
+        CollectionDefinition definition, EngineEntities entities, Ulid id, Ulid versionId)
+    {
+        VersionedValue<Dictionary<string, object?>> version;
+
+        try
+        {
+            version = entities.GetAsOf(id, versionId);
+        }
+        catch (VersionNotFoundException)
+        {
+            throw new VersionNotKeptException(definition.Name, id, versionId);
+        }
+
+        if (version.IsDeleted) return (new Dictionary<string, object?>(StorageNames.Comparer), true);
+
+        return (EngineRecords.ToRecord(definition.Name, id, version.Value).Fields, false);
+    }
+
+    public StorageRecord RestoreVersion(string collectionName, Ulid id, Ulid versionId)
+    {
+        var definition = Require(collectionName);
+        var entities = Entities(definition);
+
+        var current = entities.GetById(id);
+        var before = current is null
+            ? []
+            : EngineRecords.NotOfColumnType(current.Value).Select(static entry => entry.Column).ToList();
+
+        try
+        {
+            _connection.InTransaction(() =>
+            {
+                entities.Restore(id, versionId);
+
+                var restored = entities.GetById(id)!;
+                var after = EngineRecords.NotOfColumnType(restored.Value).Select(static entry => entry.Column);
+                AdjustPending(definition.Name, Difference(before, after));
+            });
+        }
+        catch (RestoreRefusedException refusal) when (refusal.Reason is RestoreRefusal.CurrentHead)
+        {
+            // Already there: nothing to write, and nothing to refuse.
+        }
+        catch (RestoreRefusedException refusal) when (refusal.Reason is RestoreRefusal.NoLongerKept)
+        {
+            throw new VersionNotKeptException(definition.Name, id, versionId);
+        }
+        catch (RestoreRefusedException refusal) when (refusal.Reason is RestoreRefusal.Tombstone)
+        {
+            throw new VersionNotRestorableException(definition.Name, id, versionId);
+        }
+        catch (UniqueConstraintViolationException duplicate)
+        {
+            // The engine describes the value as text; the record that holds it is what the
+            // contract's answer needs, and it is named exactly.
+            throw new StorageValidationException([
+                new DuplicateValue(definition.Name, duplicate.ColumnName, duplicate.Value, duplicate.ConflictingRecordId)
+            ]);
+        }
+        catch (ReferentialIntegrityException missing)
+        {
+            throw new StorageValidationException([
+                new ReferenceMissing(definition.Name, missing.Relation.SourceColumn, missing.Value,
+                    missing.Relation.Name, missing.Relation.TargetCollection)
+            ]);
+        }
+
+        var found = entities.GetById(id)!;
+        return EngineRecords.ToRecord(definition.Name, id, found.Value);
+    }
+
+    public int PurgeRecordHistory(string collectionName, Ulid id, DateTimeOffset before)
+    {
+        var definition = Require(collectionName);
+
+        return Entities(definition).PurgeHistory(id, before).NodesRemoved;
+    }
+
+    public bool Erase(string collectionName, Ulid id)
+    {
+        var definition = Require(collectionName);
+        var entities = Entities(definition);
+
+        var current = entities.GetById(id);
+        var pending = current is null
+            ? []
+            : EngineRecords.NotOfColumnType(current.Value).Select(static entry => entry.Column).ToList();
+
+        try
+        {
+            // One unit of work: the record, every version of it, and the diagnostic payloads of
+            // every request that changed it (AJ-7). The engine discards the journal frame of the
+            // commit as soon as its commit record is durable (V-17), so no byte of the record
+            // outlives it in the database file or the journal. Conversations are outside, and
+            // the confirmation says so: Erasure.ConversationsAreKept.
+            _connection.InTransaction(() =>
+            {
+                entities.Erase(id);
+                _traces.ClearPayloadsNaming(id);
+
+                if (pending.Count > 0)
+                {
+                    AdjustPending(definition.Name, pending.ToDictionary(static column => column, static _ => -1));
+                }
+            });
+        }
+        catch (RecordNotFoundException)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
     private bool Exists(RelationDefinition relation, object value)
     {
         var target = Require(relation.ToCollection);

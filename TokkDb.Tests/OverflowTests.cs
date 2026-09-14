@@ -124,6 +124,9 @@ public class OverflowTests {
     using var file = new TempDatabaseFile();
     using var db = new TokkDbConnection(file.Path);
     db.CreateDatabase(config => config.CreateEntity<LargeDocument>());
+    //Step 3.1 of the versioning plan: what this asserts is what only RetentionPolicy.None gives.
+    //A new collection keeps versions by default (I-4), so its empty history is dropped with it.
+    db.SetRetentionPolicy(nameof(LargeDocument), RetentionPolicy.None, dropHistory: true);
     var entities = db.Entities<LargeDocument>();
 
     entities.Insert(LargeDocument.OfSize(1, 300_000));

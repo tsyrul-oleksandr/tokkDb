@@ -188,6 +188,12 @@ public class BufferSlice {
     _buffer.Span.Slice(fromIndex, length).CopyTo(_buffer.Span.Slice(toIndex, length));
   }
 
+  //Zeroes a run. What a page releases is cleared as it is released (V-17), so the bytes of a
+  //value nothing refers to any more do not stay in the file for a scan to find.
+  public virtual void Clear(int index, int length) {
+    _buffer.Span.Slice(index, length).Clear();
+  }
+
   public virtual byte[] ToArray() {
     return _buffer.ToArray();
   }

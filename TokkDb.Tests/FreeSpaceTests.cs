@@ -30,6 +30,9 @@ public class FreeSpaceTests {
     using var file = new TempDatabaseFile();
     using var db = new TokkDbConnection(file.Path);
     db.CreateDatabase(config => config.CreateEntity<Person>());
+    //Step 3.1 of the versioning plan: what this asserts is what only RetentionPolicy.None gives.
+    //A new collection keeps versions by default (I-4), so its empty history is dropped with it.
+    db.SetRetentionPolicy("Person", RetentionPolicy.None, dropHistory: true);
     var entities = db.Entities<Person>();
 
     for (var i = 0; i < 400; i++) {
@@ -87,6 +90,9 @@ public class FreeSpaceTests {
     using var file = new TempDatabaseFile();
     using var db = new TokkDbConnection(file.Path);
     db.CreateDatabase(config => config.CreateEntity<Person>());
+    //Step 3.1 of the versioning plan: what this asserts is what only RetentionPolicy.None gives.
+    //A new collection keeps versions by default (I-4), so its empty history is dropped with it.
+    db.SetRetentionPolicy("Person", RetentionPolicy.None, dropHistory: true);
     var entities = db.Entities<Person>();
     for (var i = 0; i < 400; i++) {
       entities.Insert(TestPeople.Numbered(i));
@@ -100,10 +106,11 @@ public class FreeSpaceTests {
     _output.WriteLine($"{pages} pages in the collection, {reads} page reads for one insert");
     //A walk down the chain would read every page of the collection. The free-space structure
     //says which page to go to, so the reads are a fixed handful — the page itself, the
-    //catalogue page, the structure page and the before-images the commit takes of them —
-    //however large the collection grows.
+    //catalogue page, the structure page, the catalogue page that carries the identifier
+    //high-water mark when it is not the same one (HS-7), and the before-images the commit
+    //takes of them — however large the collection grows.
     Assert.True(reads < pages, $"one insert read {reads} pages of a {pages} page file");
-    Assert.True(reads <= 12, $"one insert read {reads} pages, which does not look like a constant");
+    Assert.True(reads <= 14, $"one insert read {reads} pages, which does not look like a constant");
   }
 
   [Fact]

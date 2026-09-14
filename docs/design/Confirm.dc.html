@@ -1,0 +1,116 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap');
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #111111; color: #CCCCCC;
+      font-family: 'Open Sans', -apple-system, 'Segoe UI', system-ui, sans-serif;
+      font-size: 13px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+    a { color: #A79BD8; text-decoration: none; }
+    a:hover { color: #C5BCEA; }
+    .g { display: grid; grid-template-columns: 240px 110px 110px 100px minmax(0, 1fr); gap: 14px;
+      padding: 10px 18px; border-bottom: 1px solid #202023; align-items: center; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 900px; position: relative; background: #111111; overflow: hidden;">
+
+  <!-- the window, behind -->
+  <div style="width: 1440px; height: 900px; display: flex; flex-direction: column;">
+    <div style="height: 48px; flex-shrink: 0; display: flex; align-items: center; gap: 16px; padding: 0 16px; background: #202023; border-bottom: 1px solid #303035;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#A79BD8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5v9c0 1.7 3.6 3 8 3s8-1.3 8-3v-9"/><ellipse cx="12" cy="7.5" rx="8" ry="3"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+        <span style="color: #FFFFFF; font-weight: 600; font-size: 13px;">Storage</span>
+      </div>
+      <div style="display: flex; gap: 2px; padding: 2px; background: #111111; border-radius: 7px; border: 1px solid #303035;">
+        <div style="padding: 5px 14px; border-radius: 5px; color: #888888; font-size: 12px;">Chat</div>
+        <div style="padding: 5px 14px; border-radius: 5px; background: #303035; color: #FFFFFF; font-size: 12px; font-weight: 600;">Browse</div>
+      </div>
+      <div style="flex-grow: 1;"></div>
+    </div>
+
+    <div style="flex-grow: 1; display: flex; min-height: 0;">
+      <div style="width: 232px; flex-shrink: 0; background: #202023; border-right: 1px solid #303035; padding: 14px 8px; display: flex; flex-direction: column; gap: 2px;">
+        <div style="padding: 0 10px 10px; color: #666666; font-size: 11px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase;">Everything stored</div>
+        <div style="padding: 8px 10px; border-radius: 7px; background: #303035; display: flex; align-items: center; justify-content: space-between;"><span style="color: #FFFFFF; font-size: 12px; font-weight: 600;">Conferences</span><span style="color: #A79BD8; font-size: 11px;">47</span></div>
+        <div style="padding: 8px 10px; display: flex; align-items: center; justify-content: space-between;"><span style="color: #CCCCCC; font-size: 12px;">Expenses</span><span style="color: #666666; font-size: 11px;">213</span></div>
+        <div style="padding: 8px 10px; display: flex; align-items: center; justify-content: space-between;"><span style="color: #CCCCCC; font-size: 12px;">Contacts</span><span style="color: #666666; font-size: 11px;">88</span></div>
+        <div style="padding: 8px 10px; display: flex; align-items: center; justify-content: space-between;"><span style="color: #CCCCCC; font-size: 12px;">Papers</span><span style="color: #666666; font-size: 11px;">34</span></div>
+      </div>
+
+      <div style="flex-grow: 1; padding: 22px 20px; min-width: 0;">
+        <div style="color: #FFFFFF; font-size: 18px; font-weight: 600;">Conferences</div>
+        <div style="color: #888888; font-size: 12px; margin-top: 3px;">Where you went, when, and what it cost.</div>
+        <div style="margin-top: 18px; border: 1px solid #303035; border-radius: 7px; overflow: hidden;">
+          <div class="g" style="background: #202023; border-bottom: 1px solid #303035;">
+            <span style="color: #999999; font-size: 11px; font-weight: 600;">CONFERENCE</span><span style="color: #999999; font-size: 11px; font-weight: 600;">DATE</span><span style="color: #999999; font-size: 11px; font-weight: 600;">CITY</span><span style="color: #999999; font-size: 11px; font-weight: 600;">COST</span><span style="color: #E57373; font-size: 11px; font-weight: 600;">NOTES</span>
+          </div>
+          <div class="g"><span style="color: #CCCCCC;">DH Nordic 2025</span><span style="color: #999999;">14 Mar 2025</span><span style="color: #CCCCCC;">Lviv</span><span style="color: #CCCCCC;">24 500 ₴</span><span style="color: #E57373; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">keynote went well</span></div>
+          <div class="g"><span style="color: #CCCCCC;">Digital Humanities 2025</span><span style="color: #999999;">8 Jul 2025</span><span style="color: #CCCCCC;">Kyiv</span><span style="color: #CCCCCC;">18 200 ₴</span><span style="color: #E57373; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">poster, not a talk</span></div>
+          <div class="g"><span style="color: #CCCCCC;">TEI Members' Meeting</span><span style="color: #999999;">2 Oct 2025</span><span style="color: #CCCCCC;">Vienna</span><span style="color: #CCCCCC;">16 900 ₴</span><span style="color: #666666;">—</span></div>
+          <div class="g"><span style="color: #CCCCCC;">Text Encoding Workshop</span><span style="color: #999999;">21 May 2025</span><span style="color: #CCCCCC;">Kyiv</span><span style="color: #CCCCCC;">12 400 ₴</span><span style="color: #E57373; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">two days, worth repeating</span></div>
+          <div class="g"><span style="color: #CCCCCC;">ADHO Regional</span><span style="color: #999999;">3 Apr 2025</span><span style="color: #CCCCCC;">Kraków</span><span style="color: #CCCCCC;">11 750 ₴</span><span style="color: #666666;">—</span></div>
+          <div class="g"><span style="color: #CCCCCC;">Corpus Linguistics UA</span><span style="color: #999999;">19 Sep 2025</span><span style="color: #CCCCCC;">Kharkiv</span><span style="color: #CCCCCC;">9 300 ₴</span><span style="color: #E57373; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">met Olena here</span></div>
+          <div class="g" style="border-bottom: none;"><span style="color: #CCCCCC;">Open Science Days</span><span style="color: #999999;">11 Feb 2025</span><span style="color: #CCCCCC;">Lviv</span><span style="color: #CCCCCC;">8 500 ₴</span><span style="color: #666666;">—</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- the scrim -->
+  <div style="position: absolute; inset: 0; background: rgba(10, 10, 10, 0.72);"></div>
+
+  <!-- the question -->
+  <div style="position: absolute; left: 460px; top: 226px; width: 520px; background: #202023; border: 1px solid #38383D; border-radius: 7px; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6); overflow: hidden;">
+
+    <div style="padding: 22px 24px 0; display: flex; gap: 14px; align-items: flex-start;">
+      <div style="width: 32px; height: 32px; border-radius: 7px; background: #3A2424; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#E57373" stroke-width="1.9" stroke-linecap="round"><path d="M12 8v5M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+      </div>
+      <div>
+        <div style="color: #FFFFFF; font-size: 15px; font-weight: 600;">Stop keeping notes on conferences?</div>
+        <div style="color: #AAAAAA; font-size: 12.5px; margin-top: 6px; line-height: 1.55;">
+          14 of your 47 conferences have something written here. That writing goes with it.
+        </div>
+      </div>
+    </div>
+
+    <div style="margin: 16px 24px 0; background: #1A1A1C; border: 1px solid #303035; border-radius: 7px; padding: 12px 14px;">
+      <div style="color: #777777; font-size: 11px; margin-bottom: 8px;">What you'd lose, for example</div>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <div style="color: #CCCCCC; font-size: 12px;">“keynote went well”<span style="color: #666666;"> — DH Nordic 2025</span></div>
+        <div style="color: #CCCCCC; font-size: 12px;">“two days, worth repeating”<span style="color: #666666;"> — Text Encoding Workshop</span></div>
+        <div style="color: #CCCCCC; font-size: 12px;">“met Olena here”<span style="color: #666666;"> — Corpus Linguistics UA</span></div>
+        <div style="color: #666666; font-size: 11.5px; padding-top: 2px;">and 11 more</div>
+      </div>
+    </div>
+
+    <div style="margin: 14px 24px 0; display: flex; gap: 9px; align-items: flex-start; color: #888888; font-size: 11.5px; line-height: 1.5;">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#7FB069" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 2px;"><path d="M20 6 9 17l-5-5"/></svg>
+      <span>Everything else stays as it is — the 47 conferences, their dates, cities and costs, and the 213 expenses.</span>
+    </div>
+
+    <div style="margin: 10px 24px 0; display: flex; gap: 9px; align-items: flex-start; color: #E57373; font-size: 11.5px; line-height: 1.5;">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#E57373" stroke-width="1.8" stroke-linecap="round" style="flex-shrink: 0; margin-top: 2px;"><path d="M3 3v6h6"/><path d="M3.5 14a9 9 0 1 0 2-6.5L3 9"/></svg>
+      <span>There is no getting this back yet.</span>
+    </div>
+
+    <div style="margin-top: 20px; padding: 14px 24px; background: #1C1C1F; border-top: 1px solid #303035; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+      <span style="color: #666666; font-size: 11px;">You asked for this in Chat</span>
+      <div style="display: flex; gap: 8px;">
+        <div style="padding: 8px 16px; border-radius: 7px; border: 1px solid #38383D; color: #CCCCCC; font-size: 12px; font-weight: 600;">Keep them</div>
+        <div style="padding: 8px 16px; border-radius: 7px; background: #C0392B; color: #FFFFFF; font-size: 12px; font-weight: 600;">Yes, stop keeping notes</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

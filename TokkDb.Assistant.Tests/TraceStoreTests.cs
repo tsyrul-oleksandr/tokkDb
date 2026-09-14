@@ -1,6 +1,8 @@
 using TokkDb.Assistant.Storage;
 using TokkDb.Assistant.Storage.Engine;
 using TokkDb.Assistant.Trace;
+using TokkDb.Documents;
+using TokkDb.Documents.Values;
 using TokkDb.Pages;
 
 namespace TokkDb.Assistant.Tests;
@@ -341,7 +343,7 @@ public sealed class TraceStoreTests : IDisposable
             {
                 for (var record = 0; record < records; record++)
                 {
-                    storage.Traces.Record(DataChanges.Insert(request.Id, "exports", Ulid.NewUlid(), row));
+                    storage.Traces.Record(DataChanges.Insert(request.Id, "exports", Ulid.NewUlid(), Ulid.NewUlid(), Reversibility.Reversible));
                 }
             });
         }
@@ -388,7 +390,8 @@ public sealed class TraceStoreTests : IDisposable
                 });
 
                 storage.Traces.Record(
-                    DataChanges.Insert(request, "expenses", written.Id, written.Fields) with { StepId = write });
+                    DataChanges.Insert(request, "expenses", written.Id, storage.HeadVersion("expenses", written.Id)!.Value,
+                        Reversibility.Reversible) with { StepId = write });
 
                 return written.Id;
             });
@@ -409,35 +412,55 @@ public sealed class TraceStoreTests : IDisposable
             Assert.Equal("expenses", change.CollectionName);
             Assert.Equal(ChangeKind.Insert, change.Kind);
 
-            // The record as it was written, so that "has this been touched since" is answerable
-            // against what is in storage now (AG-11a).
-            Assert.Equal(Hashes.OfFields(stored.Fields), change.ContentHash);
+            // The version the write produced, so that "has this been touched since" is answerable
+            // exactly against what is in storage now (AG-11a, V-18): no values, and no hash.
+            Assert.Equal(storage.HeadVersion("expenses", record), change.VersionId);
+            Assert.Null(change.PreviousVersionId);
+            Assert.Null(change.ContentHash);
+            Assert.Empty(change.Fields);
         }
     }
 
     /// <summary>
-    /// A delete keeps the whole record through a reopen, values and types and all, which is the
-    /// half of D-17 the database has to hold up rather than the model.
+    /// A delete's change names the version it replaced and the tombstone, both of which survive
+    /// a reopen - and the record comes back from the engine's history, values and types and all,
+    /// which is the half of D-17 the database holds up rather than the journal (V-18).
     /// </summary>
     [Fact]
-    public void A_deleted_record_can_still_be_put_back_after_a_reopen()
+    public void A_deleted_record_is_put_back_from_history_after_a_reopen()
     {
-        var removed = new Dictionary<string, object?>(StringComparer.Ordinal)
+        var fields = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["description"] = "Hotel, four nights",
             ["cost"] = 1234.56m,
             ["nights"] = 4L,
             ["paidOn"] = new DateOnly(2026, 7, 21),
-            ["reimbursed"] = false,
-            ["conference"] = Ulid.NewUlid()
+            ["reimbursed"] = false
         };
 
         Ulid request;
+        Ulid record;
 
         using (var storage = Open())
         {
+            storage.CreateCollection(new CollectionDefinition("expenses", "money I spent", columns:
+            [
+                new ColumnDefinition("description", ColumnType.Text, "what for"),
+                new ColumnDefinition("cost", ColumnType.Decimal, "how much"),
+                new ColumnDefinition("nights", ColumnType.Integer, "how long"),
+                new ColumnDefinition("paidOn", ColumnType.Date, "when"),
+                new ColumnDefinition("reimbursed", ColumnType.Boolean, "whether it came back")
+            ]));
+            record = storage.Create("expenses", fields).Id;
+            var before = storage.HeadVersion("expenses", record)!.Value;
+
             request = storage.Traces.Begin(Ulid.NewUlid(), "delete an expense").Id;
-            storage.Traces.Record(DataChanges.Delete(request, "expenses", Ulid.NewUlid(), removed));
+            storage.InUnitOfWork(() =>
+            {
+                storage.Delete("expenses", record);
+                storage.Traces.Record(DataChanges.Delete(request, "expenses", record, before,
+                    storage.HeadVersion("expenses", record)!.Value, Reversibility.ReversibleWithConditions));
+            });
         }
 
         using (var storage = Open())
@@ -445,17 +468,67 @@ public sealed class TraceStoreTests : IDisposable
             var change = Assert.Single(storage.Traces.Changes(request));
 
             Assert.Equal(Reversibility.ReversibleWithConditions, change.Reversibility);
+            Assert.Equal(ChangeKind.Delete, change.Kind);
+            Assert.NotNull(change.PreviousVersionId);
+            Assert.NotNull(change.VersionId);
+            Assert.Equal(change.VersionId, storage.HeadVersion("expenses", record));
+            Assert.Null(storage.GetById("expenses", record));
 
-            var restored = DataChanges.Restore(change);
+            var restored = storage.RestoreVersion("expenses", record, change.PreviousVersionId!.Value);
 
-            Assert.Equal(removed.Count, restored.Count);
+            Assert.Equal(record, restored.Id);
+            Assert.Equal(fields.Count, restored.Fields.Count);
 
-            foreach (var (name, value) in removed)
+            foreach (var (name, value) in fields)
             {
                 Assert.Equal(value, restored[name]);
                 Assert.Equal(value!.GetType(), restored[name]!.GetType());
             }
         }
+    }
+
+    /// <summary>
+    /// A change written before version references existed (step 9.1 of the versioning plan)
+    /// still reads, with null versions: the journal is an audit record first, and an old entry
+    /// that could no longer be read would be an audit record with a hole in it.
+    /// </summary>
+    [Fact]
+    public void A_change_written_before_version_references_reads_with_null_versions()
+    {
+        using var database = new TemporaryDatabase("old-change");
+        using var connection = new TokkDbConnection(database.FilePath);
+        connection.Load();
+        using var storage = new TokkDbStorage(connection);
+
+        var request = storage.Traces.Begin(Ulid.NewUlid(), "an old import").Id;
+        var change = Ulid.NewUlid();
+        var record = Ulid.NewUlid();
+
+        // The document as step 3.2 wrote it: a hash and a payload, and no version fields.
+        var document = new ObjectDocument();
+        document.SetIdentifierValue(new UlidDocumentValue(change));
+        document.SetValue(new ObjectDocumentValue(new Dictionary<string, IDocumentValue>
+        {
+            ["id"] = new UlidDocumentValue(change),
+            ["request"] = new UlidDocumentValue(request),
+            ["kind"] = new StringDocumentValue("Insert"),
+            ["collection"] = new StringDocumentValue("expenses"),
+            ["at"] = new DateTimeDocumentValue(DateTime.UtcNow),
+            ["reversibility"] = new StringDocumentValue("Reversible"),
+            ["record"] = new UlidDocumentValue(record),
+            ["contentHash"] = new StringDocumentValue(new string('a', Hashes.Length)),
+            ["fields"] = new ArrayDocumentValue([]),
+            ["omitted"] = new IntDocumentValue(0)
+        }));
+        connection.InTransaction(() => connection.SystemDocuments.Write(SystemCollections.DataChanges, change, document));
+
+        var read = Assert.Single(storage.Traces.Changes(request));
+
+        Assert.Equal(record, read.RecordId);
+        Assert.Equal(ChangeKind.Insert, read.Kind);
+        Assert.Null(read.PreviousVersionId);
+        Assert.Null(read.VersionId);
+        Assert.Equal(new string('a', Hashes.Length), read.ContentHash);
     }
 
     /// <summary>
@@ -471,8 +544,7 @@ public sealed class TraceStoreTests : IDisposable
 
         foreach (var record in records)
         {
-            storage.Traces.Record(DataChanges.Insert(request, "expenses", record,
-                new Dictionary<string, object?> { ["description"] = record.ToString() }));
+            storage.Traces.Record(DataChanges.Insert(request, "expenses", record, Ulid.NewUlid(), Reversibility.Reversible));
         }
 
         Assert.Equal(records, storage.Traces.Changes(request).Select(static change => change.RecordId!.Value));
@@ -490,8 +562,7 @@ public sealed class TraceStoreTests : IDisposable
 
         for (var change = 0; change < changes; change++)
         {
-            storage.Traces.Record(DataChanges.Insert(request.Id, "expenses", Ulid.NewUlid(),
-                new Dictionary<string, object?> { ["description"] = $"row {change}" }));
+            storage.Traces.Record(DataChanges.Insert(request.Id, "expenses", Ulid.NewUlid(), Ulid.NewUlid(), Reversibility.Reversible));
         }
 
         if (finished)

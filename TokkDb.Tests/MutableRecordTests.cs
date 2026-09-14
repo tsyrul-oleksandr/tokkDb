@@ -63,6 +63,9 @@ public class MutableRecordTests {
   public void AnUpdateDoesNotRewriteTheOldImageInPlace() {
     using var file = new TempDatabaseFile();
     using var db = NewDatabase(file);
+    //Step 3.1 of the versioning plan: what this asserts is what only RetentionPolicy.None gives.
+    //A new collection keeps versions by default (I-4), so its empty history is dropped with it.
+    db.SetRetentionPolicy("Person", RetentionPolicy.None, dropHistory: true);
     var entities = db.Entities<Person>();
     entities.Insert(TestPeople.Ivan());
     var record = Assert.Single(entities.GetAllRecords());
@@ -85,6 +88,9 @@ public class MutableRecordTests {
   public void ADeletedRecordIsGoneAndItsSpaceIsBackOnTheFreeList() {
     using var file = new TempDatabaseFile();
     using var db = NewDatabase(file);
+    //Step 3.1 of the versioning plan: what this asserts is what only RetentionPolicy.None gives.
+    //A new collection keeps versions by default (I-4), so its empty history is dropped with it.
+    db.SetRetentionPolicy("Person", RetentionPolicy.None, dropHistory: true);
     var entities = db.Entities<Person>();
     for (var i = 0; i < 5; i++) {
       entities.Insert(TestPeople.Numbered(i));
@@ -105,6 +111,9 @@ public class MutableRecordTests {
   public void FreedSpaceIsHandedOutAgain() {
     using var file = new TempDatabaseFile();
     using var db = NewDatabase(file);
+    //Step 3.1 of the versioning plan: what this asserts is what only RetentionPolicy.None gives.
+    //A new collection keeps versions by default (I-4), so its empty history is dropped with it.
+    db.SetRetentionPolicy("Person", RetentionPolicy.None, dropHistory: true);
     var entities = db.Entities<Person>();
     for (var i = 0; i < 20; i++) {
       entities.Insert(TestPeople.Numbered(i));
@@ -133,25 +142,6 @@ public class MutableRecordTests {
     //And the refusal changed nothing.
     Assert.Equal("Ivan", Assert.Single(entities.GetAll()).Name);
     Assert.Equal(1u, db.Collection("Person").RecordCount);
-  }
-
-  [Fact]
-  public void KeepVersionsIsDeclaredAndRefused() {
-    using var file = new TempDatabaseFile();
-    using var db = NewDatabase(file);
-    var entities = db.Entities<Person>();
-    entities.Insert(TestPeople.Ivan());
-    var record = Assert.Single(entities.GetAllRecords());
-
-    entities.RetentionPolicy = RetentionPolicy.KeepVersions;
-
-    var update = Assert.Throws<NotSupportedException>(() => entities.Update(record.RecordId, TestPeople.Numbered(4)));
-    Assert.Contains(nameof(RetentionPolicy.KeepVersions), update.Message);
-    Assert.Throws<NotSupportedException>(() => entities.Delete(record.RecordId));
-
-    //The refusal is the whole of it: nothing was retired on the way to throwing.
-    entities.RetentionPolicy = RetentionPolicy.None;
-    Assert.Equal("Ivan", Assert.Single(entities.GetAll()).Name);
   }
 
   //VR-12's acceptance criterion, with the fault injector standing in for the kill.

@@ -129,7 +129,9 @@ public class FaultInjectionTests {
       return db.Collections.Count;
     }
     if (collection.IsSystem) {
-      return 0;
+      //The other reserved collections — the history collections among them, since Person
+      //keeps versions by default (I-4) — are read through the system store.
+      return db.SystemDocuments.ReadAll(collection.Name).Count();
     }
     return collection.Name == "Person"
       ? db.Entities<Person>().GetAll().Count()

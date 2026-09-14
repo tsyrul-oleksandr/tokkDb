@@ -2,6 +2,7 @@ using TokkDb.Assistant.Storage;
 using TokkDb.Assistant.Storage.Engine;
 using TokkDb;
 using TokkDb.Disk;
+using TokkDb.Pages;
 
 namespace TokkDb.Assistant.Tests;
 
@@ -22,6 +23,83 @@ public sealed class TokkDbStorageTests : IDisposable
     public void Dispose() => _database.Dispose();
 
     private TokkDbStorage Open() => new(_path);
+
+    /// <summary>
+    /// HS-2. A collection that keeps versions has a history collection beside it in the engine's
+    /// catalogue, and that collection is the engine's, not the user's: it never appears here.
+    /// </summary>
+    [Fact]
+    public void A_history_collection_is_not_listed()
+    {
+        using (var storage = Open())
+        {
+            storage.CreateCollection(new CollectionDefinition("expenses", "money I spent",
+                [new ColumnDefinition("event", ColumnType.Text)]));
+        }
+
+        using (var connection = new TokkDbConnection(_path))
+        {
+            connection.Load();
+            connection.SetRetentionPolicy("expenses", RetentionPolicy.KeepVersions);
+            Assert.Contains(connection.Collections, descriptor => descriptor.Name.StartsWith("_history:", StringComparison.Ordinal));
+        }
+
+        using var reopened = Open();
+        Assert.Equal(["expenses"], reopened.GetCollectionDefinitions().Select(definition => definition.Name).ToArray());
+        //A reserved name is not even a name to the assistant, let alone a collection.
+        Assert.Throws<InvalidDefinitionException>(() => reopened.GetCollectionDefinition("_history:anything"));
+    }
+
+    /// <summary>
+    /// SC-12a: a collection created through the assistant keeps versions, whatever the engine's
+    /// default; and a database holding a collection at <c>None</c> is switched on at open,
+    /// without a record being rewritten - its records gain history only when next changed, with
+    /// a <c>Baseline</c> of what they were.
+    /// </summary>
+    [Fact]
+    public void Every_collection_the_assistant_writes_to_keeps_versions()
+    {
+        using (var storage = Open())
+        {
+            storage.CreateCollection(new CollectionDefinition("expenses", "money I spent",
+                [new ColumnDefinition("event", ColumnType.Text)]));
+        }
+
+        Ulid record;
+        using (var connection = new TokkDbConnection(_path))
+        {
+            connection.Load();
+            Assert.Equal(RetentionPolicy.KeepVersions, connection.Collection("expenses").RetentionPolicy);
+
+            // A collection made outside the assistant, at None, with a record in it.
+            connection.CreateCollection("legacy", [new ColumnDescriptor("event", Values.ValueTypeEnum.String)]);
+            connection.SetRetentionPolicy("legacy", RetentionPolicy.None, dropHistory: true);
+            record = connection.Entities(new FieldMapSerializerForTests(), "legacy")
+                .Insert(new Dictionary<string, Documents.IDocumentValue> { ["event"] = new Documents.Values.StringDocumentValue("PyCon") });
+        }
+
+        using (var storage = Open())
+        {
+            var legacy = storage.GetById("legacy", record);
+            Assert.NotNull(legacy);
+            Assert.Equal("PyCon", legacy["event"]);
+            // Switched on at open: the record has a head but no history yet.
+            Assert.NotNull(storage.HeadVersion("legacy", record));
+            Assert.False(storage.Keeps("legacy", record, storage.HeadVersion("legacy", record)!.Value));
+
+            storage.Update(legacy.With("event", "EuroPython"));
+            Assert.True(storage.Keeps("legacy", record, storage.HeadVersion("legacy", record)!.Value));
+        }
+
+        using (var connection = new TokkDbConnection(_path))
+        {
+            connection.Load();
+            Assert.Equal(RetentionPolicy.KeepVersions, connection.Collection("legacy").RetentionPolicy);
+            var history = connection.Entities(new FieldMapSerializerForTests(), "legacy").History(record);
+            Assert.Equal([Pages.Versions.VersionKind.Baseline, Pages.Versions.VersionKind.Update],
+                history.Versions.Select(version => version.Kind));
+        }
+    }
 
     /// <summary>
     /// The definition, exactly as it was written, after the file has been closed and opened
@@ -567,5 +645,23 @@ public sealed class TokkDbStorageTests : IDisposable
             new StorageQuery("expenses", [new QueryCondition("venue", QueryOperator.Equals, "Prague")])));
 
         Assert.Single(thrown.Errors);
+    }
+}
+
+/// <summary>A field map serializer for a record written outside the assistant, in a test.</summary>
+internal sealed class FieldMapSerializerForTests : Documents.Serializers.DocumentSerializer<Dictionary<string, Documents.IDocumentValue>>
+{
+    protected override Documents.IDocumentValue Serialize(object value, Type type)
+    {
+        return value is Dictionary<string, Documents.IDocumentValue> fields
+            ? new Documents.Values.ObjectDocumentValue(new Dictionary<string, Documents.IDocumentValue>(fields, StringComparer.Ordinal))
+            : base.Serialize(value, type);
+    }
+
+    protected override object Deserialize(Documents.IDocumentValue value, Type type)
+    {
+        return value is Documents.Values.ObjectDocumentValue fields
+            ? new Dictionary<string, Documents.IDocumentValue>(fields.Values, StringComparer.Ordinal)
+            : base.Deserialize(value, type);
     }
 }

@@ -187,6 +187,12 @@ public class DiskManager : IDisposable {
     }
   }
 
+  //V-17: the frame of a transaction that released bytes, dropped as soon as its commit record
+  //is durable rather than when the next transaction begins.
+  public virtual void DiscardJournalFrame() {
+    DiscardJournal();
+  }
+
   protected virtual void WritePageBytes(uint pageIndex, byte[] bytes, ushort pageSize) {
     _stream.Position = (long)pageIndex * pageSize;
     _stream.Write(bytes, 0, bytes.Length);

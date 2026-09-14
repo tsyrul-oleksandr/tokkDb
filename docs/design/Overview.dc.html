@@ -1,0 +1,155 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap');
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #111111; color: #CCCCCC;
+      font-family: 'Open Sans', -apple-system, 'Segoe UI', system-ui, sans-serif;
+      font-size: 13px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+    a { color: #A79BD8; text-decoration: none; }
+    a:hover { color: #C5BCEA; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #111111; overflow: hidden;">
+
+  <div style="height: 48px; flex-shrink: 0; display: flex; align-items: center; gap: 16px; padding: 0 16px; background: #202023; border-bottom: 1px solid #303035;">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#A79BD8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5v9c0 1.7 3.6 3 8 3s8-1.3 8-3v-9"/><ellipse cx="12" cy="7.5" rx="8" ry="3"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+      <span style="color: #FFFFFF; font-weight: 600; font-size: 13px; letter-spacing: 0.2px;">Storage</span>
+    </div>
+    <div style="display: flex; gap: 2px; padding: 2px; background: #111111; border-radius: 7px; border: 1px solid #303035;">
+      <div style="padding: 5px 14px; border-radius: 5px; color: #888888; font-size: 12px;">Chat</div>
+      <div style="padding: 5px 14px; border-radius: 5px; background: #303035; color: #FFFFFF; font-size: 12px; font-weight: 600;">Browse</div>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; align-items: center; gap: 8px; background: #111111; border: 1px solid #303035; border-radius: 7px; padding: 6px 12px; width: 280px;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#777777" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <span style="color: #666666; font-size: 12px;">Find anything you've stored</span>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+
+    <!-- rail -->
+    <div style="width: 232px; flex-shrink: 0; background: #202023; border-right: 1px solid #303035; padding: 14px 8px; display: flex; flex-direction: column; gap: 2px;">
+      <div style="padding: 0 10px 10px; color: #666666; font-size: 11px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase;">Everything stored</div>
+      <div style="padding: 8px 10px; border-radius: 7px; display: flex; align-items: center; justify-content: space-between;"><span style="color: #CCCCCC; font-size: 12px;">Conferences</span><span style="color: #666666; font-size: 11px;">47</span></div>
+      <div style="padding: 8px 10px; border-radius: 7px; display: flex; align-items: center; justify-content: space-between;"><span style="color: #CCCCCC; font-size: 12px;">Expenses</span><span style="color: #666666; font-size: 11px;">213</span></div>
+      <div style="padding: 8px 10px; border-radius: 7px; display: flex; align-items: center; justify-content: space-between;"><span style="color: #CCCCCC; font-size: 12px;">Contacts</span><span style="color: #666666; font-size: 11px;">88</span></div>
+      <div style="padding: 8px 10px; border-radius: 7px; display: flex; align-items: center; justify-content: space-between;"><span style="color: #CCCCCC; font-size: 12px;">Papers</span><span style="color: #666666; font-size: 11px;">34</span></div>
+      <div style="padding: 8px 10px; border-radius: 7px; display: flex; align-items: center; justify-content: space-between;"><span style="color: #CCCCCC; font-size: 12px;">Trips</span><span style="color: #666666; font-size: 11px;">19</span></div>
+      <div style="padding: 8px 10px; border-radius: 7px; display: flex; align-items: center; justify-content: space-between;"><span style="color: #CCCCCC; font-size: 12px;">Equipment</span><span style="color: #666666; font-size: 11px;">7</span></div>
+    </div>
+
+    <!-- overview -->
+    <div style="flex-grow: 1; padding: 28px 32px; min-width: 0; display: flex; flex-direction: column; gap: 20px;">
+
+      <div style="display: flex; align-items: flex-end; justify-content: space-between;">
+        <div>
+          <div style="color: #FFFFFF; font-size: 20px; font-weight: 600;">Everything you've stored</div>
+          <div style="color: #888888; font-size: 12px; margin-top: 4px;">6 kinds of thing · 408 entries altogether · nothing leaves this machine</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; color: #888888; font-size: 12px; border: 1px solid #303035; border-radius: 7px; padding: 6px 12px;">
+          Recently changed
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#888888" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px;">
+
+        <div style="background: #202023; border: 1px solid #6B5FA8; border-radius: 7px; padding: 16px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: baseline; justify-content: space-between;">
+            <span style="color: #FFFFFF; font-size: 15px; font-weight: 600;">Conferences</span>
+            <span style="color: #A79BD8; font-size: 12px;">47</span>
+          </div>
+          <div style="color: #999999; font-size: 12px;">Where you went, when, and what it cost.</div>
+          <div style="display: flex; flex-direction: column; gap: 3px; padding-top: 2px;">
+            <span style="color: #777777; font-size: 11px;">DH Nordic 2025 · Lviv</span>
+            <span style="color: #777777; font-size: 11px;">Digital Humanities 2025 · Kyiv</span>
+          </div>
+          <div style="color: #7FB069; font-size: 11px; padding-top: 2px;">changed just now — 21 added</div>
+        </div>
+
+        <div style="background: #202023; border: 1px solid #303035; border-radius: 7px; padding: 16px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: baseline; justify-content: space-between;">
+            <span style="color: #FFFFFF; font-size: 15px; font-weight: 600;">Expenses</span>
+            <span style="color: #888888; font-size: 12px;">213</span>
+          </div>
+          <div style="color: #999999; font-size: 12px;">What you spent, on what, and which trip it belonged to.</div>
+          <div style="display: flex; flex-direction: column; gap: 3px; padding-top: 2px;">
+            <span style="color: #777777; font-size: 11px;">Train, Kyiv–Lviv · 1 240 ₴</span>
+            <span style="color: #777777; font-size: 11px;">Registration, TEI · 4 900 ₴</span>
+          </div>
+          <div style="color: #666666; font-size: 11px; padding-top: 2px;">changed Tuesday</div>
+        </div>
+
+        <div style="background: #202023; border: 1px solid #303035; border-radius: 7px; padding: 16px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: baseline; justify-content: space-between;">
+            <span style="color: #FFFFFF; font-size: 15px; font-weight: 600;">Contacts</span>
+            <span style="color: #888888; font-size: 12px;">88</span>
+          </div>
+          <div style="color: #999999; font-size: 12px;">People you've met, where they work, how to reach them.</div>
+          <div style="display: flex; flex-direction: column; gap: 3px; padding-top: 2px;">
+            <span style="color: #777777; font-size: 11px;">Olena Kovalchuk · KPI</span>
+            <span style="color: #777777; font-size: 11px;">Marta Bilyk · LNU</span>
+          </div>
+          <div style="color: #666666; font-size: 11px; padding-top: 2px;">changed 5 Sept</div>
+        </div>
+
+        <div style="background: #202023; border: 1px solid #303035; border-radius: 7px; padding: 16px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: baseline; justify-content: space-between;">
+            <span style="color: #FFFFFF; font-size: 15px; font-weight: 600;">Papers</span>
+            <span style="color: #888888; font-size: 12px;">34</span>
+          </div>
+          <div style="color: #999999; font-size: 12px;">Things you've written or been asked to review.</div>
+          <div style="display: flex; flex-direction: column; gap: 3px; padding-top: 2px;">
+            <span style="color: #777777; font-size: 11px;">Проєктування СКБД · draft</span>
+            <span style="color: #777777; font-size: 11px;">Versioning in document stores</span>
+          </div>
+          <div style="color: #666666; font-size: 11px; padding-top: 2px;">changed 2 Sept</div>
+        </div>
+
+        <div style="background: #202023; border: 1px solid #303035; border-radius: 7px; padding: 16px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: baseline; justify-content: space-between;">
+            <span style="color: #FFFFFF; font-size: 15px; font-weight: 600;">Trips</span>
+            <span style="color: #888888; font-size: 12px;">19</span>
+          </div>
+          <div style="color: #999999; font-size: 12px;">Journeys, with their dates and where you stayed.</div>
+          <div style="display: flex; flex-direction: column; gap: 3px; padding-top: 2px;">
+            <span style="color: #777777; font-size: 11px;">Vienna, Oct 2025</span>
+            <span style="color: #777777; font-size: 11px;">Kraków, Apr 2025</span>
+          </div>
+          <div style="color: #666666; font-size: 11px; padding-top: 2px;">changed 28 Aug</div>
+        </div>
+
+        <div style="background: #202023; border: 1px solid #303035; border-radius: 7px; padding: 16px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: baseline; justify-content: space-between;">
+            <span style="color: #FFFFFF; font-size: 15px; font-weight: 600;">Equipment</span>
+            <span style="color: #888888; font-size: 12px;">7</span>
+          </div>
+          <div style="color: #999999; font-size: 12px;">Things with serial numbers you'd rather not lose.</div>
+          <div style="display: flex; flex-direction: column; gap: 3px; padding-top: 2px;">
+            <span style="color: #777777; font-size: 11px;">Recorder, Zoom H5</span>
+            <span style="color: #777777; font-size: 11px;">Scanner, Epson V600</span>
+          </div>
+          <div style="color: #666666; font-size: 11px; padding-top: 2px;">changed 14 Jul</div>
+        </div>
+
+      </div>
+
+      <div style="flex-grow: 1;"></div>
+      <div style="color: #666666; font-size: 11px;">Anything you say in Chat can add to these, or start a new one.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

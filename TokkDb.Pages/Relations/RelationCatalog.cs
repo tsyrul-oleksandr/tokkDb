@@ -86,8 +86,7 @@ public class RelationCatalog {
       return false;
     }
     if (_dataPageManager.FindLiveRow(SystemCollections.Relations, descriptor.Id) is { } row) {
-      _dataPageManager.RetireRow(SystemCollections.Relations, row.Address, RecordFlags.Deleted,
-        RetentionPolicy.None);
+      _dataPageManager.RetireRow(SystemCollections.Relations, row.Address, RecordFlags.Deleted);
     }
     _bySource[descriptor.SourceCollection].Remove(descriptor);
     return true;

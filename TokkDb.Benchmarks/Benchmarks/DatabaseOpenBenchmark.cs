@@ -15,12 +15,17 @@ public class DatabaseOpenBenchmark : IBenchmark {
     var recordHeavy = Measure(context.PopulatedDatabasePath, out var pageReads);
     var collectionHeavyPath = CreateCollectionHeavyDatabase(context);
     var collectionHeavy = Measure(collectionHeavyPath, out var catalogueReads);
+    var versionedPath = CreateVersionedCollectionsDatabase(context);
+    var versioned = Measure(versionedPath, out var versionedReads);
 
     return [
       new Measurement(Name, $"Open with {context.RecordCount:N0} records", recordHeavy, "ms", "NFR-2", 500,
         $"{pageReads} pages read; the record count does not enter into it."),
       new Measurement(Name, $"Open with {context.CollectionCount:N0} collections", collectionHeavy, "ms",
         "NFR-2", 500, $"{catalogueReads} pages read: one pass over the catalogue's own pages."),
+      new Measurement(Name, $"Open with {context.CollectionCount:N0} versioned collections", versioned, "ms",
+        "NFR-2", 500, $"{versionedReads} pages read: the catalogue, twice as many entries, and the schema history of every " +
+          "history collection read into memory (HS-4)."),
       new Measurement(Name, "Definition lookup after open", 0, "page reads", Note:
         "The catalogue is cached at open, so reading a definition costs no page read at all (DC-7).")
     ];
@@ -45,6 +50,20 @@ public class DatabaseOpenBenchmark : IBenchmark {
     //The median, so one unlucky page cache miss does not become the reported figure.
     elapsed.Sort();
     return elapsed[elapsed.Count / 2];
+  }
+
+  //R-11: every collection versioned, so the catalogue holds a history collection beside each
+  //and open reads each one's schema nodes.
+  private static string CreateVersionedCollectionsDatabase(BenchmarkContext context) {
+    var path = context.CreateDatabasePath("versioned-catalogue");
+    using var db = new TokkDbConnection(path);
+    db.CreateDatabase(config => config.CreateEntity<Publication>());
+    for (var i = 0; i < context.CollectionCount; i++) {
+      var name = $"Versioned{i}";
+      db.CreateCollection<Publication>(name);
+      db.SetRetentionPolicy(name, Pages.RetentionPolicy.KeepVersions);
+    }
+    return path;
   }
 
   private static string CreateCollectionHeavyDatabase(BenchmarkContext context) {
