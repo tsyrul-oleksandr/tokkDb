@@ -57,6 +57,7 @@ public static class Report
         FailureMode.EmptyReply => "empty reply",
         FailureMode.Timeout => "timeout",
         FailureMode.Refusal => "refusal",
+        FailureMode.CutOff => "cut off at the output cap",
         FailureMode.WrongOutcome => "wrong outcome",
         _ => "other"
     };

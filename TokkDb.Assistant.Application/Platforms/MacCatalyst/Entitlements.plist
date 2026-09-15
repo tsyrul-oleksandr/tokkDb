@@ -9,6 +9,12 @@
         <!-- When App Sandbox is enabled, this value is required to open outgoing network connections. -->
         <key>com.apple.security.network.client</key>
         <true/>
+        <!-- The sandbox lets a person choose files through the open panel and drop them on the window
+             only with this (UI-3). Read-write rather than read-only: the document picker opens what was
+             chosen with a read-write sandbox extension, and a read-only grant makes it fail with
+             "couldn't issue sandbox extension com.apple.app-sandbox.read-write". Nothing is written. -->
+        <key>com.apple.security.files.user-selected.read-write</key>
+        <true/>
     </dict>
 </plist>
 

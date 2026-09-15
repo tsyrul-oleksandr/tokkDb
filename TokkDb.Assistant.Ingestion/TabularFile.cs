@@ -54,9 +54,55 @@ public static class TabularFile
 
         var (text, encoding, declared) = TextEncoding.Decode(bytes);
         var delimiter = Csv.DetectDelimiter(text);
-        var rows = Csv.Rows(text, delimiter).ToArray();
+        var rows = Rewrapped(Csv.Rows(text, delimiter).ToArray());
 
         return [Assemble(name, rows, new TableReading(encoding, declared, delimiter, 0, [], false))];
+    }
+
+    /// <summary>
+    /// A row that was wrapped across lines - text pasted from a mail or a page breaks a row where
+    /// the page did - is put back together before the header is looked for, since a fragment of
+    /// a wrapped row reads like a header of its own. The width is the widest row's: a row short of
+    /// it is joined with the row after it, the last cell of the one continuing into the first cell
+    /// of the other, when and only when that makes at most a full row. A row that is short because
+    /// its last cells are missing stays short, since joining it with a full row would overshoot.
+    /// Two short rows that happen to add up are joined too, which is the price of the rule; IN-4
+    /// then reports the joined row rather than two rejected ones. Nothing above the first full row
+    /// is touched: that is the title or the note a file carries above its table.
+    /// </summary>
+    internal static IReadOnlyList<TableRow> Rewrapped(IReadOnlyList<TableRow> rows)
+    {
+        var populated = rows.Where(static row => !row.IsBlank).ToList();
+        if (populated.Count < 2) return rows;
+        var width = populated.Max(static row => row.Cells.Count);
+        if (width < 2 || populated.All(row => row.Cells.Count == width)) return rows;
+
+        // Only after a full row has been seen: what comes before the first full row is what was
+        // written above the table - a title, a note - and a title is not the start of a wrapped row.
+        var joined = new List<TableRow>(rows.Count);
+        var seenFull = false;
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            if (row.Cells.Count == width) seenFull = true;
+            while (seenFull && row.Cells.Count < width && i + 1 < rows.Count && row.Cells.Count + rows[i + 1].Cells.Count - 1 <= width)
+            {
+                var next = rows[i + 1];
+                var cells = new List<string?>(row.Cells);
+                var last = cells[^1] ?? "";
+                var first = next.Cells.Count > 0 ? next.Cells[0] ?? "" : "";
+                cells[^1] = (last + " " + first).Trim();
+                cells.AddRange(next.Cells.Skip(1));
+                if (cells.Count > width) break;
+                row = new TableRow(row.LineNumber, cells);
+                i++;
+                if (cells.Count == width) break;
+            }
+
+            joined.Add(row);
+        }
+
+        return joined;
     }
 
     /// <summary>

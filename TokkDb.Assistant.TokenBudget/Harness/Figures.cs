@@ -12,6 +12,9 @@ public enum FailureMode
     Timeout,
     Refusal,
 
+    /// <summary>The answer ran past the output cap and was cut off.</summary>
+    CutOff,
+
     /// <summary>The request finished but did not do what the scenario says it does.</summary>
     WrongOutcome,
 
@@ -83,6 +86,7 @@ public sealed record RunFigures(
     {
         if (output is null) return FailureMode.Other;
         if (output.Contains("produced nothing", StringComparison.OrdinalIgnoreCase)) return FailureMode.EmptyReply;
+        if (output.StartsWith("cut off", StringComparison.OrdinalIgnoreCase)) return FailureMode.CutOff;
         if (output.StartsWith("malformed past", StringComparison.OrdinalIgnoreCase)) return FailureMode.MalformedPastBound;
         if (output.Contains("declined", StringComparison.OrdinalIgnoreCase) || output.Contains("refus", StringComparison.OrdinalIgnoreCase)) return FailureMode.Refusal;
         if (output.Contains("cancel", StringComparison.OrdinalIgnoreCase) || output.Contains("timeout", StringComparison.OrdinalIgnoreCase) || output.Contains("not answer in time", StringComparison.OrdinalIgnoreCase) || output.Contains("could not be reached", StringComparison.OrdinalIgnoreCase) || output.Contains("Timeout", StringComparison.Ordinal)) return FailureMode.Timeout;

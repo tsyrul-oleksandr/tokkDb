@@ -36,6 +36,57 @@ public static class DetailViews
         return view(detail);
     }
 
+    /// <summary>The same detail as text, for the clipboard: what the specialised view shows, line by line, and the JSON otherwise.</summary>
+    public static string Text(StepDetail detail)
+    {
+        ArgumentNullException.ThrowIfNull(detail);
+        var step = detail.Step;
+        var lines = new List<string> { $"{step.Name} · {step.Status} · {step.StartedAt.ToLocalTime():HH:mm:ss}" + (step.Took is { } took ? $" · {took.TotalSeconds:0.00}s" : "") };
+
+        foreach (var change in detail.Changes.Where(static change => change.IsRecordChange))
+        {
+            var what = change.Kind switch { ChangeKind.Insert => "kept", ChangeKind.Delete => "removed", _ => "changed" };
+            lines.Add($"{what} in {change.CollectionName.Replace('_', ' ')} · {change.At:HH:mm:ss} · {Reversible(change.Reversibility)}");
+            if (change.RecordId is not { } id) { lines.Add(RecordChangeTable.NoLongerKept); continue; }
+            var table = RecordChangeTable.For(detail.Storage, change.CollectionName, id, change.PreviousVersionId, change.VersionId);
+            if (!table.ValuesAreKept) { lines.Add(table.Note ?? RecordChangeTable.NoLongerKept); continue; }
+            foreach (var column in table.Rows)
+            {
+                lines.Add($"{column.ColumnName.Replace('_', ' ')}: {(column.Before is null ? "—" : Shown.Show(column.Before))} → {(column.After is null ? "—" : Shown.Show(column.After))}" + (column.Note is { } note ? $" ({note})" : ""));
+            }
+        }
+
+        foreach (var change in detail.Changes.Where(static change => !change.IsRecordChange))
+        {
+            lines.Add($"{Words(change.Kind)} · {change.CollectionName.Replace('_', ' ')} · {Reversible(change.Reversibility)}");
+            foreach (var field in change.Fields)
+            {
+                var before = field.Before.IsEmpty ? "—" : field.Before.Preview ?? Shown.Show(field.Before.Value);
+                var after = field.After.IsEmpty ? "—" : field.After.Preview ?? Shown.Show(field.After.Value);
+                lines.Add($"{field.Name.Replace('_', ' ')}: {before} → {after}");
+            }
+        }
+
+        if (step.Call is { } call)
+        {
+            lines.Add($"model {call.Model}: {call.PromptTokens} tokens in, {call.CompletionTokens} out, {call.TotalTokens} in all, {call.RoundTrips} round trips, {call.Retries} repairs, peak context {call.PeakContextTokens}, {call.Duration.TotalSeconds:0.00}s, prompt hash {call.PromptHash}");
+        }
+
+        if (step.Name == "looking" && step.Input is not null)
+        {
+            try { lines.Add(QueryJson.Describe(QueryJson.Read(step.Input))); }
+            catch (Exception failure) when (failure is JsonException or ArgumentException or InvalidOperationException or StorageException) { lines.Add(step.Input); }
+            if (step.Output is { } output) lines.Add(output);
+        }
+        else
+        {
+            if (step.Input is { } input) lines.Add("in: " + input);
+            if (step.Output is { } output) lines.Add("out: " + output);
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
     // ---- a record change: before beside after, with what became of each field since (TR-6a) ----
 
     private static View RecordChanges(StepDetail detail)

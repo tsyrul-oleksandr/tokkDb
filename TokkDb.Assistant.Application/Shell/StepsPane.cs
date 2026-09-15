@@ -32,6 +32,10 @@ public sealed class StepsPane : Grid
         var head = new Grid { Padding = new Thickness(16, 0), ColumnDefinitions = [new ColumnDefinition(GridLength.Star), new ColumnDefinition(GridLength.Auto)] };
         head.Add(_title, 0, 0);
         _title.VerticalOptions = LayoutOptions.Center;
+        var copyAll = Chat.ConversationView.CopyButton(AllAsText, "Copy every step of this request as text", LayoutOptions.End);
+        copyAll.Text = "copy all";
+        copyAll.VerticalOptions = LayoutOptions.Center;
+        head.Add(copyAll, 1, 0);
         this.Add(head, 0, 0);
         var rule = Theme.Rule();
         rule.VerticalOptions = LayoutOptions.End;
@@ -102,6 +106,11 @@ public sealed class StepsPane : Grid
                 block.Add(outcome);
             }
 
+            var step = item.Step;
+            var copyStep = Chat.ConversationView.CopyButton(() => StepAsText(step), $"Copy the step {item.Name} as text", LayoutOptions.End);
+            copyStep.Margin = new Thickness(10, 0, 10, 4);
+            block.Add(copyStep);
+
             var selected = _selected == item.Step.Id;
             var card = Theme.Card(block, selected ? Theme.Hover : Theme.Raised, selected ? Theme.Bright : item.IsModelCall ? Theme.DeepViolet : Theme.Border, new Thickness(2, 2));
             SemanticProperties.SetDescription(card, $"{item.Name}, {item.Status}. {item.Outcome}");
@@ -111,6 +120,23 @@ public sealed class StepsPane : Grid
             card.GestureRecognizers.Add(tap);
             _list.Add(card);
         }
+    }
+
+    /// <summary>One step as text: name, status, timing, what went in and what came out, and the call's figures.</summary>
+    private static string StepAsText(ExecutionStep step)
+    {
+        var lines = new List<string> { $"{step.Name} · {step.Status} · {step.StartedAt.ToLocalTime():HH:mm:ss}" + (step.Took is { } took ? $" · {took.TotalSeconds:0.00}s" : "") };
+        if (step.Call is { } call) lines.Add($"model {call.Model}: {call.PromptTokens} tokens in, {call.CompletionTokens} out, {call.RoundTrips} round trips, {call.Retries} repairs, peak context {call.PeakContextTokens}, {call.Duration.TotalSeconds:0.00}s");
+        if (step.Input is { } input) lines.Add("in: " + input);
+        if (step.Output is { } output) lines.Add("out: " + output);
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private string AllAsText()
+    {
+        var steps = _model.Steps.Select(static item => item.Step).ToList();
+        var ordered = DiagramLayouts.InTraceOrder(steps);
+        return string.Join(Environment.NewLine + Environment.NewLine, ordered.Select(StepAsText));
     }
 
     /// <summary>A block or a list item: the same selection, the same panel (UI-8).</summary>
@@ -138,21 +164,23 @@ public sealed class StepsPane : Grid
         var changes = _model.Watching is { } request
             ? _model.Recorder.Changes(request).Where(change => change.StepId == item.Step.Id).ToList()
             : [];
+        var detail = new StepDetail(item.Step, changes, _model.Storage);
 
         try
         {
-            _detail.Add(DetailViews.Render(new StepDetail(item.Step, changes, _model.Storage)));
+            _detail.Add(DetailViews.Render(detail));
         }
         catch (Exception failure)
         {
             _detail.Add(Theme.Text11("This could not be shown: " + failure.Message, Theme.Loss));
         }
 
-        var close = new Label { Text = "close", FontFamily = Theme.Regular, FontSize = Theme.Tiny, TextColor = Theme.Violet };
-        var tap = new TapGestureRecognizer();
-        tap.Tapped += (_, _) => { _detail.IsVisible = false; _selected = null; _diagram.Select(null); Render(); };
-        close.GestureRecognizers.Add(tap);
+        var links = new HorizontalStackLayout { Spacing = 14 };
+        var close = new Button { Text = "close", FontFamily = Theme.Regular, FontSize = Theme.Tiny, TextColor = Theme.Violet, BackgroundColor = Colors.Transparent, Padding = new Thickness(0), CornerRadius = 0, MinimumHeightRequest = 18 };
+        close.Clicked += (_, _) => { _detail.IsVisible = false; _selected = null; _diagram.Select(null); Render(); };
         SemanticProperties.SetDescription(close, "Close the detail");
-        _detail.Add(close);
+        links.Add(close);
+        links.Add(Chat.ConversationView.CopyButton(() => DetailViews.Text(detail), "Copy this detail as text", LayoutOptions.Start));
+        _detail.Add(links);
     }
 }

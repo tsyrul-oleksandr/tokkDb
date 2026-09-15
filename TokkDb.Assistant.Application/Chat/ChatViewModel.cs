@@ -266,6 +266,15 @@ public sealed class ChatViewModel : Bindable
     public async Task SendAsync()
     {
         var text = Draft.Trim();
+
+        // A table pasted into the composer goes the way a file goes (UI-3): the rows become an
+        // attachment, and only what was said around them is the message.
+        if (PastedTables.TrySplit(text, out var said, out var table))
+        {
+            await PasteAsync(table);
+            text = said;
+        }
+
         var files = Attachments.Select(static attachment => attachment.File).ToList();
         var paths = Attachments.Select(static attachment => attachment.Path).ToList();
         if (text.Length == 0 && files.Count == 0) return;
@@ -428,12 +437,14 @@ public sealed class ChatViewModel : Bindable
         if (string.IsNullOrWhiteSpace(text)) return false;
 
         var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        var separator = text.Contains('\t') ? "tab" : text.Contains(',') ? "comma" : text.Contains(';') ? "semicolon" : null;
+        var separator = text.Contains('\t') ? "tab" : text.Contains(';') ? "semicolon" : text.Contains(',') ? "comma" : null;
         if (lines.Length < 2 || separator is null) return false;
 
         var directory = System.IO.Path.Combine(FileSystem.CacheDirectory, "pasted");
         Directory.CreateDirectory(directory);
-        var path = System.IO.Path.Combine(directory, $"pasted-{DateTime.Now:HHmmss}.{(separator == "tab" ? "tsv" : "csv")}");
+        // Named for what it is, since the name is what a new thing made from it is called: "pasted
+        // table", which the person can rename by saying "keep these as campaigns".
+        var path = System.IO.Path.Combine(directory, $"pasted-table.{(separator == "tab" ? "tsv" : "csv")}");
         await File.WriteAllTextAsync(path, text);
         await AttachAsync([path]);
         return true;

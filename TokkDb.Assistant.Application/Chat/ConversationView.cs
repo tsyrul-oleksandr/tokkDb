@@ -140,10 +140,26 @@ public sealed partial class ConversationView : Grid
                 })
             });
 
-            await _model.AttachAsync(results.Select(static result => result.FullPath));
+            // What was chosen is read through the picker's own grant and kept as a copy in the
+            // application's cache: the path the sandbox handed over is scoped to that grant, and
+            // the copy is what the turn reads and the conversation names.
+            var copies = new List<string>();
+            var directory = Path.Combine(FileSystem.CacheDirectory, "chosen");
+            Directory.CreateDirectory(directory);
+            foreach (var result in results)
+            {
+                var copy = Path.Combine(directory, $"{DateTime.Now:HHmmss}-{result.FileName}");
+                await using var source = await result.OpenReadAsync();
+                await using var target = File.Create(copy);
+                await source.CopyToAsync(target);
+                copies.Add(copy);
+            }
+
+            await _model.AttachAsync(copies);
         }
         catch (Exception failure)
         {
+            try { File.AppendAllText(Path.Combine(FileSystem.AppDataDirectory, "errors.log"), $"{DateTimeOffset.Now:O} choosing a file{Environment.NewLine}{failure}{Environment.NewLine}{Environment.NewLine}"); } catch (IOException) { }
             await Show("The file could not be chosen: " + failure.Message);
         }
     }
@@ -175,6 +191,7 @@ public sealed partial class ConversationView : Grid
                 column.Add(Theme.Card(Theme.Text12(attachment, Theme.Text), Theme.Panel, Theme.Border, new Thickness(12, 8)));
             }
 
+            if (message.Text.Length > 0) column.Add(CopyButton(() => message.Text, "Copy what you said", LayoutOptions.End));
             SemanticProperties.SetDescription(column, "You said: " + message.Text);
             return column;
         }
@@ -211,13 +228,21 @@ public sealed partial class ConversationView : Grid
             reply.Add(RenderResults(page));
         }
 
+        var links = new HorizontalStackLayout { Spacing = 14 };
         if (message.RequestId is { } request)
         {
             var open = new Button { Text = "what happened →", FontFamily = Theme.Regular, FontSize = Theme.Tiny, TextColor = Theme.Violet, BackgroundColor = Theme.Window, Padding = new Thickness(0), CornerRadius = 0, HorizontalOptions = LayoutOptions.Start, MinimumHeightRequest = 18 };
             open.Clicked += (_, _) => _model.Watch(request);
             SemanticProperties.SetDescription(open, "Show what happened for this reply");
-            reply.Add(open);
+            links.Add(open);
         }
+
+        if (message.Text.Length > 0 || message.Results is not null)
+        {
+            links.Add(CopyButton(() => ReplyAsText(message), "Copy this reply", LayoutOptions.Start));
+        }
+
+        if (links.Count > 0) reply.Add(links);
 
         SemanticProperties.SetDescription(reply, "The assistant said: " + message.Text);
         return reply;
@@ -300,6 +325,44 @@ public sealed partial class ConversationView : Grid
     }
 
     private Storage.CollectionDefinition? _model_definition(string thing) => _model.Storage.GetCollectionDefinition(thing);
+
+    /// <summary>A reply as text for the clipboard: what was said, the card's lines, and the records shown, one per line.</summary>
+    private string ReplyAsText(MessageItem message)
+    {
+        var lines = new List<string>();
+        if (message.Text.Length > 0) lines.Add(message.Text);
+        if (message.Question is { } card && message.QuestionOpen)
+        {
+            lines.Add(card.Title);
+            lines.AddRange(card.Lines);
+            if (card.UndoNote is { } note) lines.Add(note);
+        }
+
+        if (message.Results is { } page)
+        {
+            var definition = _model_definition(page.Thing);
+            var columns = definition?.Columns.Where(static column => column.Name != Storage.Fingerprints.ColumnName).Select(static column => column.Name).ToList() ?? [];
+            lines.Add(string.Join("\t", columns));
+            foreach (var record in page.Records) lines.Add(string.Join("\t", columns.Select(column => Shown.Show(record[column]))));
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    /// <summary>A small "copy" that puts the text on the clipboard and says so for a moment.</summary>
+    public static Button CopyButton(Func<string> text, string description, LayoutOptions alignment)
+    {
+        var copy = new Button { Text = "copy", FontFamily = Theme.Regular, FontSize = Theme.Tiny, TextColor = Theme.Dim, BackgroundColor = Colors.Transparent, Padding = new Thickness(0), CornerRadius = 0, HorizontalOptions = alignment, MinimumHeightRequest = 18 };
+        copy.Clicked += async (_, _) =>
+        {
+            await Clipboard.Default.SetTextAsync(text());
+            copy.Text = "copied";
+            await Task.Delay(1200);
+            copy.Text = "copy";
+        };
+        SemanticProperties.SetDescription(copy, description);
+        return copy;
+    }
 
     private void RenderAttachments()
     {

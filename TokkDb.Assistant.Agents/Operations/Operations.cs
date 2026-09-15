@@ -67,7 +67,9 @@ public static class Operations
             """,
         Tools: [],
         ContextBudget: 4_000,
-        OutputBudget: 1_500,
+        // Ten records of seven fields are about 2,500 tokens of the answer's JSON; a cap that cut
+        // a pasted table's records short was the first thing a person met (2026-09-15).
+        OutputBudget: 6_000,
         Egress: EgressClass.RawText,
         OutputSchema:
             $$$$"""

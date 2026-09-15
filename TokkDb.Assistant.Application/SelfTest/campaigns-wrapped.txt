@@ -1,0 +1,21 @@
+Customer;Email;Date; Subscription;Country;Type;Email Status
+John Doe;oleksandr@example.com;08/28/2026
+09:29:36;Курси роботи з Windows;Ukraine;Dunning; Sent
+John Doe;oleksandr@example.com;08/28/2026
+09:29:46;Курси роботи з Windows;Ukraine;Dunning; Sent
+John Doe;test@example.com;08/28/2026 09:29:52;Курси роботи з
+Windows;Ukraine;Dunning; Sent
+John Doe;test@example.com;08/28/2026 09:30:00;Курси роботи з
+Windows;Ukraine;Dunning;Sent
+John Doe;test@example.com;08/28/2026 09:30:01;Курси роботи з
+Windows;Ukraine;Dunning;Sent
+John Doe;test@example.com;08/28/2026 09:30:02;Курси роботи з
+Windows;Ukraine;Dunning;Sent
+John Doe;test@example.com;08/28/2026 09:30:02;Курси роботи з
+Windows; Ukraine;Dunning; Sent
+John Doe;test@example.com;08/28/2026 09:30:03;Курси роботи з
+Windows; Ukraine;Dunning;Sent
+John Doe;test@example.com;08/28/2026 09:30:04;Курси роботи з
+Windows;Ukraine;Dunning;Sent
+John Doe;test@example.com;08/28/2026 09:30:04;Курси роботи з
+Windows;Ukraine;Dunning; Sent

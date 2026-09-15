@@ -100,7 +100,13 @@ public static class SelfTest
                     continue;
                 }
 
-                if (line is "yes" or "no")
+                if (line.StartsWith("say-file:", StringComparison.Ordinal))
+                {
+                    // The whole of a file typed into the composer at once: a paste, with its line breaks.
+                    model.Draft = await File.ReadAllTextAsync(line["say-file:".Length..].Trim());
+                    await model.SendAsync();
+                }
+                else if (line is "yes" or "no")
                 {
                     var open = model.Messages.LastOrDefault(m => m.QuestionOpen);
                     if (open is null) { Note("no open question to answer"); continue; }

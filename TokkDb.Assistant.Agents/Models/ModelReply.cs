@@ -23,7 +23,13 @@ public enum ModelOutcome
     Timeout,
 
     /// <summary>The model declined to answer.</summary>
-    Refusal
+    Refusal,
+
+    /// <summary>
+    /// The answer ran past the output cap and was cut off, so it could not be whole (R-2b). Not
+    /// sent back for repair: the same prompt would be cut at the same place.
+    /// </summary>
+    CutOff
 }
 
 /// <summary>
@@ -40,6 +46,9 @@ public sealed record ModelReply(
     string? FinishReason)
 {
     public bool IsEmpty => string.IsNullOrWhiteSpace(Text);
+
+    /// <summary>The transport stopped the answer at the output cap: what came back is a prefix, not an answer.</summary>
+    public bool WasCutOff => string.Equals(FinishReason, "length", StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>

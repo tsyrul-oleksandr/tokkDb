@@ -105,6 +105,15 @@ public sealed class ScriptedModel : IChatClient
     public ScriptedModel Timeout(string operation) =>
         Reply(operation, static _ => throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout."));
 
+    /// <summary>The next answer is cut off at the output cap (R-2b): the text is what came back before the cap, and the finish reason says so.</summary>
+    public ScriptedModel CutOff(string operation, string partialText)
+    {
+        lock (_gate) _cutOff.Add((operation, partialText));
+        return Answer(operation, partialText);
+    }
+
+    private readonly HashSet<(string Operation, string Text)> _cutOff = [];
+
     public Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? options = null,
@@ -135,7 +144,7 @@ public sealed class ScriptedModel : IChatClient
             ModelId = "scripted",
             FinishReason = message.Contents.OfType<FunctionCallContent>().Any()
                 ? ChatFinishReason.ToolCalls
-                : text.Length == 0 ? ChatFinishReason.Length : ChatFinishReason.Stop,
+                : text.Length == 0 || _cutOff.Contains((operation, text)) ? ChatFinishReason.Length : ChatFinishReason.Stop,
             Usage = new UsageDetails
             {
                 InputTokenCount = prompt,

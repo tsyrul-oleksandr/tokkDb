@@ -212,6 +212,16 @@ public sealed class OperationRunner
 
             lastProblem = parsed.Problem;
 
+            // A cut-off answer is not malformed, it is unfinished, and asking again would cut it at
+            // the same place: the operation fails at once, saying what the cap was (R-2b, AG-1e).
+            if (reply.WasCutOff)
+            {
+                Finish(step, StepStatus.Failed, $"cut off at the output cap of {operation.OutputBudget} tokens: {parsed.Problem}",
+                    Call(configuration, promptHash, promptTokens, completionTokens, roundTrips, retries, peak, elapsed));
+                throw new ModelFailedException(operation.Name, ModelOutcome.CutOff,
+                    $"The answer was longer than the {operation.OutputBudget} tokens allowed for it and was cut off, so it could not be used. Nothing was changed. Try with less at a time.");
+            }
+
             if (attempt == operation.MaxRepairs) break;
 
             // The repair loop sends the error, not the whole request again (§6.1): the answer
