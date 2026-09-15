@@ -67,7 +67,7 @@ public class TokkDbConnection : IDisposable {
     _transactionManager.AttributionSource = () => _attribution;
     _transactionManager.AfterOutermostRollback = ReloadCatalogues;
     _queries = new QueryService(_dataPageManager, _catalog, _indexCatalog, _relationCatalog, _pageManager,
-      _catalogLock);
+      _catalogLock, _freeSpace);
   }
 
   //Layer 1's contract (§3.1), for the layers above it and for tests. Everything a caller may

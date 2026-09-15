@@ -1,10 +1,12 @@
 # TokkDb Assistant — requirements and development plan
 
-**Status.** Draft 9, written 2026-09-13 against the working tree of that date. Draft 8 moved the undo
-of record changes onto the engine's version history (`docs/versioning-requirements-and-plan.md`, V-18).
-Draft 9 aligns that undo with the versioning plan's draft 5: every blocker is found before anything is
-written. That plan's draft 6 changed nothing this plan depends on; one sentence in NF-4d1 records the
-boundary it now states. The appendices at the end list what changed.
+**Status.** Draft 10, written 2026-09-14 against the working tree of that date, on which
+`docs/versioning-requirements-and-plan.md` has landed through its Phase 9. Draft 8 moved the undo of
+record changes onto the engine's version history (that plan's V-18), and draft 9 aligned it with that
+plan's draft 5, so every blocker is found before anything is written. Draft 10 records the landing where
+this plan still said "has still to build", settles two open items of §10 against what the engine now
+provides, and records why four future items of that plan stay future. The appendices at the end list
+what changed.
 
 **The interface.** Six screens are drawn in `docs/design/` and published as a canvas:
 `Main` (chat and the step diagram), `Overview`, `Records`, `Record`, `WhatItKeeps`, `Confirm`.
@@ -38,7 +40,8 @@ in the repository, keeps working, and is available to read. Nothing here referen
 PDF and HTML ingestion; images; vector search and semantic retrieval; multi-user or shared
 storage; synchronisation between devices; export to external repositories; browsing a record's
 history and time travel (the engine versions every collection the assistant writes to, and the
-assistant uses those versions only to undo, D-17); phone layouts.
+assistant uses those versions only to undo, to show a change's before and after, and to erase —
+D-17, TR-6, NF-4d; whether the browser should show a history is §10's item 14); phone layouts.
 
 ### 1.3 The user's mental model
 
@@ -393,11 +396,14 @@ including `Long`, `Decimal`, `DateTime` and `Guid`; lazy schema migration with a
 `Rewrite`; a unit-of-work API; the catalogue as documents, with reserved collections that
 `Initialize` creates when they are missing.
 
-Once `docs/versioning-requirements-and-plan.md` lands, one more thing: version history for every
-versioned collection — each record's versions, restoring one, a per-record purge, and erasure within a
-stated boundary. The assistant uses it for undo and nothing else (D-17). That is an engine plan of its
-own, not an engine change this plan makes, and the dependency is stated where it bites: steps 4.7, 9.2
-and 9.4.
+Since `docs/versioning-requirements-and-plan.md` landed — its Phases 1 to 9 are on this branch — one
+more thing: version history for every versioned collection — each record's versions, restoring one, a
+diff of two through the current schema with whatever it cannot carry reported, a per-record purge, and
+erasure within a stated boundary. The assistant uses it for undo, for a change's before-and-after table
+and for erasure (D-17, TR-6, NF-4d). That was an engine plan of its own, not an engine change this plan
+made, and its Phase 9 built the assistant's half: the journal's version references, the six operations of
+SC-12 on both backends, the compensation as a test-local helper, and erasure through the assistant. Steps
+4.7, 9.2 and 9.4 adopt those rather than write them again.
 
 ### 3.3 What the old application is for now
 
@@ -593,15 +599,24 @@ refinement.
 **SC-12 (M).** The contract shall offer the version operations undo needs, and nothing more:
 - `HeadVersion` — the version a record is at;
 - `Keeps` — whether a version is still kept;
-- `DiffVersions` — column by column, old beside new;
+- `DiffVersions` — column by column, old beside new, through the thing's current shape, **carrying
+  what that shape cannot show** rather than dropping it: a value in a field since removed, or one that a
+  since-changed kind cannot take, comes back named as such (TR-6a);
 - `RestoreVersion`;
 - `PurgeRecordHistory`;
 - `Erase`.
 
 Both implementations provide them, and one contract suite checks both.
 *AC:* the suite passes against `TokkDbStorage` and `MemoryStorage`. Inside a unit of work, `HeadVersion`
-after an update returns the version the update produced, and after a delete the tombstone. The contract
-project still references nothing.
+after an update returns the version the update produced, and after a delete the tombstone. After a field
+is removed, the diff of two versions from before the removal still lists that field's change, marked as
+since removed, on both backends. The contract project still references nothing.
+
+*As built, and not yet true of the diff:* the engine reports every value the current schema cannot show
+(versioning plan, V-10, G-6), but `TokkDbStorage.DiffVersions` reads each version through `GetAsOf` and
+discards that report, so a removed field's change vanishes from the table and a lossy retype's old value
+with it. That is the one place the assistant made the engine's history silently lossy. TR-6a is the
+requirement, and step 7.3 closes it before the detail panel is built on the diff.
 
 *Why both, and why only these:* orchestration is tested against the in-memory storage (D-12), so undo
 has to mean the same thing there. A full copy per version in memory changes the cost, not the meaning.
@@ -997,15 +1012,21 @@ touched since, or which conflict — all found by AG-11a's validation before any
 the rest is offered as a second, explicitly chosen action, never as the silent outcome of the first.
 The rest is validated as an undo of its own before it is offered: leaving a record out changes the state
 the undo ends in, and can create a blocker the whole undo did not have. If the rest has blockers of its
-own, they are named with the offer.
+own, they are named with the offer. Taking the offer is a **confirmation of its own**, in the shape of
+UI-4: a card stating what will be put back and what will stay as it is, each as a count with the records
+named, answered from `WaitingForUser` (D-15) so that what runs is what was shown (AG-3d). It is never
+one click on the refusal, and never what happens when the refusal is dismissed.
 *AC:* an import of 500 rows of which one has since been edited refuses, names that row, and offers the
-remaining 499; accepting that offer compensates 499 and reports the result as partial, naming what was
-left. When leaving one record out would make another's restore collide on a unique column, the offer
-names that collision instead of offering a partial undo that would fail.
+remaining 499; accepting that offer is a second answer on a card of its own, which compensates 499 and
+reports the result as partial, naming what was left; a partial compensation with no such answer recorded
+in the trace fails a test. When leaving one record out would make another's restore collide on a unique
+column, the offer names that collision instead of offering a partial undo that would fail.
 
 *Why the partial exists at all:* refusing to undo 499 records because one changed is a defensible
 default and an indefensible only option. The rule worth keeping is that nothing partial happens
-**silently**, not that nothing partial can happen.
+**silently**, not that nothing partial can happen. And two steps because the second question is a
+different question: the first was "undo this request", and the answer was no; the second is "undo these
+499 and leave that one", which nobody has yet been asked.
 
 **AG-11c (M).** Every operation shall carry a **reversibility** of `Reversible`,
 `ReversibleWithConditions` or `NotReversible` under D-17, computed **before the operation runs**
@@ -1240,6 +1261,25 @@ the structured query and row count for retrieval. A record change's table is com
 versions are purged, its table says "the values of this change are no longer kept", while the request
 and the time are still shown.
 
+**TR-6a (M).** A trace shall be shown **as it was, and say what has changed since**. A field a step
+named, which the storage has since removed, renamed or retyped, is still shown under the name it had
+then, with a plain note of what became of it: since removed, now called something else, or now keeping a
+different kind of value. Nothing is omitted and nothing is quietly presented under the current shape. A
+record change's table takes this from `DiffVersions`, which names what the current shape cannot carry
+(SC-12); a structural step takes it from its own journal payload, which recorded the field as it was; a
+reply in the conversation is the record of what was said and is never rewritten. Whether the storage has
+changed since a request is known without a search: the proposal recorded the `schemaVersion` it ran
+against (AG-9), and a different one now means something changed.
+*AC:* after a field is removed, the diagram of an earlier request that filled it still shows the field
+and its values, marked as since removed; after a rename, the same table shows the values under the new
+name and says what the field was called then; after a lossy retype, the old value is shown as it was
+rather than converted or dropped; and the conversation's earlier replies read exactly as they did.
+
+*Why "as it was" and not "marked stale":* the engine already keeps the answer. Reading a version through
+the current schema reports every value it cannot carry, with its reason (versioning plan, V-10), so
+showing the field costs nothing and hiding it would be a choice to lose information the storage has.
+Rewriting an earlier reply to match today's shape would make the conversation lie about what was said.
+
 **TR-7 (S).** Diagnostics shall be prunable, with a stated retention default.
 *AC:* a purge command removes traces older than the retention window and leaves data,
 conversations and change history untouched.
@@ -1353,9 +1393,10 @@ design removes that failure by construction.
 
 *What it does not remove, stated rather than implied:* a record whose **sort value changes**
 between two pages moves across the cursor, and can then appear twice or not at all. The composite
-key solves ties on a stable sequence; nothing solves mutation without multi-version reads, which
-the engine does not have while versioning is deferred (D-5 of the engine plan). So BR-3's
-criterion is about ties, and BR-3b says what happens to the rest.
+key solves ties on a stable sequence; nothing solves mutation without reading the whole collection
+as of one moment, which the engine does not have: its versioning reads history one record at a
+time, and a query as of a moment is that plan's F-3. So BR-3's criterion is about ties, and BR-3b
+says what happens to the rest.
 
 **BR-3a (M).** A cursor is valid only for the sort and filter it was issued for; changing
 either starts a new sequence. Jumping to an arbitrary page is not supported.
@@ -1370,8 +1411,9 @@ last-changed value BR-1a already maintains, so it costs no extra query.
 
 *Why this is the right trade here and not a general one:* writes serialise (AG-10) and the only
 writer is the same person or their own import, so the window in which this happens is small and
-always explicable to the user. Snapshot paging and a read timestamp both need multi-version reads;
-buying them for this would be buying versioning early, under another name.
+always explicable to the user. Snapshot paging and a read timestamp both need a query as of a moment
+(versioning plan, F-3), which is a temporal index; buying that for a table's paging would be building
+the largest thing that plan left out, under another name.
 
 **BR-4 (M).** Sorting and filtering shall be available from the table itself, expressed as the
 same declarative query type the assistant uses (SC-7) and executed without a model.
@@ -1598,8 +1640,9 @@ changed before the write. The request re-plans (AG-9).
 **N-11. Undo.** An import is reversed and the storage is as it was. The same after an unrelated
 change still works. After a change to *those* records — including one changed and changed back — it
 refuses before writing anything, names every record that blocks it, and offers the rest as a separate
-action, which the user then either takes or does not. An undo that would put back a unique value another
-record has taken since refuses whole and names that record (AG-11, AG-11a, AG-11b, AG-11c).
+action, which the user then either takes on a card of its own or does not. An undo that would put back a
+unique value another record has taken since refuses whole and names that record (AG-11, AG-11a, AG-11b,
+AG-11c).
 
 **N-12. A substituted proposal.** Between the confirmation and the write, the proposal is
 replaced. The write is refused on the content hash rather than applying something the user never
@@ -1790,11 +1833,14 @@ tree of its own (UI-8). *Check early, on the spike of 0.2, what a screen reader 
 `GraphicsView`, because the answer changes how the semantic list is built rather than whether it
 is.*
 
-**R-9. Undo depends on the engine's versioning plan. — New in draft 8.** D-17 now undoes record
-changes from version history, which `docs/versioning-requirements-and-plan.md` has still to build.
-*Mitigation:* step 4.7 checks for Phases 1 to 7 and step 9.3 of that plan and stops rather than
-rebuilding undo on journal payloads. Structural undo, the trace, the orchestrator and every other part of
-this plan are unaffected, so Phase 4 can proceed around step 4.7.
+**R-9. Undo depends on the engine's versioning plan. — Retired on 2026-09-14.** D-17 undoes record
+changes from version history, which `docs/versioning-requirements-and-plan.md` has now built: its
+Phases 1 to 9 are on this branch, and its step 9.3 wrote the compensation as a test-local helper over
+`IStorage` (`TokkDb.Assistant.Tests/Compensation.cs`, with `CompensationTests` and `UndoGuaranteeTests`
+against both backends) for step 4.7 to lift into `TokkDb.Assistant.Agents` unchanged. *What is left of
+it:* the helper is exercised only by its own tests until step 4.7 wires it to a request; and the built
+`DiffVersions` drops what the engine reports as unmapped (SC-12, TR-6a), which step 7.3 closes before the
+detail panel is built on it.
 
 
 ---
@@ -1839,7 +1885,7 @@ the model-facing renderings. No model, no storage, entirely deterministic.
 
 **Phase 3 — The trace.** `TokkDb.Assistant.Trace`, the reserved collections, the recorder, and
 persistence through the engine's `SystemDocumentStore`, under the two durability rules of TR-4
-and TR-4a rather than one. Record changes' version references (TR-2b) arrive with the versioning
+and TR-4a rather than one. Record changes' version references (TR-2b) arrived with the versioning
 plan's step 9.1.
 *Exit:* a hand-built trace survives a reopen whole; a data change and its trace step commit
 together or not at all.
@@ -1847,7 +1893,7 @@ together or not at all.
 **Phase 4 — Operations and the orchestrator.** `TokkDb.Assistant.Agents`: the operation
 declaration, tool scoping, context assembly, the model configuration, the Microsoft Agent
 Framework orchestrator, the repair loop, and a deterministic fake model. Compensation (step 4.7)
-waits for the versioning plan's Phases 1 to 7 and step 9.3 (R-9).
+adopts what the versioning plan's step 9.3 built (R-9, retired).
 *Exit:* S-1 to S-8 and N-1 to N-12 run end to end against the fake model, producing the right
 storage effects and the right trace, with no model running.
 
@@ -1866,8 +1912,8 @@ and the planner reports an index walk rather than a scan; S-8 costs zero tokens.
 
 **Phase 7 — The diagram.** `TokkDb.Assistant.Diagram` and its host: layout, drawing, live
 growth, hit testing, the detail panel, and the three specialised views.
-*Exit:* TR-5, TR-5a and TR-6 pass; the diagram is live during a request, correct after a reopen,
-and correct at three scale factors.
+*Exit:* TR-5, TR-5a, TR-6 and TR-6a pass; the diagram is live during a request, correct after a
+reopen, and correct at three scale factors.
 
 **Phase 8 — The budget.** The harness, the scenario measurements, the published table, and the
 tuning the measurements call for.
@@ -2145,13 +2191,16 @@ running this step again.
 > fake model.
 
 **4.5 Safe, review, destructive**
-> Read requirements AG-4, UI-4 and AG-11d and decisions D-14 and D-7. Classify every change by
+> Read requirements AG-4, UI-4, AG-11b and AG-11d and decisions D-14 and D-7. Classify every change by
 > what it can do, not by its name, and compute the evidence before the question is put. Build the
 > confirmation card that states the loss in counts and examples rather than in schema terms, and
-> says when a change cannot be undone. Done when: adding an optional
+> says when a change cannot be undone; the same card, with AG-11b's evidence, is what a partial undo
+> is taken from — what will be put back and what will stay, each as a count with the records named.
+> Done when: adding an optional
 > field prompts nothing; adding a required one reports how many records become incomplete;
 > adding a unique one reports how many values collide; adding a relation reports how many source
-> values match nothing; removing one reports how many records hold a value; and S-6 passes.
+> values match nothing; removing one reports how many records hold a value; a partial undo has a
+> card of its own; and S-6 passes.
 
 **4.6 Retrieval and follow-ups**
 > Read requirements QR-1, QR-2, QR-3, QR-3a, QR-3b and QR-4a and decision D-6. Add the retrieval
@@ -2167,9 +2216,11 @@ running this step again.
 
 **4.7 State, concurrency and compensation**
 > Read requirements AG-8, AG-9, AG-10, AG-11, AG-11a, AG-11b, AG-11c, AG-11d, AG-11e and AG-11f
-> and decisions D-15 and D-17, and requirements SC-12 and SC-12a. This step needs Phases 1 to 7 and
-> step 9.3 of docs/versioning-requirements-and-plan.md; if they have not landed, stop and say so
-> rather than building undo on the journal's payloads.
+> and decisions D-15 and D-17, and requirements SC-12 and SC-12a. Phases 1 to 7 and step 9.3 of
+> docs/versioning-requirements-and-plan.md have landed: the compensation to adopt is the test-local
+> helper at TokkDb.Assistant.Tests/Compensation.cs, two passes over IStorage with validation over
+> any subset; lift it into TokkDb.Assistant.Agents unchanged, and keep CompensationTests and
+> UndoGuaranteeTests passing against both backends.
 > Record the schemaVersion a proposal was computed against and re-check it at the write,
 > re-planning on a mismatch. Serialise writes, keep reads unblocked, report busy. Add compensation
 > at request granularity in one unit of work, adopting the compensation that versioning step 9.3
@@ -2199,6 +2250,8 @@ running this step again.
 > - a record changed a→b→c by the request, whose b another record has since taken, is refused atomically
 >   at replay, naming that record;
 > - a partial offer that would itself collide names the collision instead of being offered;
+> - a partial undo runs only from its own confirmation (AG-11b), recorded in the trace, never from the
+>   refusal's offer alone;
 > - a compensation that fails part way leaves storage untouched;
 > - deleting a record wider than any journal cap is reversible with conditions and its undo restores
 >   every field;
@@ -2291,11 +2344,17 @@ running this step again.
 > same logical point with no second display present.
 
 **7.3 Detail views**
-> Read requirements TR-6, UI-6 and EX-4. Add the detail panel with JSON as the fallback and three
-> specialised views: before-and-after for data changes, tokens and timing for model calls, the
-> query and row count for retrieval. Selecting an earlier request in the conversation shows its
-> diagram. Done when: the three render, the fallback covers the rest, a new view is registered in
-> one place, and an earlier request's diagram comes back by clicking it.
+> Read requirements TR-6, TR-6a, UI-6 and EX-4, and SC-12's note on the diff as built. First make
+> DiffVersions carry what the thing's current shape cannot show — the engine's unmapped values, on
+> both backends, with the contract suite asserting it — so that a field since removed or retyped
+> comes back as it was, named as such, rather than vanishing. Then add the detail panel with JSON as
+> the fallback and three specialised views: before-and-after for data changes, showing a since-removed
+> or since-retyped field as it was with a plain note of what became of it; tokens and timing for
+> model calls; the query and row count for retrieval. Selecting an earlier request in the
+> conversation shows its diagram. Done when: the three render, the fallback covers the rest, a new
+> view is registered in one place, an earlier request's diagram comes back by clicking it, a change
+> to a field since removed is shown marked as such on both backends, and the conversation's earlier
+> replies are unchanged by a later structural change.
 
 ### Phase 8
 
@@ -2339,6 +2398,10 @@ running this step again.
 > Done when: the diagnostics purge is asserted to touch nothing but diagnostics; every change stays
 > attributable to a request and a time; compensation still works inside the window and refuses with
 > "no longer kept" outside it; and the refused configuration is a test.
+
+*Revised by draft 10.* AJ-8's refusal already exists as `RetentionWindows` in `TokkDb.Assistant.Trace`
+(versioning step 9.3, tested in `CompensationTests`); this step keeps it where the settings live and adds
+the two purges around it.
 
 **9.3 The vocabulary, in three tiers**
 > Read requirements UI-2 and BR-6 and section 1.3. Sort every user-visible string into its tier:
@@ -2408,7 +2471,9 @@ Worth settling before the phase that needs them, not before the document is usef
 3. **The spreadsheet library** — `ClosedXML` against `DocumentFormat.OpenXml` directly. Settle
    in step 2.1, with the reason recorded.
 4. **What happens to a conversation whose storage has since changed** — a trace from before a
-   field was removed still refers to it. Show it as it was, or mark it stale.
+   field was removed still refers to it. *Settled in draft 10, TR-6a:* shown as it was, with a note
+   of what became of the field, because the engine reports exactly that when a version is read
+   through the current schema.
 5. **Whether the browser may create as well as read.** BR-8 allows editing what is there.
    Adding a record by hand, or a new thing to store, is a different question: it is the one
    place the premise of section 1.3 could quietly invert, because a person given an empty form
@@ -2420,14 +2485,17 @@ Worth settling before the phase that needs them, not before the document is usef
 8. **The reliability floors, and the number of runs behind them.** A floor is only as good as
    the sample under it, and a local 4B model is slow enough that the run count is a real cost.
    Settle in step 8.1, with the interval stated beside every figure.
-9. **Whether a partial undo needs its own confirmation** (AG-11b). Offering the remaining 499 is
-   clearly right; whether taking the offer is one click or a second question is a matter for the
-   confirmation card, not for the requirement.
+9. **Whether a partial undo needs its own confirmation** (AG-11b). *Settled in draft 10:* it does.
+   Offering the remaining 499 is clearly right, and taking the offer is a second question on a card
+   of its own, because "undo these 499 and leave that one" is not the question that was refused.
 10. **The change journal's cap**, which decides which **structural** changes are reversible at all
     (AG-11c, AG-11e). Record changes no longer depend on it (D-17). Too small and removing a field is
     never undoable; too large and the journal outgrows the data. Settle it against a real collection
     width. The versioning plan's F-7 — undoing a structural change from history — would retire this
-    item if it is ever built.
+    item if it is ever built. The engine now keeps a removed field's values in history (that plan's
+    WV-8, `GetStoredAsOf`), so F-7 lacks only the re-add that fills a field from each record's version
+    as of the removal without touching what changed since; it is still future, and the cap still
+    decides.
 11. **What the diagram's semantic list reads like** (UI-8). The step names are written for a
     reader who can see the shape; spoken in sequence with no shape, they may need different
     wording. Settle in step 9.5, by listening to it.
@@ -2437,6 +2505,14 @@ Worth settling before the phase that needs them, not before the document is usef
 13. **How long a column may stay mixed** (SC-6b, SC-6c). Reporting excluded records keeps the
     state honest but not comfortable, and converge is the way out. Whether the interface nags
     about it, and after how long, is an interface question rather than a contract one.
+14. **Whether the browser shows a record's history** (the versioning plan's F-10). Section 1.2 keeps
+    it out of this stage, and SC-12 keeps `History` and `GetAsOf` off the contract. The engine now has
+    everything a timeline needs — a record's version forest, any version through the current shape
+    with what it cannot show reported, and a diff of any two — so the cost has moved from the engine
+    to this plan: two contract operations on both backends, a fake keeping a full copy per version, a
+    timeline on BR-5's detail that passes UI-2's first tier, and a Phase 6 step. It is the one future
+    item of that plan that section 1.3's "and yet they can look" argues for. Settle it before Phase 6;
+    if yes, TR-6a already says how a past version is shown when the shape has changed since.
 
 ---
 
@@ -2734,3 +2810,39 @@ rest as an undo of its own, and names such a collision rather than offering a pa
 remove the values of the versions it removes, and made erasing and purging transactions discard their
 journal frame at commit. **NF-4d1** and step 9.4 now test right after the commit, with no close, and check
 that a per-request purge leaves nothing of the purged versions.
+
+---
+
+## Appendix: what changed in draft 10
+
+The versioning plan landed — Phases 1 to 9, on this branch — and six proposed refinements were read
+against both plans. Two were open items of §10 that the engine's arrival made settleable; four were the
+future items of that plan's register, and they stay future, for the reasons below.
+
+**The plan said "still to build" about things that are built.** §3.2, R-9, Phase 3, Phase 4 and step 4.7
+described the versioning plan as pending. They now record what its Phase 9 built for the assistant — the
+journal's version references, SC-12's six operations on both backends, the compensation as a test-local
+helper, erasure through the assistant — and steps 4.7, 9.2 and 9.4 adopt it. BR-3 and BR-3b no longer
+say versioning is deferred; what paging still lacks is a query as of a moment, that plan's F-3.
+
+**A removed field disappeared from the past.** The engine reports every value the current schema cannot
+show (versioning plan, V-10, G-6), and the built `DiffVersions` discards that report, so a change to a
+field since removed vanishes from the before-and-after table, and a lossy retype's old value with it —
+the one place the assistant made the engine's history silently lossy. **TR-6a** requires a trace to be
+shown as it was, with a note of what became of a field since; **SC-12** requires `DiffVersions` to carry
+what the shape cannot show; §10's item 4 is settled by them; step 7.3 closes the gap.
+
+**A partial undo is its own question.** AG-11b offered the rest as a separate action and left open whether
+taking it needs a confirmation. It does: "undo these 499 and leave that one" is not the question that was
+refused. **AG-11b** makes taking the offer a card of its own, in UI-4's shape and answered from
+`WaitingForUser`; N-11, steps 4.5 and 4.7 follow; §10's item 9 is settled.
+
+**Four future items of the versioning plan stay future.** A version view in the browser (F-10) is the one
+that section 1.3 argues for, and the engine now has everything it needs, so the decision is recorded as
+§10's item 14 with what it would cost this plan, to be settled before Phase 6. Undoing a structural change
+from history (F-7) still lacks the engine's re-add of a field from history, so the journal's cap still
+decides reversibility (item 10, now saying what the engine already keeps). Deferred constraint checks
+(F-11) would remove AG-11a's stated replay limit, which that plan's R-14 rates rare and whose refusal
+names the record; nothing here waits for it. Incoming relations in a related restore (F-2) never reach
+this plan: the assistant restores by replaying its own change records in reverse (AG-11f, SC-8a), and
+never asks the engine to find a relation's holder through history.

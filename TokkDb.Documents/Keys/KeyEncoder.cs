@@ -37,6 +37,9 @@ public static class KeyEncoder {
   public static EncodedKey Encode(IDocumentValue value) {
     return value switch {
       null or NullDocumentValue => EncodeNull(),
+      //Already a key: what a semi-join projected out of an index or a stored field (RL-3a). It is
+      //handed back as it is, so seeking by it finds exactly the entries the key came from.
+      EncodedKeyValue key => key.Key,
       BooleanDocumentValue boolean => Encode(boolean.Value),
       IntDocumentValue number => Encode(number.Value),
       UIntDocumentValue number => Encode(number.Value),

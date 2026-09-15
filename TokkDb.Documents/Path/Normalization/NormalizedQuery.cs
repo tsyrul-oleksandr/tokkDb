@@ -23,13 +23,27 @@ public sealed record QueryPredicate(
   //Ordered comparisons over Long, Decimal, DateTime and Guid used to be excluded here,
   //because those four had no document value and were stored as invariant text — and "250"
   //sorts below "40" as text. They have their own values now, so the exclusion is gone.
+  //
+  //NotIn is excluded by decision rather than by shape (Q-8, RL-5): the records not carrying one
+  //of the values are no stretch of any tree, so a plan that claimed an index for it would
+  //perform a scan. An In over no values is answered exactly by seeking nothing, and that is also
+  //what an In over the keys a relation step has yet to project looks like when it is planned
+  //(RL-3a), so the count is not what makes an In indexable.
   public bool IsIndexable =>
-    Constants.Count > 0
+    Operator != ComparisonOperator.NotIn
+    && (Constants.Count > 0 || Operator == ComparisonOperator.In)
     && Constants.All(constant => constant is null or NullDocumentValue
       || constant.Type is not (ValueTypeEnum.Object or ValueTypeEnum.Array));
 
+  //How many constants are written out before the list is summarised by its count: an In over
+  //the thousands of keys a semi-join projects is one conjunct, not a page of text.
+  public const int DescribedConstants = 8;
+
   public override string ToString() {
-    return $"{ColumnName} {Operator} {string.Join(", ", Constants.Select(Describe))}";
+    var constants = Constants.Count > DescribedConstants
+      ? $"({Constants.Count} values)"
+      : string.Join(", ", Constants.Select(Describe));
+    return $"{ColumnName} {Operator} {constants}";
   }
 
   private static string Describe(IDocumentValue value) {
@@ -44,6 +58,7 @@ public sealed record QueryPredicate(
       DateTimeDocumentValue moment => moment.Value.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
       GuidDocumentValue identifier => identifier.Value.ToString("D"),
       NullDocumentValue => "null",
+      Keys.EncodedKeyValue key => key.ToString(),
       _ => value?.Type.ToString() ?? "null"
     };
   }

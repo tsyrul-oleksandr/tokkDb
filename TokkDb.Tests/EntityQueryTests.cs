@@ -310,18 +310,27 @@ public class EntityQueryTests {
       (subtasks.Direction, subtasks.NearColumn, subtasks.FarCollection, subtasks.FarColumn));
   }
 
-  //Recorded so that the test which has to change when step 4.2 lands is the one that pinned the
-  //gap: a relation step is planned, and running the plan without executing it would return the
-  //records the step exists to exclude.
+  //Until step 4.2 this pinned the gap: a relation step was planned and refused at execution. Now
+  //the step runs as a semi-join (RL-3a), and a None step over an empty far collection keeps every
+  //record, reported as an anti-join scan with the inner query nested.
   [Fact]
-  public void APlanWithARelationStepIsRefusedAtExecutionRatherThanAnsweredWithoutIt() {
+  public void APlanWithARelationStepExecutesItAsASemiJoin() {
     using var file = new TempDatabaseFile();
     using var db = NewRelatedDatabase(file);
-    var query = db.Entities<Conference>(Conferences).Query().WhereRelated("ExpenseConference", RelationQuantifier.None);
+    var conferences = db.Entities<Conference>(Conferences);
+    db.InTransaction(() => {
+      conferences.Insert(new Conference { Id = 1, City = "Lviv" });
+      conferences.Insert(new Conference { Id = 2, City = "Kyiv" });
+    });
 
-    var refused = Assert.Throws<NotSupportedException>(() => query.Run());
+    var result = conferences.Query().WhereRelated("ExpenseConference", RelationQuantifier.None).Run();
 
-    Assert.Contains("ExpenseConference", refused.Message);
+    _output.WriteLine(result.Report.ToString());
+    Assert.Equal(2, result.Records.Count);
+    Assert.Equal("full scan of Conference (the only condition is an anti-join, which no index shape answers)", result.Report.AccessPath);
+    var inner = Assert.Single(result.Report.InnerReports);
+    Assert.Equal(Expenses, inner.CollectionName);
+    Assert.Equal(0, inner.DistinctKeys);
   }
 
   // =====================================================================

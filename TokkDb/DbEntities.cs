@@ -273,26 +273,31 @@ public class DbEntities<T> {
   }
 
   //QM-2: a plan Explain returned, executed as it is rather than planned again — or refused with a
-  //StalePlanException when the catalogue has changed since it was made.
-  public DbQueryResult<T> Run(QueryRequestPlan plan) {
+  //StalePlanException when the catalogue has changed since it was made. NF-4: the token is observed
+  //inside the walk, and a cancelled run ends in a QueryCancelledException carrying the partial
+  //report rather than in a short page.
+  public DbQueryResult<T> Run(QueryRequestPlan plan, CancellationToken cancellation = default) {
     ArgumentNullException.ThrowIfNull(plan);
     if (plan.CollectionName != _entityName) {
       throw new ArgumentException(
         $"The plan is for collection {plan.CollectionName}, and these entities are {_entityName}.", nameof(plan));
     }
-    return ToResult(_queries.Run(plan));
+    return ToResult(_queries.Run(plan, cancellation));
   }
 
   //A request planned and run under one catalogue lease. What DbQuery.Run does, and what a caller
-  //holding a stale plan does to run its request again: entities.Run(plan.Request).
-  public DbQueryResult<T> Run(QueryRequest request) {
+  //holding a stale plan does to run its request again: entities.Run(plan.Request). The options say
+  //how the query may be answered (its caps, the In crossover, a forced choice); null takes the
+  //connection's defaults.
+  public DbQueryResult<T> Run(QueryRequest request, QueryOptions options = null,
+      CancellationToken cancellation = default) {
     ArgumentNullException.ThrowIfNull(request);
-    return ToResult(_queries.Run(_entityName, request));
+    return ToResult(_queries.Run(_entityName, request, options, cancellation));
   }
 
-  public QueryRequestPlan Explain(QueryRequest request) {
+  public QueryRequestPlan Explain(QueryRequest request, QueryOptions options = null) {
     ArgumentNullException.ThrowIfNull(request);
-    return _queries.Plan(_entityName, request);
+    return _queries.Plan(_entityName, request, options);
   }
 
   //Deserialized after the query has given its catalogue lease back: turning a stored record into

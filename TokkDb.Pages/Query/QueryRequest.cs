@@ -81,7 +81,7 @@ public sealed record RelationStep {
 public sealed record QueryRequest {
   public QueryRequest(NormalizedQuery query = null, IEnumerable<Ulid> ids = null,
       IEnumerable<OrderColumn> order = null, long skip = 0, long? take = null,
-      IEnumerable<RelationStep> relationSteps = null) {
+      IEnumerable<RelationStep> relationSteps = null, bool includeTotal = false) {
     if (skip < 0) {
       throw new QueryRequestRefusedException(QueryRequestRefusal.NegativeSkip,
         $"Skip({skip}) is negative. A query can skip no records or some, not fewer than none.");
@@ -109,6 +109,7 @@ public sealed record QueryRequest {
     Ids = ids is null ? null : Distinct(ids);
     Skip = skip;
     Take = take;
+    IncludeTotal = includeTotal;
   }
 
   //The predicate on the queried collection, with every relation step lifted out of it.
@@ -131,6 +132,10 @@ public sealed record QueryRequest {
   //query, because a step is only accepted where it is required on its own (RL-3).
   public ImmutableArray<RelationStep> RelationSteps { get; }
 
+  //PG-6: whether the count of every matching record is wanted beside the page. Asked for rather
+  //than given, because for a plan that stops at the page it is a second pass over the rest.
+  public bool IncludeTotal { get; }
+
   public bool IsOrdered => !Order.IsEmpty;
 
   //Where the page ends, exclusive: Skip + Take, saturating at long.MaxValue rather than wrapping,
@@ -152,6 +157,9 @@ public sealed record QueryRequest {
     }
     if (Take is { } limit) {
       parts.Add($"take {limit}");
+    }
+    if (IncludeTotal) {
+      parts.Add("with total");
     }
     return string.Join("; ", parts);
   }
