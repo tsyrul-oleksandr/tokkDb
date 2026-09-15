@@ -7,6 +7,7 @@ using TokkDb.Documents.Path.Expressions;
 using TokkDb.Documents.Path.Normalization;
 using TokkDb.Pages;
 using TokkDb.Pages.Indexes;
+using TokkDb.Pages.Query;
 using TokkDb.Pages.Records;
 using TokkDb.Pages.Relations;
 using TokkDb.Pages.Versions;
@@ -81,23 +82,37 @@ public sealed class TokkDbStorage : IStorage, IDisposable
     private readonly EngineConversations _conversations;
     private readonly EngineTraces _traces;
 
-    /// <summary>Opens or creates the database at <paramref name="databaseFilePath"/>.</summary>
-    public TokkDbStorage(string databaseFilePath)
+    /// <summary>
+    /// Opens or creates the database at <paramref name="databaseFilePath"/>, under the single-writer
+    /// lock (AG-8a): a second instance on the same file is told the storage is in use, rather than
+    /// being allowed to corrupt the first.
+    /// </summary>
+    /// <param name="durability">Where the diagnostics' durability point is (TR-4c); the default writes each step as it happens.</param>
+    /// <exception cref="StorageInUseException">Another process holds the database open for writing.</exception>
+    public TokkDbStorage(string databaseFilePath, TraceDurability? durability = null)
     {
-        _connection = new EngineConnection(databaseFilePath);
+        try
+        {
+            _connection = new EngineConnection(databaseFilePath);
+        }
+        catch (Disk.DatabaseLockedException locked)
+        {
+            throw new StorageInUseException(databaseFilePath, locked);
+        }
+
         _connection.Load();
         _conversations = new EngineConversations(_connection);
-        _traces = new EngineTraces(_connection);
+        _traces = new EngineTraces(_connection, durability);
         EnsureVersioned();
     }
 
     /// <summary>Takes a connection someone else opened, and does not close it.</summary>
-    public TokkDbStorage(EngineConnection connection, bool ownsConnection = false)
+    public TokkDbStorage(EngineConnection connection, bool ownsConnection = false, TraceDurability? durability = null)
     {
         _connection = connection;
         Borrowed = !ownsConnection;
         _conversations = new EngineConversations(_connection);
-        _traces = new EngineTraces(_connection);
+        _traces = new EngineTraces(_connection, durability);
         EnsureVersioned();
     }
 
@@ -130,6 +145,9 @@ public sealed class TokkDbStorage : IStorage, IDisposable
 
     private bool Borrowed { get; }
 
+    /// <summary>How many pages the engine has read since it opened: what a cost is measured in (BR-1a, NF-6).</summary>
+    public long PageReadCount => _connection.PageReadCount;
+
     public IConversationStore Conversations => _conversations;
 
     /// <summary>
@@ -157,7 +175,12 @@ public sealed class TokkDbStorage : IStorage, IDisposable
     public void InUnitOfWork(Action work)
     {
         ArgumentNullException.ThrowIfNull(work);
-        _connection.InTransaction(work);
+
+        InUnitOfWork(() =>
+        {
+            work();
+            return true;
+        });
     }
 
     public T InUnitOfWork<T>(Func<T> work)
@@ -165,9 +188,71 @@ public sealed class TokkDbStorage : IStorage, IDisposable
         ArgumentNullException.ThrowIfNull(work);
 
         var result = default(T)!;
-        _connection.InTransaction(() => result = work());
+
+        _depth++;
+        try
+        {
+            _connection.InTransaction(() =>
+            {
+                result = work();
+
+                // BR-1a: the things this unit changed get their time once, inside the same
+                // transaction, so an import of ten thousand records moves it once and a rolled
+                // back unit does not move it at all.
+                if (_depth == 1) FlushTouched();
+            });
+        }
+        catch
+        {
+            if (_depth == 1) _touched.Clear();
+            throw;
+        }
+        finally
+        {
+            _depth--;
+        }
+
         return result;
     }
+
+    private int _depth;
+    private readonly HashSet<string> _touched = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Records that a thing changed (BR-1a): written now, inside the write's own transaction,
+    /// or - inside a unit of work - once when the unit commits.
+    /// </summary>
+    private void Touch(string collectionName)
+    {
+        if (_depth > 0)
+        {
+            _touched.Add(collectionName);
+            return;
+        }
+
+        _connection.InTransaction(() => WriteLastChanged(collectionName, DateTimeOffset.UtcNow));
+    }
+
+    private void FlushTouched()
+    {
+        var now = DateTimeOffset.UtcNow;
+        foreach (var name in _touched)
+        {
+            if (Find(name) is not null) WriteLastChanged(name, now);
+        }
+
+        _touched.Clear();
+    }
+
+    private void WriteLastChanged(string collectionName, DateTimeOffset moment)
+    {
+        var definition = GetCollectionDefinition(collectionName);
+        if (definition is null) return;
+        _connection.SetMetadata(collectionName, EngineSchema.ToSettings(definition, Pending(collectionName), moment));
+    }
+
+    private DateTimeOffset? LastChanged(string collectionName) =>
+        EngineSchema.LastChangedOf(_connection.Metadata(collectionName));
 
     // ---- Collections ----------------------------------------------------------------------
 
@@ -199,11 +284,8 @@ public sealed class TokkDbStorage : IStorage, IDisposable
                 _connection.SetRetentionPolicy(definition.Name, RetentionPolicy.KeepVersions);
             }
 
-            var settings = EngineSchema.ToSettings(definition);
-            if (settings.Count > 0)
-            {
-                _connection.SetMetadata(definition.Name, settings);
-            }
+            // Created is changed: the overview lists a new thing by when it was made (BR-1a).
+            _connection.SetMetadata(definition.Name, EngineSchema.ToSettings(definition, lastChanged: DateTimeOffset.UtcNow));
 
             if (definition.DisplayRule is not null)
             {
@@ -236,7 +318,7 @@ public sealed class TokkDbStorage : IStorage, IDisposable
         // bookkeeping and have nothing to do with what the caller wants remembered.
         _connection.SetMetadata(
             definition.Name,
-            EngineSchema.ToSettings(definition.WithMetadata(metadata), Pending(definition.Name)));
+            EngineSchema.ToSettings(definition.WithMetadata(metadata), Pending(definition.Name), LastChanged(definition.Name)));
     }
 
     public void SetDisplayRule(string collectionName, DisplayRule? displayRule)
@@ -245,7 +327,11 @@ public sealed class TokkDbStorage : IStorage, IDisposable
 
         SharedRules.CheckDefinitionFitsItself(definition.WithDisplayRule(displayRule));
 
-        _connection.SetDisplayRule(definition.Name, displayRule?.Template ?? string.Empty);
+        _connection.InTransaction(() =>
+        {
+            _connection.SetDisplayRule(definition.Name, displayRule?.Template ?? string.Empty);
+            Touch(definition.Name);
+        });
     }
 
     // ---- Records --------------------------------------------------------------------------
@@ -259,7 +345,12 @@ public sealed class TokkDbStorage : IStorage, IDisposable
 
         SharedRules.CheckReferences(definition, judged, From(definition.Name), Exists);
 
-        var id = Entities(definition).Insert(judged);
+        Ulid id = default;
+        _connection.InTransaction(() =>
+        {
+            id = Entities(definition).Insert(judged);
+            Touch(definition.Name);
+        });
 
         return new StorageRecord(id, definition.Name, judged);
     }
@@ -301,6 +392,7 @@ public sealed class TokkDbStorage : IStorage, IDisposable
         {
             entities.Update(record.Id, judged);
             AdjustPending(definition.Name, Difference(before, after));
+            Touch(definition.Name);
         });
 
         return true;
@@ -338,6 +430,9 @@ public sealed class TokkDbStorage : IStorage, IDisposable
             }
 
             Remove(definition, id);
+
+            Touch(definition.Name);
+            foreach (var reference in removed) Touch(reference.CollectionName);
         });
 
         return new DeletionResult(true, removed, cleared);
@@ -389,14 +484,19 @@ public sealed class TokkDbStorage : IStorage, IDisposable
         //
         // Not pushed down when the query asks for totals: an aggregate is over everything that
         // matched, and a bound would make it over the rest of the pages instead.
+        // Same story as the residual: the engine takes a null id list to mean "no restriction on
+        // identity" while declaring the parameter non-nullable.
+        var ids = query.Ids.Count == 0 ? null! : query.Ids;
+
+        if (IsPaged(query, QueryValidation.Against(definition, resolved)))
+        {
+            return Paged(definition, query, resolved, ids, started);
+        }
+
         var bounded = Bound(resolved, definition);
 
         var validated = QueryValidation.Against(definition, bounded);
         var normalized = EngineQuery.ToNormalized(validated);
-
-        // Same story as the residual: the engine takes a null id list to mean "no restriction on
-        // identity" while declaring the parameter non-nullable.
-        var ids = query.Ids.Count == 0 ? null! : query.Ids;
         var entities = Entities(definition);
 
         var plan = entities.Explain(normalized, ids);
@@ -440,6 +540,147 @@ public sealed class TokkDbStorage : IStorage, IDisposable
                 projected.Count,
                 Excluded(definition, validated),
                 result.Report.PagesRead,
+                Stopwatch.GetElapsedTime(started)),
+            aggregates,
+            next);
+    }
+
+    /// <summary>
+    /// Whether a query is a page of an ordered sequence (BR-2, BR-3): ordered, bounded by a Take,
+    /// and asking for nothing that needs every matching record - a count is answered beside the
+    /// page, a sum or a range is not.
+    ///
+    /// A cursor that ended on an empty value is left to the other path: the walk has a place for
+    /// a record without the value but the bound has no operator for one, so the exact answer is
+    /// the ordered sort, and only the pages inside a run of empties pay for it.
+    /// </summary>
+    private static bool IsPaged(StorageQuery query, ValidatedQuery validated) =>
+        validated.OrderBy.Count > 0
+        && query.Take is not null
+        && query.Skip == 0
+        && validated.Aggregates.All(static aggregate => aggregate.Aggregate.Function is AggregateFunction.Count)
+        && (query.After is null || (query.After.SortValues.Count > 0 && query.After.SortValues[0] is not null));
+
+    /// <summary>
+    /// How many records a thing has to hold before a sort by an unindexed column is worth an
+    /// index. Below it a scan and a bounded heap cost less than building one.
+    /// </summary>
+    private const int IndexWorthBuildingAt = 1_000;
+
+    /// <summary>
+    /// A page, through the engine's own paging (BR-2, BR-3): the order and the page bound are
+    /// pushed into the request, so the planner walks the ordered index from the cursor and stops
+    /// with the page, and a page of ten thousand records costs the pages of twenty. The cursor's
+    /// exact boundary - which of the records sharing the last value have been seen - is settled
+    /// here on the pair of value and identity, because the engine has no operator for a pair.
+    ///
+    /// <b>An index is raised for a sort that needs one.</b> Whether an index exists is the
+    /// engine's business (SC-2), and this is that business being done: a thing large enough to
+    /// page is sorted by a column it has no index on once, and the index is built then, so that
+    /// every later page walks it. The contract's own documentation calls an ordering that matters
+    /// for speed a reason to raise an index rather than a reason to approximate.
+    /// </summary>
+    private StorageQueryResult Paged(
+        CollectionDefinition definition,
+        StorageQuery query,
+        StorageQuery resolved,
+        IReadOnlyList<Ulid> ids,
+        long started)
+    {
+        var validated = QueryValidation.Against(definition, resolved);
+        var sort = validated.OrderBy[0];
+        var records = (int)Find(definition.Name)!.RecordCount;
+
+        if (records >= IndexWorthBuildingAt && !HasIndex(definition.Name, sort.Column.Name))
+        {
+            _connection.CreateIndex(definition.Name, sort.Column.Name);
+        }
+
+        // Taken after the index is raised, so that the planner sees it.
+        var entities = Entities(definition);
+
+        // The boundary of the previous page may sit inside a run of records sharing the cursor's
+        // value. The bound is inclusive, the walk hands the run out in the engine's own tie order
+        // every time, and the cursor says how many of the run were already handed out - so the
+        // request skips exactly those and the page never repeats or skips a record, however many
+        // share the value (BR-3), at the cost of the index entries skipped and no document.
+        //
+        // Bounded even when a count is wanted: the count is answered over everything that
+        // matched, below, and the bound is for the page alone.
+        var take = query.Take!.Value;
+        var cursor = resolved.After;
+        var bounded = QueryValidation.Against(definition, Bound(resolved, definition, evenWithAggregates: true));
+        var normalized = EngineQuery.ToNormalized(bounded);
+        var order = validated.OrderBy.Select(entry => new OrderColumn(entry.Column.Name, entry.Descending ? OrderDirection.Descending : OrderDirection.Ascending)).ToList();
+        var wantsCount = validated.Aggregates.Count > 0;
+        var request = new QueryRequest(normalized, ids, order, cursor?.TiesSeen ?? 0, take + 1, includeTotal: wantsCount && cursor is null);
+
+        var plan = entities.Explain(request);
+        var result = entities.Run(request);
+        var pagesRead = result.Report.PagesRead + (result.Report.TotalCountPass?.PagesRead ?? 0);
+        var examined = result.Report.RecordsExamined + (result.Report.TotalCountPass?.RecordsExamined ?? 0);
+
+        var page = result.Records
+            .Select(record => EngineRecords.ToRecord(definition.Name, record.RecordId, record.Value))
+            .ToList();
+
+        var more = page.Count > take;
+        if (more) page.RemoveAt(page.Count - 1);
+
+        QueryCursor? next = null;
+        if (more)
+        {
+            var last = page[^1];
+            var lastValue = TextComparison.AsCompared(sort.Column.Type, last[sort.Column.Name]);
+            var ties = page.Count(record => Equals(TextComparison.AsCompared(sort.Column.Type, record[sort.Column.Name]), lastValue));
+            var carried = cursor is not null && cursor.SortValues.Count > 0
+                          && Equals(TextComparison.AsCompared(sort.Column.Type, cursor.SortValues[0]), lastValue)
+                ? cursor.TiesSeen
+                : 0;
+
+            next = QueryMatching.CursorFor(last, validated.OrderBy) with { TiesSeen = carried + ties };
+        }
+
+        var projected = validated.Select.Count == 0
+            ? page
+            : [.. page.Select(record => QueryMatching.Project(record, validated.Select))];
+
+        var aggregates = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (wantsCount)
+        {
+            // The first page's count comes with the page. A later page's would be over the rest
+            // of the sequence, so it is asked for over everything that matched, as a pass of its
+            // own that reads no document the predicate does not need.
+            var total = result.Report.TotalCount;
+            if (total is null)
+            {
+                var counting = entities.Run(new QueryRequest(EngineQuery.ToNormalized(validated), ids, order, 0, 1, includeTotal: true));
+                total = counting.Report.TotalCount ?? 0;
+                pagesRead += counting.Report.PagesRead + (counting.Report.TotalCountPass?.PagesRead ?? 0);
+                examined += counting.Report.RecordsExamined + (counting.Report.TotalCountPass?.RecordsExamined ?? 0);
+            }
+
+            aggregates["count"] = (int)total.Value;
+        }
+
+        var access = plan.OrderSource is OrderSource.IndexWalk
+            ? QueryAccess.RangeWalk
+            : EngineQuery.ToExecutionInfo(plan.Access.Path, 0, 0, 0, 0, TimeSpan.Zero).Access;
+
+        return new StorageQueryResult(
+            definition.Name,
+            projected,
+            new QueryExecutionInfo(
+                access,
+                definition.Name,
+                sort.Column.Name,
+                plan.OrderSource is OrderSource.IndexWalk
+                    ? $"one page of the ordered index walk on {definition.Name}.{sort.Column.Name}"
+                    : $"{plan.Access.Path.Describe()}, ordered by {sort.Column.Name} ({plan.OrderReason})",
+                examined,
+                projected.Count,
+                Excluded(definition, validated),
+                pagesRead,
                 Stopwatch.GetElapsedTime(started)),
             aggregates,
             next);
@@ -691,7 +932,7 @@ public sealed class TokkDbStorage : IStorage, IDisposable
             }
         }
 
-        _connection.SetMetadata(definition.Name, EngineSchema.ToSettings(definition, pending));
+        _connection.SetMetadata(definition.Name, EngineSchema.ToSettings(definition, pending, LastChanged(definition.Name)));
 
         return new ConvergeReport(definition.Name, rewritten, stubborn);
     }
@@ -859,7 +1100,8 @@ public sealed class TokkDbStorage : IStorage, IDisposable
 
             // Rewritten whole rather than patched: SetMetadata replaces the settings document,
             // and the flags in it are derived from the columns, which have just changed.
-            _connection.SetMetadata(after.Name, EngineSchema.ToSettings(after, pending ?? Pending(after.Name)));
+            // A change to the shape is a change (BR-1): the time moves with it, in the same transaction.
+            _connection.SetMetadata(after.Name, EngineSchema.ToSettings(after, pending ?? Pending(after.Name), DateTimeOffset.UtcNow));
 
             if (!Equals(before.DisplayRule, after.DisplayRule))
             {
@@ -941,6 +1183,61 @@ public sealed class TokkDbStorage : IStorage, IDisposable
     /// builds the index when the relation is created, precisely because a reference cannot be
     /// checked without one (DC-4).
     /// </summary>
+    // ---- The overview (BR-1, BR-1a) -----------------------------------------------------------------
+
+    /// <summary>
+    /// The count is the catalogue's own - the engine keeps it on the descriptor and moves it with
+    /// every insert and delete - and the time is the settings document's, so this reads one
+    /// descriptor and one document per thing and no record at all.
+    /// </summary>
+    public IReadOnlyList<StoredThing> Overview() =>
+    [
+        .. _connection.Collections
+            .Where(static descriptor => !descriptor.IsSystem)
+            .Select(descriptor => new StoredThing(ToDefinition(descriptor), descriptor.RecordCount, LastChanged(descriptor.Name)))
+            .OrderByDescending(static thing => thing.LastChanged ?? DateTimeOffset.MinValue)
+            .ThenBy(static thing => thing.Name, StringComparer.Ordinal)
+    ];
+
+    public StoredThing? Describe(string collectionName)
+    {
+        var descriptor = Find(Name(collectionName));
+        return descriptor is null ? null : new StoredThing(ToDefinition(descriptor), descriptor.RecordCount, LastChanged(descriptor.Name));
+    }
+
+    /// <summary>
+    /// The engine's count against the records themselves, for drift: idempotent, and the one read
+    /// here whose cost grows with the records. The engine's verification is what corrects a
+    /// descriptor; a thing without a time gets one from its records' identities.
+    /// </summary>
+    public int ReconcileOverview()
+    {
+        var outOfStep = 0;
+
+        foreach (var descriptor in _connection.Collections.Where(static descriptor => !descriptor.IsSystem).ToList())
+        {
+            var definition = ToDefinition(descriptor);
+            var records = Entities(definition).GetAllRecords().ToList();
+
+            if (records.Count != descriptor.RecordCount)
+            {
+                outOfStep++;
+            }
+
+            if (LastChanged(descriptor.Name) is null)
+            {
+                var latest = records.Count == 0 ? (DateTimeOffset?)null : records.Max(static record => record.RecordId.Time);
+                if (latest is { } moment)
+                {
+                    _connection.InTransaction(() => WriteLastChanged(descriptor.Name, moment));
+                    outOfStep++;
+                }
+            }
+        }
+
+        return outOfStep;
+    }
+
     // ---- Versions (SC-12) -----------------------------------------------------------------------
     //
     // Over DbEntities, the way every other operation here is: the engine keeps the history and
@@ -969,48 +1266,127 @@ public sealed class TokkDbStorage : IStorage, IDisposable
         return Entities(definition).History(id).Versions.Any(version => version.VersionId == versionId);
     }
 
+    /// <summary>
+    /// SC-12, TR-6a: column by column through the thing's current shape, carrying what that shape
+    /// cannot show. The engine reads a version through the migrations since it was written and
+    /// hands back what they could not map - a value in a field since removed, or one a lossy retype
+    /// could not convert - and the descriptor's migrations say what a field was called then. A
+    /// value whose stored kind is not the column's kind now is shown as it was, with the kind it
+    /// kept then, rather than converted.
+    /// </summary>
     public VersionDifference DiffVersions(string collectionName, Ulid id, Ulid fromVersionId, Ulid toVersionId)
     {
         var definition = Require(collectionName);
         var entities = Entities(definition);
+        var migrations = Find(definition.Name)?.Migrations ?? [];
 
         var from = Read(definition, entities, id, fromVersionId);
         var to = Read(definition, entities, id, toVersionId);
 
-        var columns = from.Fields.Keys.Concat(to.Fields.Keys).Distinct(StorageNames.Comparer)
+        var columns = from.Fields.Keys.Concat(to.Fields.Keys).Concat(from.Unmapped.Keys).Concat(to.Unmapped.Keys)
+            .Distinct(StorageNames.Comparer)
             .OrderBy(static column => column, StringComparer.Ordinal);
 
         var changes = new List<ColumnChange>();
 
         foreach (var column in columns)
         {
-            var before = from.Fields.GetValueOrDefault(column);
-            var after = to.Fields.GetValueOrDefault(column);
+            if (from.Unmapped.ContainsKey(column) || to.Unmapped.ContainsKey(column))
+            {
+                // What the current shape could not take: the field is gone, or the value would not convert.
+                var (beforeRaw, beforeWhy) = from.Unmapped.GetValueOrDefault(column);
+                var (afterRaw, afterWhy) = to.Unmapped.GetValueOrDefault(column);
+                var before = from.Unmapped.ContainsKey(column) ? beforeRaw : from.Fields.GetValueOrDefault(column);
+                var after = to.Unmapped.ContainsKey(column) ? afterRaw : to.Fields.GetValueOrDefault(column);
+                if (Equals(before, after)) continue;
 
-            if (!Equals(before, after)) changes.Add(new ColumnChange(column, before, after));
+                var removed = beforeWhy is UnmappedReason.ColumnRemoved || afterWhy is UnmappedReason.ColumnRemoved || definition.Column(column) is null;
+                changes.Add(new ColumnChange(column, before, after)
+                {
+                    Fate = removed ? FieldFate.SinceRemoved : FieldFate.SinceRetyped,
+                    KeptThen = removed ? null : KindOf(before ?? after)
+                });
+                continue;
+            }
+
+            var was = from.Fields.GetValueOrDefault(column);
+            var now = to.Fields.GetValueOrDefault(column);
+            if (Equals(was, now)) continue;
+
+            var oldest = Math.Min(from.SchemaVersion, to.SchemaVersion);
+            var renamedFrom = RenamedFrom(migrations, column, oldest);
+            var retyped = definition.Column(column) is { } current && KindOf(was ?? now) is { } kept && kept != current.Type;
+
+            changes.Add(new ColumnChange(column, was, now)
+            {
+                Fate = (renamedFrom is not null ? FieldFate.SinceRenamed : FieldFate.Kept) | (retyped ? FieldFate.SinceRetyped : FieldFate.Kept),
+                WasCalled = renamedFrom,
+                KeptThen = retyped ? KindOf(was ?? now) : null
+            });
         }
 
         return new VersionDifference(definition.Name, id, fromVersionId, toVersionId, changes, from.Deleted, to.Deleted);
     }
 
-    /// <summary>One version's values through the current schema, or nothing for a deletion.</summary>
-    private static (IReadOnlyDictionary<string, object?> Fields, bool Deleted) Read(
+    /// <summary>The name a column had when a version at the given schema was written, if it has been renamed since.</summary>
+    private static string? RenamedFrom(IReadOnlyList<ColumnMigration> migrations, string column, ushort schemaVersion)
+    {
+        // Walk the renames since that schema backwards: the name now, to the name then.
+        string? then = null;
+        var name = column;
+        foreach (var step in migrations.Where(step => step.Version > schemaVersion && step.Kind is ColumnMigrationKind.Rename).OrderByDescending(static step => step.Version))
+        {
+            if (!string.Equals(step.NewName, name, StringComparison.OrdinalIgnoreCase)) continue;
+            name = step.ColumnName;
+            then = name;
+        }
+
+        return then;
+    }
+
+    private static ColumnType? KindOf(object? value) => value is not null && ColumnTypes.TryRecordedType(value, out var type) ? type : null;
+
+    /// <summary>
+    /// One version's values through the current schema - the values a lossless conversion made,
+    /// and as stored where none was possible - plus what the mapping could not carry, and the
+    /// schema the version was written under. Nothing for a deletion.
+    /// </summary>
+    private static (IReadOnlyDictionary<string, object?> Fields, IReadOnlyDictionary<string, (object? Value, UnmappedReason Why)> Unmapped, ushort SchemaVersion, bool Deleted) Read(
         CollectionDefinition definition, EngineEntities entities, Ulid id, Ulid versionId)
     {
         VersionedValue<Dictionary<string, object?>> version;
+        ushort schema;
 
         try
         {
             version = entities.GetAsOf(id, versionId);
+            schema = entities.GetStoredAsOf(id, versionId).SchemaVersion;
         }
         catch (VersionNotFoundException)
         {
             throw new VersionNotKeptException(definition.Name, id, versionId);
         }
 
-        if (version.IsDeleted) return (new Dictionary<string, object?>(StorageNames.Comparer), true);
+        if (version.IsDeleted)
+        {
+            return (new Dictionary<string, object?>(StorageNames.Comparer), new Dictionary<string, (object?, UnmappedReason)>(StorageNames.Comparer), schema, true);
+        }
 
-        return (EngineRecords.ToRecord(definition.Name, id, version.Value).Fields, false);
+        // As stored, not as read: a value a retype could convert is still shown as it was (TR-6a).
+        var fields = new Dictionary<string, object?>(StorageNames.Comparer);
+        foreach (var (column, value) in version.Value)
+        {
+            fields[column] = value is StoredAs stored ? stored.Value : value;
+        }
+
+        var unmapped = new Dictionary<string, (object?, UnmappedReason)>(StorageNames.Comparer);
+        foreach (var lost in version.Unmapped)
+        {
+            var kind = EngineValues.ColumnTypeOf(lost.Original.Type, dateOnly: false);
+            unmapped[lost.Column] = (EngineValues.FromDocument(kind, lost.Original), lost.Reason);
+        }
+
+        return (fields, unmapped, schema, false);
     }
 
     public StorageRecord RestoreVersion(string collectionName, Ulid id, Ulid versionId)
@@ -1032,6 +1408,7 @@ public sealed class TokkDbStorage : IStorage, IDisposable
                 var restored = entities.GetById(id)!;
                 var after = EngineRecords.NotOfColumnType(restored.Value).Select(static entry => entry.Column);
                 AdjustPending(definition.Name, Difference(before, after));
+                Touch(definition.Name);
             });
         }
         catch (RestoreRefusedException refusal) when (refusal.Reason is RestoreRefusal.CurrentHead)
@@ -1099,6 +1476,8 @@ public sealed class TokkDbStorage : IStorage, IDisposable
                 {
                     AdjustPending(definition.Name, pending.ToDictionary(static column => column, static _ => -1));
                 }
+
+                Touch(definition.Name);
             });
         }
         catch (RecordNotFoundException)
@@ -1212,11 +1591,11 @@ public sealed class TokkDbStorage : IStorage, IDisposable
         return Update(record.With(relation.FromColumn, null));
     }
 
-    private StorageQuery Bound(StorageQuery query, CollectionDefinition definition)
+    private StorageQuery Bound(StorageQuery query, CollectionDefinition definition, bool evenWithAggregates = false)
     {
         if (query.After is not { } cursor) return query;
         if (query.OrderBy.Count == 0 || cursor.SortValues.Count == 0) return query;
-        if (query.Aggregates.Count > 0) return query;
+        if (query.Aggregates.Count > 0 && !evenWithAggregates) return query;
         if (cursor.SortValues[0] is not { } value) return query;
 
         var sort = query.OrderBy[0];
@@ -1385,7 +1764,7 @@ public sealed class TokkDbStorage : IStorage, IDisposable
         }
 
         var definition = GetCollectionDefinition(collectionName)!;
-        _connection.SetMetadata(collectionName, EngineSchema.ToSettings(definition, pending));
+        _connection.SetMetadata(collectionName, EngineSchema.ToSettings(definition, pending, LastChanged(collectionName)));
     }
 
     private static Dictionary<string, int> Difference(IEnumerable<string> before, IEnumerable<string> after)
@@ -1453,6 +1832,10 @@ public sealed class TokkDbStorage : IStorage, IDisposable
 
     public void Dispose()
     {
+        // Whatever diagnostic step is still waiting goes to disk before the connection does: a
+        // close is not a crash, and TR-4c's "may be lost" is about the crash.
+        _traces.Dispose();
+
         if (!Borrowed)
         {
             _connection.Dispose();

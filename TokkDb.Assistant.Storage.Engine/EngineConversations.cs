@@ -40,6 +40,7 @@ internal sealed class EngineConversations : IConversationStore
     private const string AttachmentsField = "attachments";
     private const string RequestField = "request";
     private const string AtField = "at";
+    private const string PayloadField = "payload";
 
     // Attachments are held by reference and there are rarely more than a few, so they are one
     // field with a separator rather than a collection of their own. A file path cannot contain
@@ -132,7 +133,8 @@ internal sealed class EngineConversations : IConversationStore
         TurnSpeaker speaker,
         string text,
         IReadOnlyList<string>? attachments = null,
-        Ulid? requestId = null)
+        Ulid? requestId = null,
+        string? payload = null)
     {
         Describe();
 
@@ -145,7 +147,10 @@ internal sealed class EngineConversations : IConversationStore
             text ?? string.Empty,
             [.. attachments ?? []],
             requestId,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow)
+        {
+            Payload = payload
+        };
 
         // One transaction for both, so that a conversation cannot be left saying it was last
         // used at a time no turn accounts for.
@@ -177,6 +182,15 @@ internal sealed class EngineConversations : IConversationStore
     {
         if (_described) return;
 
+        // Describing is a catalogue write. A read-only connection - a second observer of a file
+        // another process is writing - cannot make one and does not need to: the documents read
+        // the same whether or not the catalogue says what they hold.
+        if (_connection.AccessMode != Disk.TokkDbAccessMode.ReadWrite)
+        {
+            _described = true;
+            return;
+        }
+
         _connection.DescribeSystemCollection(SystemCollections.Conversations, ConversationColumns());
         _connection.DescribeSystemCollection(SystemCollections.ConversationEntries, TurnColumns());
 
@@ -199,7 +213,8 @@ internal sealed class EngineConversations : IConversationStore
         new(TextField, ValueTypeEnum.String, "What was said"),
         new(AttachmentsField, ValueTypeEnum.String, "What was attached, by reference"),
         new(RequestField, ValueTypeEnum.Ulid, "The request this turn started, if it started one"),
-        new(AtField, ValueTypeEnum.DateTime, "When it was said")
+        new(AtField, ValueTypeEnum.DateTime, "When it was said"),
+        new(PayloadField, ValueTypeEnum.String, "What the turn carried besides its text: the handle of a result it showed (QR-3a)")
     ];
 
     private void Write(Conversation conversation)
@@ -231,7 +246,8 @@ internal sealed class EngineConversations : IConversationStore
             [RequestField] = turn.RequestId is { } request
                 ? new UlidDocumentValue(request)
                 : new NullDocumentValue(),
-            [AtField] = new DateTimeDocumentValue(turn.At.UtcDateTime)
+            [AtField] = new DateTimeDocumentValue(turn.At.UtcDateTime),
+            [PayloadField] = DocumentFields.Value(turn.Payload)
         }));
 
         return document;
@@ -261,7 +277,10 @@ internal sealed class EngineConversations : IConversationStore
             DocumentFields.Text(value, TextField),
             attachments.Length == 0 ? [] : attachments.Split(AttachmentSeparator),
             DocumentFields.Identity(value, RequestField),
-            DocumentFields.Moment(value, AtField));
+            DocumentFields.Moment(value, AtField))
+        {
+            Payload = DocumentFields.OptionalText(value, PayloadField)
+        };
     }
 
     private int Count(Ulid conversationId) => Counts().GetValueOrDefault(conversationId);

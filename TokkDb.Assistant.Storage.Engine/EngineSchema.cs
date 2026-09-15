@@ -77,9 +77,17 @@ internal static class EngineSchema
     /// </summary>
     public static Dictionary<string, string> ToSettings(
         CollectionDefinition definition,
-        IReadOnlyDictionary<string, int>? pending = null)
+        IReadOnlyDictionary<string, int>? pending = null,
+        DateTimeOffset? lastChanged = null)
     {
         var settings = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        // BR-1a: when the thing last changed, kept beside the definition and moved in the
+        // transaction of the write that moves it, so the overview never reads a record for it.
+        if (lastChanged is { } moment)
+        {
+            settings[LastChangedKey] = moment.UtcDateTime.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
+        }
 
         foreach (var (column, count) in pending ?? EmptyPending)
         {
@@ -150,6 +158,16 @@ internal static class EngineSchema
 
     private static readonly IReadOnlyDictionary<string, int> EmptyPending =
         new Dictionary<string, int>(StringComparer.Ordinal);
+
+    /// <summary>Where the settings document keeps when the thing last changed (BR-1a).</summary>
+    public const string LastChangedKey = "lastChangedAt";
+
+    /// <summary>When the thing last changed, as the settings document has it, or null for never.</summary>
+    public static DateTimeOffset? LastChangedOf(IReadOnlyDictionary<string, string> settings) =>
+        settings.TryGetValue(LastChangedKey, out var text)
+        && DateTimeOffset.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var moment)
+            ? moment
+            : null;
 
     /// <summary>
     /// How many records hold a value of another type in each column, as the last change or

@@ -312,3 +312,43 @@ public sealed class TokkDbStorageEngineTests : IDisposable
         }
     }
 }
+
+/// <summary>BR-1a on the engine: opening the overview issues no read whose cost grows with the records.</summary>
+public sealed class OverviewCostTests : IDisposable
+{
+    private readonly TemporaryDatabase _database = new("overview");
+
+    public void Dispose() => _database.Dispose();
+
+    [Fact]
+    public void The_overview_costs_the_same_whatever_the_number_of_records()
+    {
+        using var storage = new TokkDbStorage(_database.FilePath);
+        storage.CreateCollection(new CollectionDefinition("notes", "things I wrote down", columns: [new ColumnDefinition("title", ColumnType.Text, required: true)]));
+        storage.CreateCollection(new CollectionDefinition("papers", "papers I read", columns: [new ColumnDefinition("title", ColumnType.Text, required: true)]));
+
+        long Cost()
+        {
+            var before = storage.PageReadCount;
+            var overview = storage.Overview();
+            Assert.Equal(2, overview.Count);
+            return storage.PageReadCount - before;
+        }
+
+        storage.InUnitOfWork(() =>
+        {
+            for (var i = 0; i < 200; i++) storage.Create("notes", new Dictionary<string, object?> { ["title"] = $"note {i}" });
+        });
+        var small = Cost();
+
+        storage.InUnitOfWork(() =>
+        {
+            for (var i = 0; i < 2_000; i++) storage.Create("notes", new Dictionary<string, object?> { ["title"] = $"more {i}" });
+        });
+        var large = Cost();
+
+        Assert.Equal(2_200, storage.Describe("notes")!.RecordCount);
+        Assert.True(large <= small + 2, $"the overview read {small} pages with 200 records and {large} with 2 200");
+        Assert.True(small < 40, $"the overview read {small} pages for two things");
+    }
+}

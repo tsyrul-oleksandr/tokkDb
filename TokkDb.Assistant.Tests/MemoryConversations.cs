@@ -69,7 +69,8 @@ public sealed class MemoryConversations : IConversationStore
         TurnSpeaker speaker,
         string text,
         IReadOnlyList<string>? attachments = null,
-        Ulid? requestId = null)
+        Ulid? requestId = null,
+        string? payload = null)
     {
         if (!_conversations.TryGetValue(conversationId, out var conversation))
         {
@@ -83,7 +84,10 @@ public sealed class MemoryConversations : IConversationStore
             text ?? string.Empty,
             [.. attachments ?? []],
             requestId,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow)
+        {
+            Payload = payload
+        };
 
         _turns.Add(turn);
         _conversations[conversationId] = conversation with { LastActivity = turn.At };

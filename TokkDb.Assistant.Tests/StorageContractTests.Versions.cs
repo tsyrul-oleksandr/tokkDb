@@ -102,6 +102,87 @@ public abstract partial class StorageContractTests
         Assert.Equal("draft", toNothing.Changes[0].Before);
     }
 
+    /// <summary>
+    /// TR-6a, SC-12: a diff carries what the current shape cannot show. After a field is removed
+    /// the change to it is still listed, marked as since removed; after a rename the values are
+    /// under the new name and the row says what the field was called then; after a lossy retype
+    /// the old value is shown as it was, with the kind it kept then, rather than converted or dropped.
+    /// </summary>
+    [Fact]
+    public void A_diff_shows_a_field_since_removed_renamed_or_retyped_as_it_was_and_says_so()
+    {
+        var storage = GivenNotes();
+        var record = storage.Create(Notes, Note("draft", 12));
+        var first = storage.HeadVersion(Notes, record.Id)!.Value;
+
+        storage.Update(record.With("words", 40L).With("title", "final"));
+        var second = storage.HeadVersion(Notes, record.Id)!.Value;
+
+        // Since removed: the field is gone from the shape, and the change to it is still there.
+        storage.RemoveColumn(Notes, "words");
+        var afterRemoval = storage.DiffVersions(Notes, record.Id, first, second);
+        var words = Assert.Single(afterRemoval.Changes, static change => change.ColumnName == "words");
+        Assert.Equal(FieldFate.SinceRemoved, words.Fate);
+        Assert.Equal(12L, words.Before);
+        Assert.Equal(40L, words.After);
+        Assert.Equal("since removed", words.Note);
+        var title = Assert.Single(afterRemoval.Changes, static change => change.ColumnName == "title");
+        Assert.Equal(FieldFate.Kept, title.Fate);
+        Assert.Null(title.Note);
+
+        // Since renamed: under the new name, saying what it was called then.
+        storage.RenameColumn(Notes, "title", "heading");
+        var afterRename = storage.DiffVersions(Notes, record.Id, first, second);
+        var heading = Assert.Single(afterRename.Changes, static change => change.ColumnName == "heading");
+        Assert.Equal(FieldFate.SinceRenamed, heading.Fate);
+        Assert.Equal("title", heading.WasCalled);
+        Assert.Equal("draft", heading.Before);
+        Assert.Equal("final", heading.After);
+        Assert.Equal("was called title then", heading.Note);
+        Assert.DoesNotContain(afterRename.Changes, static change => change.ColumnName == "title");
+
+        // Since retyped, lossily: "draft" cannot become a whole number, so it is shown as it was -
+        // and the field was renamed before that, which the row still says.
+        storage.RetypeColumn(Notes, "heading", ColumnType.Integer);
+        var afterRetype = storage.DiffVersions(Notes, record.Id, first, second);
+        var retyped = Assert.Single(afterRetype.Changes, static change => change.ColumnName == "heading");
+        Assert.True(retyped.Fate.HasFlag(FieldFate.SinceRetyped), retyped.Fate.ToString());
+        Assert.True(retyped.Fate.HasFlag(FieldFate.SinceRenamed), retyped.Fate.ToString());
+        Assert.Equal("draft", retyped.Before);
+        Assert.Equal("final", retyped.After);
+        Assert.Equal(ColumnType.Text, retyped.KeptThen);
+        Assert.Equal("title", retyped.WasCalled);
+        Assert.Equal("was called title then; kept some words then; shown as it was", retyped.Note);
+
+        // And the words, removed before all that, are still there as they were.
+        var stillWords = Assert.Single(afterRetype.Changes, static change => change.ColumnName == "words");
+        Assert.Equal(FieldFate.SinceRemoved, stillWords.Fate);
+        Assert.Equal(12L, stillWords.Before);
+    }
+
+    /// <summary>A retype that converts cleanly still shows the old versions' values as they were written, with the kind they kept then.</summary>
+    [Fact]
+    public void A_diff_after_a_clean_retype_shows_the_values_as_written()
+    {
+        var storage = GivenNotes();
+        var record = storage.Create(Notes, Note("draft", 12));
+        var first = storage.HeadVersion(Notes, record.Id)!.Value;
+        storage.Update(record.With("words", 40L));
+        var second = storage.HeadVersion(Notes, record.Id)!.Value;
+
+        storage.RetypeColumn(Notes, "words", ColumnType.Text);
+
+        var difference = storage.DiffVersions(Notes, record.Id, first, second);
+        var words = Assert.Single(difference.Changes, static change => change.ColumnName == "words");
+        Assert.Equal(FieldFate.SinceRetyped, words.Fate);
+        Assert.Equal(12L, words.Before);
+        Assert.Equal(40L, words.After);
+        Assert.Equal(ColumnType.Integer, words.KeptThen);
+
+        // The record itself reads through the current shape: the value is text now.
+        Assert.Equal("40", storage.GetById(Notes, record.Id)!["words"]);
+    }
+
     /// <summary>A restore puts the record back as it was, under its own identity, and is itself a version.</summary>
     [Fact]
     public void A_restore_puts_the_record_back_under_its_identity()

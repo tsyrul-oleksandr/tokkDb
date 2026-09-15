@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latestMajor</LangVersion>
+  </PropertyGroup>
+
+  <!--
+    §3.1: operations, tool scoping, model configuration, context assembly, the orchestrator, and
+    the request lifecycle. It depends on the storage contract, the ingestion and the trace model,
+    and never on Storage.Engine or Diagram: orchestration is tested against a fake storage as well
+    as a fake model, and a change to the drawing can never invalidate an orchestration test.
+    ProjectGraphTests asserts the graph.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\TokkDb.Assistant.Storage\TokkDb.Assistant.Storage.csproj" />
+    <ProjectReference Include="..\TokkDb.Assistant.Ingestion\TokkDb.Assistant.Ingestion.csproj" />
+    <ProjectReference Include="..\TokkDb.Assistant.Trace\TokkDb.Assistant.Trace.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The model, through one abstraction. Microsoft.Extensions.AI is what the runner speaks;
+      Microsoft.Agents.AI sits above it for the operations that carry tools; OllamaSharp is the
+      transport step 0.3 decided on, speaking /api/chat natively so that num_ctx and num_predict
+      are per-call options the runner sets from the operation's declaration (R-2b, R-7).
+    -->
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.10.0" />
+    <PackageReference Include="Microsoft.Agents.AI" Version="1.21.0" />
+    <PackageReference Include="OllamaSharp" Version="5.4.30" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);MEAI001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- AG-1f: the chat client type is internal to this assembly and visible to the tests only. -->
+    <InternalsVisibleTo Include="TokkDb.Assistant.Tests" />
+  </ItemGroup>
+
+</Project>

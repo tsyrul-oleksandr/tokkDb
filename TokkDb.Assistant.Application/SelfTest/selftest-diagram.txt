@@ -1,0 +1,5 @@
+# The diagram and its detail panel, drawn for a store and a retrieval, and an earlier request's diagram brought back.
+attach:$C/conferences-2025.csv
+Keep these
+How much did I spend on conferences in 2025?
+Which was the most expensive?

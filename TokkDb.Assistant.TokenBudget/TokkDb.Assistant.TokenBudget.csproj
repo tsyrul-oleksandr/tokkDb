@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latestMajor</LangVersion>
+    <RootNamespace>TokkDb.Assistant.TokenBudget</RootNamespace>
+  </PropertyGroup>
+
+  <!--
+    §3.1: the console harness. The thin path of Milestone A (step 5.0), the scenarios of §5 with
+    every figure of §6.2a read from the trace (step 8.1), and the performance report (step 9.6).
+    It composes the real services over the native transport and a real database file, so what it
+    measures is what the application does.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="TokkDb.Assistant.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TokkDb.Assistant.Trace\TokkDb.Assistant.Trace.csproj" />
+    <ProjectReference Include="..\TokkDb.Assistant.Agents\TokkDb.Assistant.Agents.csproj" />
+    <ProjectReference Include="..\TokkDb.Assistant.Storage\TokkDb.Assistant.Storage.csproj" />
+    <ProjectReference Include="..\TokkDb.Assistant.Storage.Engine\TokkDb.Assistant.Storage.Engine.csproj" />
+    <ProjectReference Include="..\TokkDb.Assistant.Ingestion\TokkDb.Assistant.Ingestion.csproj" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.11" />
+  </ItemGroup>
+
+</Project>

@@ -201,3 +201,22 @@ public sealed class UnknownConversationException : StorageException
 
     public Ulid Id { get; }
 }
+
+/// <summary>
+/// The storage is open for writing somewhere else (AG-8a).
+///
+/// D-11's one file means one writer, and this is the single-writer lock at the moment it bites:
+/// a second instance of the application, or a second copy of it, opening the same database. It
+/// is refused here rather than allowed to corrupt the first, and the message is the application's
+/// to phrase - "it is already open" - because the person who sees it opened the same thing twice.
+/// </summary>
+public sealed class StorageInUseException : StorageException
+{
+    public StorageInUseException(string location, Exception inner)
+        : base($"The storage at '{location}' is already open for writing somewhere else.", inner)
+    {
+        Location = location;
+    }
+
+    public string Location { get; }
+}

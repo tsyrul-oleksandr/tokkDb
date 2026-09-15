@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latestMajor</LangVersion>
+  </PropertyGroup>
+
+  <!--
+    Phase 7.1 (TR-5, TR-5a, D-9): the trace as geometry - participants, calls, lanes, labels - in
+    device-independent points, computed by ordinary C# that references the trace and nothing else.
+    No MAUI type is allowed here: the drawing is thin and lives in the application, and the same
+    layout renders as the focusable list of steps (UI-8), so a test can assert where every block
+    is and what a click at any point lands on, with no window and no second display present.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\TokkDb.Assistant.Trace\TokkDb.Assistant.Trace.csproj" />
+  </ItemGroup>
+
+</Project>

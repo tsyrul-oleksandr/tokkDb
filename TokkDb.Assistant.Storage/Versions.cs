@@ -4,7 +4,60 @@ namespace TokkDb.Assistant.Storage;
 /// One column of a record, as it was in one version beside what it is in another (SC-12,
 /// TR-6): the before-and-after table of a record change is a list of these.
 /// </summary>
-public sealed record ColumnChange(string ColumnName, object? Before, object? After);
+public sealed record ColumnChange(string ColumnName, object? Before, object? After)
+{
+    /// <summary>What became of the field since these versions were written (TR-6a, SC-12).</summary>
+    public FieldFate Fate { get; init; } = FieldFate.Kept;
+
+    /// <summary>For a field since renamed: what it was called then. <see cref="ColumnName"/> is its name now.</summary>
+    public string? WasCalled { get; init; }
+
+    /// <summary>For a field since retyped: the kind of value it kept then; the values are shown as they were.</summary>
+    public ColumnType? KeptThen { get; init; }
+
+    /// <summary>The plain note beside the row, or nothing for a field that is as it was. A field can have been renamed and then retyped; the note says both.</summary>
+    public string? Note
+    {
+        get
+        {
+            var parts = new List<string>(3);
+            if (Fate.HasFlag(FieldFate.SinceRemoved)) parts.Add("since removed");
+            if (Fate.HasFlag(FieldFate.SinceRenamed)) parts.Add($"was called {WasCalled} then");
+            if (Fate.HasFlag(FieldFate.SinceRetyped)) parts.Add(KeptThen is { } kind ? $"kept {Kinds.Words(kind)} then; shown as it was" : "since changed to keep another kind of value; shown as it was");
+            return parts.Count == 0 ? null : string.Join("; ", parts);
+        }
+    }
+}
+
+/// <summary>
+/// What the thing's current shape can no longer carry about a field a version holds (TR-6a): a
+/// diff shows the value as it was and says what became of the field, rather than dropping it or
+/// quietly presenting it under the current shape. Flags, because a field can have been renamed
+/// and then retyped, and both are said.
+/// </summary>
+[Flags]
+public enum FieldFate
+{
+    Kept = 0,
+    SinceRemoved = 1,
+    SinceRenamed = 2,
+    SinceRetyped = 4
+}
+
+/// <summary>The kinds of value, in the words a person uses, for a note that names one.</summary>
+public static class Kinds
+{
+    public static string Words(ColumnType type) => type switch
+    {
+        ColumnType.Text => "some words",
+        ColumnType.Integer => "a whole number",
+        ColumnType.Decimal => "an amount",
+        ColumnType.Boolean => "yes or no",
+        ColumnType.Date => "a day",
+        ColumnType.Timestamp => "a moment",
+        _ => "a value"
+    };
+}
 
 /// <summary>
 /// What <see cref="IStorage.DiffVersions"/> found between two versions of one record: every

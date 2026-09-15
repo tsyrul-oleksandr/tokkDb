@@ -70,6 +70,7 @@ public sealed class MemoryStorage : IStorage
 
             if (--_depth == 0)
             {
+                FlushTouched();
                 _before = null;
                 _beforeRelations = null;
             }
@@ -80,6 +81,7 @@ public sealed class MemoryStorage : IStorage
         {
             if (--_depth == 0)
             {
+                _touched.Clear();
                 _things = _before!;
                 _relations = _beforeRelations!;
                 _before = null;
@@ -101,7 +103,7 @@ public sealed class MemoryStorage : IStorage
             throw new CollectionAlreadyExistsException(definition.Name);
         }
 
-        _things[definition.Name] = new Thing(definition, [], []);
+        _things[definition.Name] = new Thing(definition, [], []) { LastChanged = DateTimeOffset.UtcNow };
     }
 
     public CollectionDefinition? GetCollectionDefinition(string collectionName) =>
@@ -132,12 +134,14 @@ public sealed class MemoryStorage : IStorage
         ArgumentNullException.ThrowIfNull(metadata);
 
         var thing = Require(collectionName);
+        Touch(thing.Definition.Name);
         Replace(thing, thing.Definition.WithMetadata(metadata));
     }
 
     public void SetDisplayRule(string collectionName, DisplayRule? displayRule)
     {
         var thing = Require(collectionName);
+        Touch(thing.Definition.Name);
         var after = thing.Definition.WithDisplayRule(displayRule);
 
         SharedRules.CheckDefinitionFitsItself(after);
@@ -157,6 +161,7 @@ public sealed class MemoryStorage : IStorage
 
         thing.Records[record.Id] = record;
         thing.Remember(record.Id, record);
+        thing.LastChanged = DateTimeOffset.UtcNow;
         return record;
     }
 
@@ -187,6 +192,7 @@ public sealed class MemoryStorage : IStorage
         var written = new StorageRecord(record.Id, thing.Definition.Name, judged, attention);
         thing.Records[record.Id] = written;
         thing.Remember(record.Id, written);
+        thing.LastChanged = DateTimeOffset.UtcNow;
         return true;
     }
 
@@ -378,12 +384,14 @@ public sealed class MemoryStorage : IStorage
     public void AddColumn(string collectionName, ColumnDefinition column)
     {
         var thing = Require(collectionName);
+        Touch(thing.Definition.Name);
         Replace(thing, StructuralChange.Add(thing.Definition, column));
     }
 
     public void RenameColumn(string collectionName, string columnName, string newName)
     {
         var thing = Require(collectionName);
+        Touch(thing.Definition.Name);
         var before = thing.Definition;
         var after = StructuralChange.Rename(before, columnName, newName);
         if (ReferenceEquals(before, after)) return;
@@ -397,7 +405,7 @@ public sealed class MemoryStorage : IStorage
             // rather than appearing under the new name holding nothing.
             if (fields.Remove(from, out var value)) fields[to] = value;
             if (attention.Remove(from)) attention.Add(to);
-        });
+        }, renamed: (from, to));
     }
 
     /// <summary>
@@ -408,6 +416,7 @@ public sealed class MemoryStorage : IStorage
     public void RetypeColumn(string collectionName, string columnName, ColumnType newType)
     {
         var thing = Require(collectionName);
+        Touch(thing.Definition.Name);
         var before = thing.Definition;
         var after = StructuralChange.Retype(before, columnName, newType);
         if (ReferenceEquals(before, after)) return;
@@ -434,12 +443,13 @@ public sealed class MemoryStorage : IStorage
             {
                 attention.Add(name);
             }
-        });
+        }, retypedColumn: name);
     }
 
     public void RemoveColumn(string collectionName, string columnName)
     {
         var thing = Require(collectionName);
+        Touch(thing.Definition.Name);
         var after = StructuralChange.Remove(thing.Definition, columnName);
         var name = StorageNames.Normalise(columnName, "column name");
 
@@ -447,7 +457,7 @@ public sealed class MemoryStorage : IStorage
         {
             fields.Remove(name);
             attention.Remove(name);
-        });
+        }, removedColumn: name);
     }
 
     /// <summary>
@@ -553,6 +563,7 @@ public sealed class MemoryStorage : IStorage
     public void SetUnique(string collectionName, string columnName, bool unique)
     {
         var thing = Require(collectionName);
+        Touch(thing.Definition.Name);
         var column = thing.Definition.Column(columnName)
             ?? throw new UnknownColumnException(
                 thing.Definition.Name, StorageNames.Normalise(columnName, "column name"));
@@ -755,7 +766,10 @@ public sealed class MemoryStorage : IStorage
     private void Rewrite(
         Thing thing,
         CollectionDefinition definition,
-        Action<Dictionary<string, object?>, HashSet<string>> change)
+        Action<Dictionary<string, object?>, HashSet<string>> change,
+        string? removedColumn = null,
+        (string From, string To)? renamed = null,
+        string? retypedColumn = null)
     {
         StorageRecord Changed(Ulid id, StorageRecord record)
         {
@@ -770,13 +784,37 @@ public sealed class MemoryStorage : IStorage
         var records = thing.Records.ToDictionary(static entry => entry.Key, entry => Changed(entry.Key, entry.Value));
 
         // Every kept version is read through the current shape, as the engine reads a stored
-        // version through the changes since it was written.
+        // version through the changes since it was written - and keeps beside it what the shape
+        // drops (TR-6a): a removed field's value, and a retyped value as it was written.
+        MemoryVersion Carried(Ulid id, MemoryVersion version)
+        {
+            if (version.Snapshot is null) return version;
+
+            var removed = new Dictionary<string, object?>(version.Removed, StorageNames.Comparer);
+            var asWritten = new Dictionary<string, object?>(version.AsWritten, StorageNames.Comparer);
+
+            if (removedColumn is not null && version.Snapshot.Fields.TryGetValue(removedColumn, out var lost)) removed[removedColumn] = lost;
+            if (renamed is { } move && asWritten.Remove(move.From, out var written)) asWritten[move.To] = written;
+            if (retypedColumn is not null && version.Snapshot.Fields.TryGetValue(retypedColumn, out var value) && !asWritten.ContainsKey(retypedColumn)) asWritten[retypedColumn] = value;
+
+            return version with { Snapshot = Changed(id, version.Snapshot), Removed = removed, AsWritten = asWritten };
+        }
+
         var histories = thing.Histories.ToDictionary(
             static entry => entry.Key,
-            entry => entry.Value.Select(version =>
-                version with { Snapshot = version.Snapshot is null ? null : Changed(entry.Key, version.Snapshot) }).ToList());
+            entry => entry.Value.Select(version => Carried(entry.Key, version)).ToList());
 
-        _things[definition.Name] = new Thing(definition, records, histories);
+        var names = thing.Renamed.ToDictionary(static entry => entry.Key, static entry => entry.Value.ToList(), StorageNames.Comparer);
+        if (renamed is { } rename)
+        {
+            var earlier = names.Remove(rename.From, out var was) ? was : [];
+            earlier.Add(rename.From);
+            names[rename.To] = earlier;
+        }
+
+        if (removedColumn is not null) names.Remove(removedColumn);
+
+        _things[definition.Name] = new Thing(definition, records, histories) { LastChanged = thing.LastChanged, Renamed = names };
     }
 
     // ---- Versions (SC-12): a full copy per version, which changes the cost and not the meaning --
@@ -790,20 +828,49 @@ public sealed class MemoryStorage : IStorage
         Require(collectionName).Histories.TryGetValue(id, out var history)
         && history.Any(version => version.Version == versionId);
 
+    /// <summary>
+    /// SC-12, TR-6a: through the current shape, carrying what it cannot show - a removed field's
+    /// values, a retyped value as it was written, and the name a renamed field had then.
+    /// </summary>
     public VersionDifference DiffVersions(string collectionName, Ulid id, Ulid fromVersionId, Ulid toVersionId)
     {
         var thing = Require(collectionName);
         var from = Version(thing, id, fromVersionId);
         var to = Version(thing, id, toVersionId);
 
-        var before = from.Snapshot?.Fields ?? new Dictionary<string, object?>(StorageNames.Comparer);
-        var after = to.Snapshot?.Fields ?? new Dictionary<string, object?>(StorageNames.Comparer);
+        Dictionary<string, object?> Shown(MemoryVersion version)
+        {
+            var fields = new Dictionary<string, object?>(version.Snapshot?.Fields ?? new Dictionary<string, object?>(StorageNames.Comparer), StorageNames.Comparer);
+            if (version.Snapshot is null) return fields;
+            foreach (var (column, value) in version.AsWritten) fields[column] = value;
+            foreach (var (column, value) in version.Removed) fields[column] = value;
+            return fields;
+        }
 
-        var changes = before.Keys.Concat(after.Keys).Distinct(StorageNames.Comparer)
-            .OrderBy(static column => column, StringComparer.Ordinal)
-            .Where(column => !Equals(before.GetValueOrDefault(column), after.GetValueOrDefault(column)))
-            .Select(column => new ColumnChange(column, before.GetValueOrDefault(column), after.GetValueOrDefault(column)))
-            .ToList();
+        var before = Shown(from);
+        var after = Shown(to);
+
+        var changes = new List<ColumnChange>();
+        foreach (var column in before.Keys.Concat(after.Keys).Distinct(StorageNames.Comparer).OrderBy(static column => column, StringComparer.Ordinal))
+        {
+            var was = before.GetValueOrDefault(column);
+            var now = after.GetValueOrDefault(column);
+            if (Equals(was, now)) continue;
+
+            var current = thing.Definition.Column(column);
+            var removed = current is null || from.Removed.ContainsKey(column) || to.Removed.ContainsKey(column);
+            var renamedFrom = thing.Renamed.TryGetValue(column, out var names) && names.Count > 0 ? names[0] : null;
+            var kept = (was ?? now) is { } value && ColumnTypes.TryRecordedType(value, out var recorded) ? recorded : (ColumnType?)null;
+            var retyped = !removed && current is not null && kept is not null && kept != current.Type;
+
+            changes.Add(new ColumnChange(column, was, now)
+            {
+                Fate = removed ? FieldFate.SinceRemoved
+                    : (renamedFrom is not null ? FieldFate.SinceRenamed : FieldFate.Kept) | (retyped ? FieldFate.SinceRetyped : FieldFate.Kept),
+                WasCalled = removed ? null : renamedFrom,
+                KeptThen = retyped ? kept : null
+            });
+        }
 
         return new VersionDifference(thing.Definition.Name, id, fromVersionId, toVersionId, changes,
             from.Snapshot is null, to.Snapshot is null);
@@ -829,6 +896,7 @@ public sealed class MemoryStorage : IStorage
         var restored = new StorageRecord(id, thing.Definition.Name, judged, version.Snapshot.NeedsAttention);
         thing.Records[id] = restored;
         thing.Remember(id, restored);
+        thing.LastChanged = DateTimeOffset.UtcNow;
         return restored;
     }
 
@@ -853,8 +921,28 @@ public sealed class MemoryStorage : IStorage
     {
         var thing = Require(collectionName);
         var held = thing.Records.Remove(id);
-        return thing.Histories.Remove(id) || held;
+        var erased = thing.Histories.Remove(id) || held;
+        if (erased) thing.LastChanged = DateTimeOffset.UtcNow;
+        return erased;
     }
+
+    // ---- The overview (BR-1, BR-1a) -------------------------------------------------------------
+
+    public IReadOnlyList<StoredThing> Overview() =>
+    [
+        .. _things.Values
+            .Select(static thing => new StoredThing(thing.Definition, thing.Records.Count, thing.LastChanged))
+            .OrderByDescending(static thing => thing.LastChanged ?? DateTimeOffset.MinValue)
+            .ThenBy(static thing => thing.Name, StringComparer.Ordinal)
+    ];
+
+    public StoredThing? Describe(string collectionName) =>
+        _things.TryGetValue(Name(collectionName), out var thing)
+            ? new StoredThing(thing.Definition, thing.Records.Count, thing.LastChanged)
+            : null;
+
+    /// <summary>A dictionary's count is never out of step with its records, so there is never anything to reconcile.</summary>
+    public int ReconcileOverview() => 0;
 
     private static MemoryVersion Version(Thing thing, Ulid id, Ulid versionId)
     {
@@ -865,6 +953,21 @@ public sealed class MemoryStorage : IStorage
         }
 
         throw new VersionNotKeptException(thing.Definition.Name, id, versionId);
+    }
+
+    /// <summary>When it last changed (BR-1a): recorded when the change is made, on the thing under that name at the end of the unit of work.</summary>
+    private void Touch(string collectionName) => _touched.Add(collectionName);
+
+    private readonly HashSet<string> _touched = new(StorageNames.Comparer);
+
+    private void FlushTouched()
+    {
+        foreach (var name in _touched)
+        {
+            if (_things.TryGetValue(name, out var thing)) thing.LastChanged = DateTimeOffset.UtcNow;
+        }
+
+        _touched.Clear();
     }
 
     private Thing Require(string collectionName)
@@ -900,17 +1003,35 @@ public sealed class MemoryStorage : IStorage
             static entry => new Thing(
                 entry.Value.Definition,
                 new Dictionary<Ulid, StorageRecord>(entry.Value.Records),
-                entry.Value.Histories.ToDictionary(static history => history.Key, static history => new List<MemoryVersion>(history.Value))),
+                entry.Value.Histories.ToDictionary(static history => history.Key, static history => new List<MemoryVersion>(history.Value)))
+            {
+                LastChanged = entry.Value.LastChanged
+            },
             StorageNames.Comparer);
 
     /// <summary>One version of one record: the record as it then was, or null for its deletion.</summary>
-    private sealed record MemoryVersion(Ulid Version, StorageRecord? Snapshot);
+    /// <summary>
+    /// One kept version: the snapshot as the current shape reads it, plus what that shape cannot
+    /// carry (TR-6a) - the values of fields since removed, and the values as they were before a
+    /// retype converted them - so that a diff shows a version as it was.
+    /// </summary>
+    private sealed record MemoryVersion(Ulid Version, StorageRecord? Snapshot)
+    {
+        public Dictionary<string, object?> Removed { get; init; } = new(StorageNames.Comparer);
+        public Dictionary<string, object?> AsWritten { get; init; } = new(StorageNames.Comparer);
+    }
 
     private sealed record Thing(
         CollectionDefinition Definition,
         Dictionary<Ulid, StorageRecord> Records,
         Dictionary<Ulid, List<MemoryVersion>> Histories)
     {
+        /// <summary>When it last changed (BR-1a): moved by every write, as the engine moves its own.</summary>
+        public DateTimeOffset? LastChanged { get; set; }
+
+        /// <summary>What each current field was called before, oldest name first, as the engine's descriptor keeps its renames.</summary>
+        public Dictionary<string, List<string>> Renamed { get; init; } = new(StorageNames.Comparer);
+
         /// <summary>
         /// A new version of the record, with an identity from the same source records get, so
         /// that versions and records sort together in the order they were made.
@@ -926,6 +1047,7 @@ public sealed class MemoryStorage : IStorage
         {
             if (!Records.Remove(id)) return false;
             Remember(id, null);
+            LastChanged = DateTimeOffset.UtcNow;
             return true;
         }
 

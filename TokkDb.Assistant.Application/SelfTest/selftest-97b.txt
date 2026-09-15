@@ -1,0 +1,19 @@
+# 9.7 part B, after the crash: the question comes back (N-9) and is answered; S-7 the data survived; S-8 in the browser; N-1 a second thing with the same shape.
+yes
+browse
+a11y
+overview
+open:conferences
+sort:3
+sort:3
+record:#1
+a11y
+keeps
+ask
+chat
+Which was the most expensive?
+attach:$C/trips-2025.csv
+Keep these as trips
+attach:$C/conferences-2025.csv
+And these
+no

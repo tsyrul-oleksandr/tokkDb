@@ -53,6 +53,14 @@ public sealed record ConversationTurn(
 {
     /// <summary>The request this turn started, or null for a turn that asked for nothing.</summary>
     public bool StartedARequest => RequestId is not null;
+
+    /// <summary>
+    /// What the turn carried besides its text, where it carried something the conversation has
+    /// to keep: the handle of the result a reply showed (QR-3a), so that "how many of those" two
+    /// turns later still resolves after a restart. Text, written and read by the application;
+    /// the storage keeps it and interprets none of it. Null for a turn that carried nothing.
+    /// </summary>
+    public string? Payload { get; init; }
 }
 
 /// <summary>
@@ -99,13 +107,15 @@ public interface IConversationStore
     /// <summary>
     /// Appends a turn and moves the conversation's last activity to now.
     /// </summary>
+    /// <param name="payload">What the turn carried besides its text; see <see cref="ConversationTurn.Payload"/>.</param>
     /// <exception cref="UnknownConversationException">There is no such conversation.</exception>
     ConversationTurn Append(
         Ulid conversationId,
         TurnSpeaker speaker,
         string text,
         IReadOnlyList<string>? attachments = null,
-        Ulid? requestId = null);
+        Ulid? requestId = null,
+        string? payload = null);
 
     /// <summary>The turns of a conversation, oldest first.</summary>
     /// <exception cref="UnknownConversationException">There is no such conversation.</exception>

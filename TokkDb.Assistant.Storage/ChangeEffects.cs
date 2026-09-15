@@ -127,3 +127,13 @@ public sealed record ConvergeReport(
             : $"{CollectionName}: {RecordsBroughtUp} records brought up to date, " +
               $"{CouldNotConvert.Count} values left as they were";
 }
+
+/// <summary>
+/// One thing as the overview lists it (BR-1): the definition, how many records it holds, and when
+/// it last changed - a write to a record, a change to its shape, or its creation. Both figures
+/// are maintained with the writes (BR-1a) and read here without touching a record.
+/// </summary>
+public sealed record StoredThing(CollectionDefinition Definition, long RecordCount, DateTimeOffset? LastChanged)
+{
+    public string Name => Definition.Name;
+}

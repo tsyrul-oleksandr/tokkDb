@@ -1,0 +1,8 @@
+I want to save these — the conference in Lviv on 14 March 2025, 12 000 hryvnia, and the one in Kyiv on 20 May 2025, 8 500.
+attach:$C/conferences-2025.csv
+Here are more of them
+How much did I spend on conferences in 2025?
+Which was the most expensive?
+Drop the notes I was keeping on these.
+no
+browse

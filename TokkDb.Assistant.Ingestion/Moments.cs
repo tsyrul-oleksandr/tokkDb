@@ -60,6 +60,27 @@ internal static class Moments
         "yyyy/MM/dd HH:mm"
     ];
 
+    /// <summary>
+    /// A month written as a word says which number it is, so these are unambiguous whichever
+    /// side of it the day sits: what a person types ("14 March 2025"), what a model writes when
+    /// asked for day month year, and what an English export puts in a cell.
+    /// </summary>
+    private static readonly string[] NamedMonth =
+    [
+        "d MMMM yyyy", "d MMM yyyy", "dd MMMM yyyy", "dd MMM yyyy",
+        "d MMMM, yyyy", "d MMM, yyyy",
+        "MMMM d yyyy", "MMM d yyyy", "MMMM d, yyyy", "MMM d, yyyy", "MMMM dd, yyyy", "MMM dd, yyyy",
+        "yyyy MMMM d", "yyyy MMM d",
+        "d-MMM-yyyy", "dd-MMM-yyyy", "d-MMMM-yyyy",
+        "MMMM yyyy", "MMM yyyy"
+    ];
+
+    private static readonly string[] NamedMonthWithTime =
+    [
+        "d MMMM yyyy HH:mm", "d MMM yyyy HH:mm", "MMMM d, yyyy HH:mm", "MMM d, yyyy HH:mm",
+        "d MMMM yyyy HH:mm:ss", "MMMM d, yyyy HH:mm:ss"
+    ];
+
     private static readonly char[] Separators = ['/', '.', '-'];
 
     public static MomentReading Read(string text)
@@ -90,8 +111,30 @@ internal static class Moments
             return new MomentReading(true, HasTime: false, day, DateOrder.Unknown, false);
         }
 
+        // "14 March 2025", "March 14, 2025", "14 Mar 2025": the month is a word, so nothing is
+        // ambiguous about it. The invariant culture's English names, which is what a spreadsheet
+        // and a model both write; a localised month name is text, honestly, rather than a guess.
+        var spaced = string.Join(' ', trimmed.Split([' ', '\u00A0'], StringSplitOptions.RemoveEmptyEntries));
+        var suffixless = StripOrdinalSuffix(spaced);
+
+        if (DateTime.TryParseExact(
+                suffixless, NamedMonthWithTime, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out var named))
+        {
+            return new MomentReading(true, HasTime: true, named, DateOrder.Unknown, false);
+        }
+
+        if (DateTime.TryParseExact(
+                suffixless, NamedMonth, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out named))
+        {
+            return new MomentReading(true, HasTime: false, named, DateOrder.Unknown, false);
+        }
+
         return ReadTwoLeadingNumbers(trimmed);
     }
+
+    /// <summary>"14th March" is "14 March": the suffix says nothing the number did not.</summary>
+    private static string StripOrdinalSuffix(string text) =>
+        System.Text.RegularExpressions.Regex.Replace(text, @"\b(\d{1,2})(st|nd|rd|th)\b", "$1", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     /// <summary>The reading again, once the column has said which way round its dates are.</summary>
     public static MomentReading Settle(MomentReading reading, string text, DateOrder columnOrder)

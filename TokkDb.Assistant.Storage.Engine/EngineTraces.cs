@@ -24,12 +24,20 @@ namespace TokkDb.Assistant.Storage.Engine;
 /// transaction, not because anything here arranges it. The shapes are declared through
 /// <c>DescribeSystemCollection</c> so the catalogue says what they hold.
 ///
-/// <b>What is not here yet.</b> Step 3.3 owns the durability rules: reconciling steps left
-/// <see cref="StepStatus.Running"/> by a crash, and the bounded delay within which a diagnostic
-/// step is on disk. This writes each one as it arrives, which satisfies the stronger half of that
-/// and is the thing 3.3 will relax rather than tighten.
+/// <b>The durability point</b> (TR-4c, step 3.3) is <see cref="TraceDurability"/>: a lifecycle
+/// transition is on disk before <see cref="Move"/> returns, a change record is in the transaction
+/// of its mutation, and a diagnostic step is written as it arrives unless a delay was configured,
+/// in which case it is held and written at the latest when the delay has passed, at the next
+/// transition or change, at the next read, or at dispose. <see cref="Interrupt"/> is the other
+/// half of step 3.3: a step the process went away from never reads as done (TR-4b).
+///
+/// <b>One gate around the connection.</b> Every method takes it, so that two answers to one
+/// confirmation arriving on two threads are two compare-and-swaps in sequence rather than two
+/// transactions interleaved on one connection (AG-8a). It is not the single-writer rule of AG-10,
+/// which is the orchestrator's and covers the data as well; it is only what makes the counter
+/// mean something.
 /// </summary>
-internal sealed class EngineTraces : ITraceRecorder
+internal sealed class EngineTraces : ITraceRecorder, IDisposable
 {
     private const string IdField = "id";
     private const string ConversationField = "conversation";
@@ -39,6 +47,10 @@ internal sealed class EngineTraces : ITraceRecorder
     private const string EndedField = "endedAt";
     private const string ReasonField = "reason";
     private const string TransitionsField = "transitions";
+    private const string IntentKindField = "intentKind";
+    private const string IntentField = "intent";
+    private const string IntentHashField = "intentHash";
+    private const string CommittedHashField = "committedHash";
 
     private const string RequestField = "request";
     private const string NameField = "name";
@@ -77,30 +89,46 @@ internal sealed class EngineTraces : ITraceRecorder
     private const string PreviewField = "preview";
 
     private readonly EngineConnection _connection;
+    private readonly TraceDurability _durability;
+    private readonly object _gate = new();
+    private readonly List<ExecutionStep> _waiting = [];
+    private long _waitingSince;
     private bool _described;
 
-    public EngineTraces(EngineConnection connection)
+    public EngineTraces(EngineConnection connection, TraceDurability? durability = null)
     {
         _connection = connection;
+        _durability = durability ?? TraceDurability.Default;
     }
+
+    /// <summary>The durability point this recorder was configured with (TR-4c).</summary>
+    public TraceDurability Durability => _durability;
 
     // ---- The request --------------------------------------------------------------------------
 
     public RequestTrace Begin(Ulid conversationId, string operation)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(operation);
-        Describe();
 
-        var request = new RequestTrace(
-            Ulid.NewUlid(),
-            conversationId,
-            operation,
-            RequestState.Running,
-            DateTimeOffset.UtcNow);
+        lock (_gate)
+        {
+            Describe();
 
-        _connection.InTransaction(() => Write(request));
+            var request = new RequestTrace(
+                Ulid.NewUlid(),
+                conversationId,
+                operation,
+                RequestState.Running,
+                DateTimeOffset.UtcNow);
 
-        return request;
+            _connection.InTransaction(() =>
+            {
+                WriteWaiting();
+                Write(request);
+            });
+
+            return request;
+        }
     }
 
     /// <summary>
@@ -111,31 +139,71 @@ internal sealed class EngineTraces : ITraceRecorder
     /// the second one through. Step 3.4 puts the single-writer lock around this; what is here is
     /// the shape the lock protects.
     /// </summary>
-    public RequestTrace? Move(Ulid requestId, RequestState to, int expectedTransitions, string? reason = null)
+    public RequestTrace? Move(
+        Ulid requestId,
+        RequestState to,
+        int expectedTransitions,
+        string? reason = null,
+        RequestIntent? intent = null,
+        string? committedHash = null)
     {
-        Describe();
-
-        RequestTrace? moved = null;
-
-        _connection.InTransaction(() =>
+        lock (_gate)
         {
-            if (Request(requestId) is not { } request) return;
-            if (request.Transitions != expectedTransitions) return;
+            Describe();
 
-            var finished = to is RequestState.Completed or RequestState.Cancelled or RequestState.Failed;
+            RequestTrace? moved = null;
 
-            moved = request with
+            _connection.InTransaction(() =>
             {
-                State = to,
-                Reason = reason ?? request.Reason,
-                EndedAt = finished ? DateTimeOffset.UtcNow : null,
-                Transitions = request.Transitions + 1
-            };
+                // A transition writes what is waiting first, so that the steps that led to it are
+                // on disk with it (TR-4c): the state is durable at every transition, and a diagram
+                // that showed a request waiting with no steps behind it would be worse than late.
+                WriteWaiting();
 
-            Write(moved);
-        });
+                if (Find(requestId) is not { } request) return;
+                if (request.Transitions != expectedTransitions) return;
 
-        return moved;
+                var finished = to is RequestState.Completed or RequestState.Cancelled or RequestState.Failed;
+
+                moved = request with
+                {
+                    State = to,
+                    Reason = reason ?? request.Reason,
+                    EndedAt = finished ? DateTimeOffset.UtcNow : null,
+                    Transitions = request.Transitions + 1,
+                    Intent = intent ?? request.Intent,
+                    CommittedHash = committedHash ?? request.CommittedHash
+                };
+
+                Write(moved);
+            });
+
+            return moved;
+        }
+    }
+
+    public RequestTrace? Request(Ulid requestId)
+    {
+        lock (_gate)
+        {
+            Describe();
+            return Find(requestId);
+        }
+    }
+
+    public IReadOnlyList<RequestTrace> Unfinished()
+    {
+        lock (_gate)
+        {
+            Describe();
+            WriteWaiting();
+
+            return [.. _connection.SystemDocuments
+                .ReadAll(SystemCollections.Traces)
+                .Select(static entry => ToRequest(entry.Id, entry.Document))
+                .Where(static request => !request.IsFinished)
+                .OrderBy(static request => request.Id)];
+        }
     }
 
     // ---- The steps and the changes --------------------------------------------------------------
@@ -143,44 +211,153 @@ internal sealed class EngineTraces : ITraceRecorder
     public void Record(ExecutionStep step)
     {
         ArgumentNullException.ThrowIfNull(step);
-        Describe();
 
-        // Written under its own identity, so the same step recorded again when it finishes
-        // replaces the one that said it was running rather than adding a second block to the
-        // diagram.
-        _connection.InTransaction(() =>
-            _connection.SystemDocuments.Write(SystemCollections.TraceSteps, step.Id, ToDocument(step)));
+        lock (_gate)
+        {
+            Describe();
+
+            if (_durability.IsImmediate)
+            {
+                _connection.InTransaction(() => WriteStep(step));
+                return;
+            }
+
+            // Held, and written together with whatever else is waiting: at the latest when the
+            // delay has passed, and before anything that must not overtake it (TR-4c).
+            if (_waiting.Count == 0) _waitingSince = Environment.TickCount64;
+            _waiting.RemoveAll(waiting => waiting.Id == step.Id);
+            _waiting.Add(step);
+
+            if (Environment.TickCount64 - _waitingSince >= _durability.DiagnosticDelay.TotalMilliseconds)
+            {
+                _connection.InTransaction(WriteWaiting);
+            }
+        }
+    }
+
+    public int Interrupt(Ulid requestId)
+    {
+        lock (_gate)
+        {
+            Describe();
+
+            var marked = 0;
+
+            _connection.InTransaction(() =>
+            {
+                WriteWaiting();
+
+                foreach (var step in Steps(requestId))
+                {
+                    if (step.Status is not StepStatus.Running) continue;
+
+                    // The start stays; there is no end, because none happened. The status is what
+                    // the diagram reads (TR-4b), and it now says so.
+                    WriteStep(step with { Status = StepStatus.Interrupted });
+                    marked++;
+                }
+            });
+
+            return marked;
+        }
     }
 
     public void Record(DataChange change)
     {
         ArgumentNullException.ThrowIfNull(change);
-        Describe();
 
-        // TR-4. A unit of work inside one joins it, so a change recorded inside the transaction
-        // of the mutation commits with it and neither can exist without the other.
-        _connection.InTransaction(() =>
-            _connection.SystemDocuments.Write(SystemCollections.DataChanges, change.Id, ToDocument(change)));
+        lock (_gate)
+        {
+            Describe();
+
+            // TR-4. A unit of work inside one joins it, so a change recorded inside the transaction
+            // of the mutation commits with it and neither can exist without the other. The steps
+            // that were waiting go in first: a change whose step was lost would dangle at once.
+            _connection.InTransaction(() =>
+            {
+                WriteWaiting();
+                _connection.SystemDocuments.Write(SystemCollections.DataChanges, change.Id, ToDocument(change));
+            });
+        }
     }
 
     public (RequestTrace Request, IReadOnlyList<ExecutionStep> Steps)? Read(Ulid requestId)
     {
-        Describe();
+        lock (_gate)
+        {
+            Describe();
 
-        if (Request(requestId) is not { } request) return null;
+            if (_waiting.Count > 0) _connection.InTransaction(WriteWaiting);
 
-        return (request, Steps(requestId));
+            if (Find(requestId) is not { } request) return null;
+
+            return (request, Steps(requestId));
+        }
     }
 
     public IReadOnlyList<DataChange> Changes(Ulid requestId)
     {
-        Describe();
+        lock (_gate)
+        {
+            Describe();
 
-        return [.. _connection.SystemDocuments
-            .ReadAll(SystemCollections.DataChanges)
-            .Select(static entry => ToChange(entry.Id, entry.Document))
-            .Where(change => change.RequestId == requestId)
-            .OrderBy(static change => change.Id)];
+            return [.. _connection.SystemDocuments
+                .ReadAll(SystemCollections.DataChanges)
+                .Select(static entry => ToChange(entry.Id, entry.Document))
+                .Where(change => change.RequestId == requestId)
+                .OrderBy(static change => change.Id)];
+        }
+    }
+
+    /// <summary>
+    /// Writes whatever diagnostic steps are being held (TR-4c). Called inside a transaction.
+    /// </summary>
+    private void WriteWaiting()
+    {
+        if (_waiting.Count == 0) return;
+
+        foreach (var step in _waiting) WriteStep(step);
+
+        _waiting.Clear();
+    }
+
+    /// <summary>
+    /// Written under its own identity, so the same step recorded again when it finishes replaces
+    /// the one that said it was running rather than adding a second block to the diagram.
+    /// </summary>
+    private void WriteStep(ExecutionStep step) =>
+        _connection.SystemDocuments.Write(SystemCollections.TraceSteps, step.Id, ToDocument(step));
+
+    /// <summary>Whatever is still waiting goes to disk; a close is not a crash.</summary>
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            if (_waiting.Count == 0) return;
+
+            try
+            {
+                _connection.InTransaction(WriteWaiting);
+            }
+            catch (ObjectDisposedException)
+            {
+                // The connection went first. What was waiting is what TR-4c says may be lost.
+            }
+        }
+    }
+
+    public IReadOnlyList<DataChange> ChangesBefore(DateTimeOffset moment)
+    {
+        lock (_gate)
+        {
+            Describe();
+
+            return [.. _connection.SystemDocuments
+                .ReadAll(SystemCollections.DataChanges)
+                .Select(static entry => ToChange(entry.Id, entry.Document))
+                .Where(change => change.At < moment)
+                .OrderBy(static change => change.Id)];
+        }
     }
 
     /// <summary>
@@ -193,7 +370,17 @@ internal sealed class EngineTraces : ITraceRecorder
     /// <returns>How many steps had a payload cleared.</returns>
     public int ClearPayloadsNaming(Ulid recordId)
     {
+        lock (_gate)
+        {
+            return ClearPayloads(recordId);
+        }
+    }
+
+    private int ClearPayloads(Ulid recordId)
+    {
         Describe();
+
+        if (_waiting.Count > 0) _connection.InTransaction(WriteWaiting);
 
         var requests = _connection.SystemDocuments
             .ReadAll(SystemCollections.DataChanges)
@@ -226,7 +413,17 @@ internal sealed class EngineTraces : ITraceRecorder
 
     public int PurgeDiagnostics(DateTimeOffset moment)
     {
+        lock (_gate)
+        {
+            return Purge(moment);
+        }
+    }
+
+    private int Purge(DateTimeOffset moment)
+    {
         Describe();
+
+        if (_waiting.Count > 0) _connection.InTransaction(WriteWaiting);
 
         // A request that has not finished is not old, however long ago it started: one waiting
         // for an answer is waiting for a person, and a person takes as long as they take.
@@ -271,6 +468,15 @@ internal sealed class EngineTraces : ITraceRecorder
     {
         if (_described) return;
 
+        // Describing is a catalogue write. A read-only connection - a second observer of a file
+        // another process is writing - cannot make one and does not need to: the documents read
+        // the same whether or not the catalogue says what they hold.
+        if (_connection.AccessMode != Disk.TokkDbAccessMode.ReadWrite)
+        {
+            _described = true;
+            return;
+        }
+
         _connection.DescribeSystemCollection(SystemCollections.Traces, RequestColumns());
         _connection.DescribeSystemCollection(SystemCollections.TraceSteps, StepColumns());
         _connection.DescribeSystemCollection(SystemCollections.DataChanges, ChangeColumns());
@@ -287,7 +493,11 @@ internal sealed class EngineTraces : ITraceRecorder
         new(StartedField, ValueTypeEnum.DateTime, "When it started"),
         new(EndedField, ValueTypeEnum.DateTime, "When it finished, if it has"),
         new(ReasonField, ValueTypeEnum.String, "Why it stopped, where that needs saying"),
-        new(TransitionsField, ValueTypeEnum.Int, "How many times it has changed state (AG-8a)")
+        new(TransitionsField, ValueTypeEnum.Int, "How many times it has changed state (AG-8a)"),
+        new(IntentKindField, ValueTypeEnum.String, "What sort of thing it is waiting to do (D-15)"),
+        new(IntentField, ValueTypeEnum.String, "The validated, resolved intent it is waiting to do, never the conversation (AG-8)"),
+        new(IntentHashField, ValueTypeEnum.String, "The content hash of that intent (AG-3d)"),
+        new(CommittedHashField, ValueTypeEnum.String, "The hash of the resolved action that committed: the idempotency key (AG-8a)")
     ];
 
     private static List<EngineColumn> StepColumns() =>
@@ -335,7 +545,11 @@ internal sealed class EngineTraces : ITraceRecorder
             [StartedField] = new DateTimeDocumentValue(request.StartedAt.UtcDateTime),
             [EndedField] = DocumentFields.Value(request.EndedAt),
             [ReasonField] = DocumentFields.Value(request.Reason),
-            [TransitionsField] = new IntDocumentValue(request.Transitions)
+            [TransitionsField] = new IntDocumentValue(request.Transitions),
+            [IntentKindField] = DocumentFields.Value(request.Intent?.Kind),
+            [IntentField] = DocumentFields.Value(request.Intent?.Payload),
+            [IntentHashField] = DocumentFields.Value(request.Intent?.Hash),
+            [CommittedHashField] = DocumentFields.Value(request.CommittedHash)
         }));
 
         _connection.SystemDocuments.Write(SystemCollections.Traces, request.Id, document);
@@ -451,7 +665,7 @@ internal sealed class EngineTraces : ITraceRecorder
 
     // ---- Back again -----------------------------------------------------------------------------
 
-    private RequestTrace? Request(Ulid requestId)
+    private RequestTrace? Find(Ulid requestId)
     {
         foreach (var (id, document) in _connection.SystemDocuments.ReadAll(SystemCollections.Traces))
         {
@@ -482,7 +696,14 @@ internal sealed class EngineTraces : ITraceRecorder
             DocumentFields.OptionalMoment(value, EndedField),
             DocumentFields.OptionalText(value, ReasonField))
         {
-            Transitions = DocumentFields.Number(value, TransitionsField)
+            Transitions = DocumentFields.Number(value, TransitionsField),
+            Intent = DocumentFields.OptionalText(value, IntentField) is { } payload
+                ? new RequestIntent(
+                    DocumentFields.OptionalText(value, IntentKindField) ?? string.Empty,
+                    payload,
+                    DocumentFields.OptionalText(value, IntentHashField) ?? string.Empty)
+                : null,
+            CommittedHash = DocumentFields.OptionalText(value, CommittedHashField)
         };
     }
 

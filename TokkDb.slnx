@@ -11,6 +11,10 @@
     <Project Path="TokkDb.Assistant.Storage.Engine/TokkDb.Assistant.Storage.Engine.csproj" />
     <Project Path="TokkDb.Assistant.Ingestion/TokkDb.Assistant.Ingestion.csproj" />
     <Project Path="TokkDb.Assistant.Trace/TokkDb.Assistant.Trace.csproj" />
+    <Project Path="TokkDb.Assistant.Agents/TokkDb.Assistant.Agents.csproj" />
+    <Project Path="TokkDb.Assistant.Diagram/TokkDb.Assistant.Diagram.csproj" />
+    <Project Path="TokkDb.Assistant.TokenBudget/TokkDb.Assistant.TokenBudget.csproj" />
+    <Project Path="TokkDb.Assistant.App/TokkDb.Assistant.App.csproj" />
     <Project Path="TokkDb.Assistant.Tests/TokkDb.Assistant.Tests.csproj" />
   </Folder>
   <Project Path="TokkDb.Benchmarks\TokkDb.Benchmarks.csproj" Type="C#" />

@@ -40,6 +40,27 @@ public abstract partial class StorageContractTests
         Assert.Equal(2, storage.Conversations.Get(conversation.Id)!.TurnCount);
     }
 
+    /// <summary>
+    /// QR-3a: a reply that showed a result carries the result's handle, and the conversation
+    /// keeps it - as text it does not interpret - so that a follow-up two turns later, or after a
+    /// restart, still has it.
+    /// </summary>
+    [Fact]
+    public void A_turn_keeps_what_it_carried_besides_its_text()
+    {
+        var storage = Storage;
+        var conversation = storage.Conversations.Start();
+
+        storage.Conversations.Append(conversation.Id, TurnSpeaker.Person, "how much did I spend");
+        storage.Conversations.Append(conversation.Id, TurnSpeaker.Assistant, "12 800 in all.",
+            payload: """{"handle":"conferences","count":21}""");
+
+        var turns = storage.Conversations.Turns(conversation.Id);
+
+        Assert.Null(turns[0].Payload);
+        Assert.Equal("""{"handle":"conferences","count":21}""", turns[1].Payload);
+    }
+
     [Fact]
     public void Conversations_are_listed_with_the_one_used_last_first()
     {
@@ -245,5 +266,68 @@ public abstract partial class StorageContractTests
 
         Assert.Equal("expenses-2026.csv", metadata["source"]);
         Assert.Null(metadata["nothing"]);
+    }
+}
+
+/// <summary>
+/// The overview (BR-1, BR-1a): count and time maintained with the writes, never computed from
+/// the records; correct after an import, a delete and a rolled-back unit of work; most recently
+/// changed first; reconcile idempotent.
+/// </summary>
+public abstract partial class StorageContractTests
+{
+    [Fact]
+    public void The_overview_counts_and_times_move_with_the_writes()
+    {
+        var storage = Storage;
+        storage.CreateCollection(new CollectionDefinition("notes", "things I wrote down", columns: [new ColumnDefinition("title", ColumnType.Text, required: true)]));
+        storage.CreateCollection(new CollectionDefinition("papers", "papers I read", columns: [new ColumnDefinition("title", ColumnType.Text, required: true)]));
+
+        var made = storage.Describe("notes")!;
+        Assert.Equal(0, made.RecordCount);
+        Assert.NotNull(made.LastChanged);
+
+        // An import, in one unit of work: the count is 500 and the time moved once.
+        storage.InUnitOfWork(() =>
+        {
+            for (var i = 0; i < 500; i++) storage.Create("notes", new Dictionary<string, object?> { ["title"] = $"note {i}" });
+        });
+
+        var imported = storage.Describe("notes")!;
+        Assert.Equal(500, imported.RecordCount);
+        Assert.True(imported.LastChanged >= made.LastChanged);
+
+        // A delete.
+        var first = storage.GetAll("notes").First();
+        storage.Delete("notes", first.Id);
+        Assert.Equal(499, storage.Describe("notes")!.RecordCount);
+
+        // A rolled-back unit of work leaves both as they were.
+        var before = storage.Describe("notes")!;
+        Assert.Throws<InvalidOperationException>(() => storage.InUnitOfWork(() =>
+        {
+            storage.Create("notes", new Dictionary<string, object?> { ["title"] = "never" });
+            throw new InvalidOperationException("rolled back");
+        }));
+        var after = storage.Describe("notes")!;
+        Assert.Equal(499, after.RecordCount);
+        Assert.Equal(before.LastChanged, after.LastChanged);
+
+        // Most recently changed first: papers, untouched since creation, comes after notes.
+        Assert.Equal(["notes", "papers"], storage.Overview().Select(static thing => thing.Name));
+
+        storage.Create("papers", new Dictionary<string, object?> { ["title"] = "p" });
+        Assert.Equal(["papers", "notes"], storage.Overview().Select(static thing => thing.Name));
+
+        // A shape change counts as a change too.
+        var beforeShape = storage.Describe("notes")!.LastChanged;
+        storage.AddColumn("notes", new ColumnDefinition("body", ColumnType.Text));
+        Assert.True(storage.Describe("notes")!.LastChanged >= beforeShape);
+        Assert.Equal(2, storage.Describe("notes")!.Definition.Columns.Count);
+
+        // Reconcile finds nothing out of step, twice.
+        Assert.Equal(0, storage.ReconcileOverview());
+        Assert.Equal(0, storage.ReconcileOverview());
+        Assert.Null(storage.Describe("nothing"));
     }
 }

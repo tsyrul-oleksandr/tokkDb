@@ -1,0 +1,27 @@
+# S-8 through the browser: the spreadsheet is kept first (one model call), then everything below is the browser and costs no model call until "Which was the most expensive?".
+attach:$C/conferences-2025.csv
+Keep these
+browse
+overview
+open:conferences
+sort:cost
+sort:cost
+keeps
+record:PyCon
+edit:cost=13000
+back
+sort:cost
+find:Kyiv
+find:
+filter:cost|Over|5000
+csv
+record:PyCon
+ask
+chat
+Which was the most expensive?
+browse
+record:PyCon
+remove
+yes
+browse
+overview

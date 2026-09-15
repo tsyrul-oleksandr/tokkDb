@@ -126,6 +126,14 @@ intention, not the current state. It takes `OLLAMA_CONTEXT_LENGTH`, a Modelfile,
 `scratch/AgentFrameworkSpike/FINDINGS.md`. **Raising the context and bounding the tool loop
 have to land together**: today the 4,096 window is the only thing ending a runaway loop, badly.
 
+*Decided, step 0.3 (2026-09-14).* The transport is native: OllamaSharp's `IChatClient` over
+`/api/chat`, with `Microsoft.Agents.AI` above it, and `num_ctx`, `num_predict` and `think` are
+per-call options set from the operation's declaration. Both limits are enforced (`/api/ps` reports
+the window asked for; a cap of 5 produces 5 tokens), tool calling works with the loop bounded at
+two iterations (3 round trips against 23), schema-constrained output is as good (14 of 20 with
+thinking on, as before; 20 of 20 with it off), and the approval path behaves (20 of 20). The
+operations set 16k; §6.2's budgets sit far below it. `scratch/TransportGate/FINDINGS.md`.
+
 **D-4 — More models, each doing less.** Rather than one model that does everything, the
 pipeline uses specialised calls: a classifier for intent, an extraction model for turning
 prose into candidate records, a mapping model for deciding where data belongs, a phrasing
@@ -1684,10 +1692,13 @@ where the first tool alone costs more than the digest it would have fetched.
 
 Per model call, prompt side, measured by the harness.
 
-**These figures are provisional until R-3 runs**, and AG-1a means it: a budget set from taste is
-exactly what that requirement forbids. They are starting points chosen to be checked in step 0.4,
-not measurements. The ceiling they sit under is whatever Phase 0.3 establishes, which today is
-4,096 on the endpoint the framework speaks and not the 64k of D-3.
+**Measured, step 0.4 (2026-09-15).** The digest is the figure that needed a measurement, and it
+has one: on `qwen3.5:4b` the mapping call finds the right thing 14 times in 20 with a digest of
+1,000 prompt tokens, 7 in 20 at 4,000, 3 in 20 at 8,000. So the digest in the prefix is bounded at
+1,000 tokens and the model chooses from a shortlist of at most five (AG-3c), which leaves the
+mapping call's 3,000 with room to spare; the other rows stood as they were, since nothing in the
+measurement asked them to move. The ceiling they sit under is the 16k window step 0.3 made a
+per-call option. `scratch/ContextSpike/FINDINGS.md`.
 
 | Operation | Budget | Note |
 |---|---|---|
@@ -1792,15 +1803,21 @@ enforces `type`, `enum`, `required` and `additionalProperties` and nothing else;
 schema itself is free in prompt tokens, since Ollama compiles `response_format` into a sampling
 grammar rather than putting it in the prompt.
 
-**R-2b. The output cap is not in effect. — New, blocking, and now a gate (Phase 0.3).** `Microsoft.Extensions.AI` sends
+**R-2b. The output cap is not in effect. — Closed by step 0.3 (2026-09-14):** over the native
+transport `MaxOutputTokens` becomes `num_predict` and a cap of 5 produces exactly 5 tokens with
+`done_reason: length`. The paragraph below records what was wrong. `Microsoft.Extensions.AI` sends
 `max_completion_tokens`, which Ollama ignores; it honours `max_tokens` (and `num_predict`
 natively). Measured: the same request capped at 5 produced 5 tokens with one field and 1,866
 with the other. Until this is fixed nothing limits generation, unbounded reasoning is what
 empties the replies, and **no budget the harness of D-12 asserts is actually enforced**.
 
-**R-3. 64k context on a 4B model.** The window is not the usable length. Quality falls off
-well before it fills. *Spike: measure mapping accuracy at 4k, 8k and 16k of schema digest and
-set the pre-filter's aggressiveness from the answer.*
+**R-3. 64k context on a 4B model. — Retired by step 0.4 (2026-09-15).** The window is not the
+usable length, and the measurement says where the usable length ends for the mapping call:
+14/20 correct at a 1k-token digest, 7/20 at 4k, 3/20 at 8k, 4/20 at 16k, every answer well-formed
+throughout. The failure has one shape - the model answers `new` with the very name in the digest,
+34 of 52 wrong answers - so the pre-filter is the mechanism (a shortlist of five, a digest of at
+most 1,000 tokens) and a `new` naming an offered thing is read as the choice. §6.2 is marked
+measured. `scratch/ContextSpike/FINDINGS.md`.
 
 **R-4. `GraphicsView` on two platforms. — Retired on Mac Catalyst; open on Windows, and the
 result was read too widely.** `scratch/DiagramSpike/FINDINGS.md`. Tap coordinates and canvas
@@ -1817,7 +1834,8 @@ of doing the reading by hand; `ClosedXML` is friendlier for spreadsheets and add
 **R-6. The storage contract is a phase, not a step.** D-1 means rebuilding what took several
 phases the first time. It is smaller now because the answers are known, but it is not small.
 
-**R-7. The native-transport question. — New, and it decides two other things.** `num_ctx` and
+**R-7. The native-transport question. — Retired by step 0.3 (2026-09-14): native.** See D-3's
+decision; the five measurements are in `scratch/TransportGate/FINDINGS.md`. `num_ctx` and
 `num_predict` are both Ollama options that its OpenAI-compatibility layer drops. An
 `IChatClient` speaking `/api/chat` fixes R-2b and D-3's context in one move, and
 `Microsoft.Agents.AI` keeps working over it because it is written against `IChatClient`. What
@@ -1964,12 +1982,19 @@ written to be pasted as they are.
 > the parameter name Ollama honours, recorded with the reason. Phase 5 does not start until this
 > step has an answer.
 
+*Done 2026-09-14: native.* `scratch/TransportGate` is the spike and its `FINDINGS.md` the five
+measurements and the reason; D-3, R-2b and R-7 carry the result.
+
 **0.4 What the context is actually worth**
 > Read risk R-3 and requirement AG-1a, and run this after 0.3 has decided the transport. Measure
 > mapping accuracy against the size of the schema digest at 4k, 8k and 16k, twenty attempts each,
 > and set the pre-filter's aggressiveness and §6.2's budgets from the answer rather than from
 > taste. Done when: the three measurements exist, the budget table is marked measured rather than
 > provisional, and the digest size at which accuracy starts falling is written down.
+
+*Done 2026-09-15.* `scratch/ContextSpike` is the spike, at 1k as well as the three sizes; accuracy
+starts falling before 4k and is gone by 8k; R-3 and §6.2 carry the result, and
+`OrchestratorOptions.DigestBudget` carries the number.
 
 ### Phase 1
 
@@ -2270,6 +2295,15 @@ running this step again.
 > wall clock. Done when: something typed in the window is in storage and can be read back out of
 > it by asking, and the numbers are written down for the budget phase to compare against.
 
+*Done 2026-09-14* (`TokkDb.Assistant.TokenBudget`, `dotnet run -- thin`; `chat` is the minimal
+display). Against `qwen3.5:4b` over the native transport, a fresh database: storing one sentence
+took 2 model calls, 2 round trips, 351 prompt and 168 completion tokens, 11.3 s wall clock (5.8 s
+of it the intent call, which the shell can skip when the signal is plain); asking for it back took
+2 calls, 388 prompt and 62 completion tokens, 3.1 s; the records came back through the storage and
+none of them entered a prompt. Two things the real model showed that the fake could not: it split
+one sentence into two records, and it named the fields as it pleased - which is the placement's
+job to survive and the reason the C# side, not the model, decides where things go.
+
 **5.1 The shell**
 > Read requirements UI-1 and UI-5 and decision D-10. Add TokkDb.Assistant.App for Mac Catalyst
 > and Windows: the window, the conversation, streaming replies, the conversation list, and the
@@ -2294,6 +2328,8 @@ running this step again.
 > grows with the number of records stored, moving between the two surfaces keeps both their
 > places, and no string in it names a collection, column or schema.
 
+*Done (2026-09-15).* `ThingsOverview.Of` reads `IStorage.Overview()`, which both backends answer from the catalogue alone (BR-1a: `RecordCount` from the engine's descriptor, `lastChangedAt` in the settings document, touched per write and flushed once per unit of work; `ReconcileOverview()` for drift). The browser is `TokkDb.Assistant.App/Browse/` (`BrowseViewModel`, `BrowseSurface`), reached from the Chat/Browse control; both surfaces stay built, so neither loses its place. `BrowsingTests` and `OverviewCostTests` assert the wording and the cost; the app self-test (`sh TokkDb.Assistant.App/SelfTest/selftest-run.sh TokkDb.Assistant.App/SelfTest/selftest-browse.txt fresh`) drove it on Mac Catalyst.
+
 **6.2 The table, a page at a time**
 > Read requirements BR-2, BR-3, BR-3a and BR-3b. Add the record table: display value leading,
 > remaining fields in a stable order, total count shown, loaded a page at a time through the
@@ -2305,6 +2341,8 @@ running this step again.
 > than a scan, and editing a record mid-sequence so that it moves produces the changed indicator
 > rather than a silently wrong list.
 
+*Done (2026-09-15), with one limitation recorded.* `RecordTable` pages through `TokkDbStorage.Paged`: the order and the page bound go into the engine's `QueryRequest`, an index is raised the first time a thing of 1,000 or more records is sorted by an unindexed column, and the cursor carries `TiesSeen` so a boundary inside a run of equal values skips exactly the ties already shown - ten thousand records sharing one value page without a repeat or a gap on both backends. The count comes with the first page only. `BrowsingEngineTests`: 10,000 records open in well under two seconds, the planner reports the index walk, and a later page reads under 200 pages. **Limitation (R-1):** the engine walks an index forward only, so a *descending* sort is a bounded-heap sort that examines every record for each page - exact, still quick at ten thousand, but its cost grows with the thing; `A_descending_sort_is_exact_and_quick_but_is_a_sort_rather_than_a_walk` records it. The changed-underneath banner comes from `Describe().LastChanged` against the time the sequence began.
+
 **6.3 Sorting, filtering and what it keeps**
 > Read requirements BR-4, BR-6 and BR-10. Add sorting and filtering from the table header, expressed
 > as the declarative query type of SC-7 and executed with no model, and the panel that says
@@ -2313,11 +2351,15 @@ running this step again.
 > filter that produced it, and the structure panel contains none of the words column, type, index,
 > schema, constraint or nullable.
 
+*Done (2026-09-15).* Headings sort (a second click turns the order round, and each sort is a new sequence, BR-3a); "Narrow it down" builds a `TableFilter` that becomes a `QueryCondition` of the same `StorageQuery` the assistant runs; applied filters are chips with a ×; "Save as a file" walks every page of the same cursor into a .csv in the app's `saved/` folder. `WhatItKeeps` writes each field as "name keeps a kind; notes", and a test checks every string against the forbidden words. No model is involved anywhere on this surface; the diagnostics line says so.
+
 **6.4 The record, and what it relates to**
 > Read requirements BR-5 and BR-7. Add the record detail: every field it has, empty ones shown
 > as empty, the display value as the title, and related records reachable in one step under a
 > heading that says what the relation means. Done when: a record written before a field existed
 > shows that field empty, and the relation heading reads as something a person would write.
+
+*Done (2026-09-15).* `RecordDetail.Open` lists every field of the thing's shape, an empty one as "nothing here", the display value as the title, and the related records on each side of every relation under `WhatItKeeps.Heading` (the relation's purpose where it has one, "The trips this belongs to" otherwise). Tests: `A_record_shows_every_field_and_what_it_relates_to`.
 
 **6.5 Changing things from here, and the bridge**
 > Read requirements BR-8 and BR-9 and decisions D-7 and D-8. Make an edit or a delete from the
@@ -2327,12 +2369,16 @@ running this step again.
 > Done when: deleting a record from the table is indistinguishable in trace and diagram from
 > deleting it in the conversation, and scenario S-8 passes with zero tokens recorded.
 
+*Done (2026-09-15).* `Orchestrator.ChangeAsync(conversation, action, said)` is the browser's way in: the same `RestructureFlow.ApplyAsync`, the same `ChangeClassifier`, the same card in the conversation, the same trace - with no intent call, so no model call. A record edit is a new `ChangeRecord` action (Safe, applied at once, journaled as an Update with the versions before and after); a removal is `DeleteRecords` and waits on the card. `BR8_a_removal_from_the_browser_is_indistinguishable_from_one_said` compares the steps after "what it would do", the card, and the journal entries. The bridge: a result row in the chat opens the record in the browser; "Ask about this" calls `Orchestrator.LookAt`, which appends a turn carrying the same `QueryResultHandle` a result would, so the next thing said is about that record (`BR9_...`). `S8_looking_for_oneself_records_zero_tokens` runs the browsing sequence after S-5's correction with the model's call count unchanged and no request begun. On Mac Catalyst the self-test log shows the whole of S-8 through the real window, the edit from the browser traced as `the person -> the assistant -> what it would do -> the change -> the answer`, and the removal's card answered in the chat.
+
 ### Phase 7
 
 **7.1 Layout**
 > Read requirement TR-5 and decision D-9. Add TokkDb.Assistant.Diagram: trace to geometry —
 > participants, calls, lanes, labels — as pure testable C# with no MAUI app types. Done when:
 > the layout of a fifteen-step trace is asserted by tests, including a nested call.
+
+*Done (2026-09-15).* `TokkDb.Assistant.Diagram` references the trace and nothing else: `DiagramLayouts.Layout(steps, options, stepsWithChanges)` gives lanes (you, the assistant, the model, what is stored), one block per step in trace order (the chain of `After`, time where the chain is broken), nesting from time containment (a step that began while another was still running sits inside it, indented, and the parent grows to cover it), and call/return arrows between the assistant's lane and the others, all in points. `DiagramLayoutTests` asserts a fifteen-step trace with a nested call, the trace order over a shuffled read, and a step recorded twice counted once as its latest recording.
 
 **7.2 Drawing and hit testing**
 > Read requirements TR-5 and TR-5a. Host the layout in a GraphicsView, draw it, make it grow as
@@ -2342,6 +2388,8 @@ running this step again.
 > request shows steps appearing, clicking any block reports which it was on both platforms, and a
 > test applying scale factors of 1.0, 1.5 and 2.0 to a fixed layout returns the same block for the
 > same logical point with no second display present.
+
+*Done (2026-09-15).* `TokkDb.Assistant.App/Diagram/DiagramView` is a `GraphicsView` over the layout: at draw time it makes one `DiagramTransform` from the view's width (`FitWidth`, never above one to one), draws through it and keeps it, and a click goes through the same transform (`HitTesting.BlockAt`) - so the block under a point is the block drawn there at any scale; a display change or a size change invalidates and makes a new transform, never a new layout. It grows as steps arrive because the pane re-lays the live steps. `The_same_logical_point_lands_on_the_same_block_at_every_scale` asserts scales 1.0, 1.5 and 2.0 with an offset, with no window and no second display. Verified by eye on Mac Catalyst through the self-test screenshots; Windows is not available on this machine (recorded under 9.7).
 
 **7.3 Detail views**
 > Read requirements TR-6, TR-6a, UI-6 and EX-4, and SC-12's note on the diff as built. First make
@@ -2355,6 +2403,8 @@ running this step again.
 > view is registered in one place, an earlier request's diagram comes back by clicking it, a change
 > to a field since removed is shown marked as such on both backends, and the conversation's earlier
 > replies are unchanged by a later structural change.
+
+*Done (2026-09-15).* First half: `ColumnChange` carries `Fate` (flags: since removed, since renamed, since retyped), `WasCalled` and `KeptThen`, and `Note` says it in words. The engine's `DiffVersions` reads each version as stored (a value a retype converted is shown as it was), takes the values the schema mapping could not carry from the engine's own `Unmapped` list, and the name a field had then from the descriptor's migrations; the memory backend keeps beside each version what a rewrite drops and remembers renames. `A_diff_shows_a_field_since_removed_renamed_or_retyped_as_it_was_and_says_so` and `A_diff_after_a_clean_retype_shows_the_values_as_written` run on both backends. Second half: `DetailViews` is the one registry (EX-4) - a record change as before-and-after through `RecordChangeTable` with the fate note beside a field and "the values of this change are no longer kept" after a purge; a model call as tokens, round trips, repairs, peak context and time; a retrieval as the query in words and the row count; a structural step as its journal payload; JSON for the rest. `StepsPane` draws the diagram and the focusable list from one layout, either selection opens the same panel (UI-8), and choosing an earlier reply's "what happened" shows that request's diagram (UI-6). Earlier replies are conversation turns and are never rewritten.
 
 ### Phase 8
 
@@ -2372,10 +2422,14 @@ running this step again.
 > on too few runs fails as thin rather than passing, and a scenario that gains a model call or a
 > round trip fails until the limit is raised deliberately.
 
+*Done (2026-09-15).* `TokkDb.Assistant.TokenBudget/Harness/`: `ScenarioRunner` runs S-1 to S-4 as one measured request each over a fresh database with the precondition put in place by storage; `RunFigures.From` reads every figure of §6.2a from the request's trace - prompt and output tokens, model calls, round trips counted apart, repairs, peak context, latency, and each call's mode from the runner's own step output; `ProbingChatClient` sends every prompt once more with the output capped at one token and reports that figure beside the working call's, keyed by the trace's prompt hash; `ScenarioMeasurement` holds the maxima beside `Budgets` (§6.2's tokens, the calls each scenario makes, a repair allowance of one), the success rate with the Wilson lower bound at 95% against the floor, the product of the per-call rates after repair as AG-1d's diagnostic and its distance, and failures by mode. `Report` writes `docs/assistant-token-budget.md` in two sections, the real model's and the fake's. `TokenBudgetTests`: every scenario meets its limits over the fake across 20 runs, three runs fail as thin, a scenario given one call or one round trip fewer than it makes fails until the limit is raised, a repaired malformed answer is counted as a mode and not as a failed request, and S-2's prompt tokens are the same at 100 rows and at 1 000. `dotnet run --project TokkDb.Assistant.TokenBudget -- measure [--ollama] [--runs N] [--only S-3]`.
+
 **8.2 Meeting the budget**
 > Read section 6.2. Bring every scenario within its budget, reporting what each change bought.
 > Done when: all budgets are met, a test fails when one is exceeded, and S-2's cost does not
 > move when the row count does.
+
+*Done (2026-09-15).* Over the fake every scenario is within budget. Over `qwen3.5:4b` the tokens are far inside the budgets (S-1 391 prompt tokens against 9,000; S-2 334 against 7,000; S-3 642 against 4,500; S-4 none against 2,500), and what the measurement bought was not a token saving but three corrections to the query operation's instructions: the model read "last year" as the past twelve months and found nothing in 2 of 3 runs, so the instructions now read a period by the calendar with a worked example (S-3 then 4 of 4, at a cost of 187 prompt tokens, though one run in eight still takes the twelve-month reading); once in four it put "orderBy" inside "where", so the instructions say the ordering fields are never conditions; and "which was the most expensive" as a fresh question came back unordered with a limit of one, so a superlative now orders by its field. The final real run: S-1 4 of 4, S-2 4 of 4, S-3 4 of 4, S-4 3 of 4 (the miss was its unmeasured retrieval). One repair in three runs of S-3 set the round-trip limit at calls plus one and the repair allowance at one, deliberately. S-2's cost does not move with the row count - the mapping call sees a profile and a bounded sample, never the rows - and the test asserts it. The success floor is asserted against the lower bound of the interval, which four runs cannot support: the real section of the report says so as "thin" rather than passing; twenty runs per scenario over the real model is a run of an hour and is left for a machine that can give it.
 
 ### Phase 9
 
@@ -2388,6 +2442,8 @@ running this step again.
 > still correctable. Done when: S-5 passes without the user naming a collection or a record, and
 > each of those three cases is a test.
 
+*Done (2026-09-15).* `CorrectionFlow` resolves the record against the handle's identities, checks staleness at the corrected field with `DiffVersions` between the version shown and the head, and writes the change as one step whose input is the old value and output the new. `CorrectionTests` holds the three cases QR-4b names - an unrelated edit does not block, an edit to the field stops and shows both values ("it read 12000 then and reads 12500 now"), a record that left the filter is still corrected by position - and QR-4a's two: a record inserted meanwhile does not move the positions, and a deleted one is reported rather than another corrected. S-5 itself is `S5_a_correction_updates_the_record_and_the_trace_shows_before_beside_after`.
+
 **9.2 Retention**
 > Read requirements TR-7, TR-8 and NF-4d. Add three retention settings: a shorter window for
 > diagnostics, a longer one for the change journal, and the compensation window, which bounds how
@@ -2398,6 +2454,8 @@ running this step again.
 > Done when: the diagnostics purge is asserted to touch nothing but diagnostics; every change stays
 > attributable to a request and a time; compensation still works inside the window and refuses with
 > "no longer kept" outside it; and the refused configuration is a test.
+
+*Done (2026-09-15).* The three windows are `RetentionWindows` (diagnostics 30 days, changes a year, compensation 90 days, with history kept for the compensation window), surfaced as three settings in `AppSettings` and carried in `OrchestratorOptions.Retention`. `RetentionSweep.Run` first asks the windows for the history moment - a configuration whose history purge would fall inside the compensation window is refused there, naming both moments, before anything is touched - then purges the diagnostics of requests finished before the diagnostics window (`ITraceRecorder.PurgeDiagnostics`) and the version history older than the history window of every record the change journal ever named (`ITraceRecorder.ChangesBefore` + `PurgeRecordHistory`). The application runs the sweep at startup, after `RecoverAsync`. `RetentionTests`: the diagnostics purge leaves the data, the conversation and the journal (with its request and time) untouched, and an undo still works from the journal alone - `UndoFlow` stands a purged request in from its changes and the person's turn; outside the window the versions are gone and the undo refuses as "no longer kept". `RetentionSweep.EndWindow` is NF-4d's per-request purge.
 
 *Revised by draft 10.* AJ-8's refusal already exists as `RetentionWindows` in `TokkDb.Assistant.Trace`
 (versioning step 9.3, tested in `CompensationTests`); this step keeps it where the settings live and adds
@@ -2410,6 +2468,8 @@ the two purges around it.
 > purpose; between them a technical term needs a plain gloss beside it. Done when: the first
 > tier contains no database vocabulary, the detail panel still says what it means, and the
 > review is listed.
+
+*Done (2026-09-15).* `docs/assistant-vocabulary-review.md` lists the three tiers and the sources of each; `VocabularyTests` reads every first-tier source and fails on a string literal that says collection, column, index, schema, query, constraint, nullable, database, SQL or a key, with interpolation holes stripped first. The review found two things and fixed them: change descriptions and evidence sentences printed stored names with underscores, and the browser's message for a name that never existed said "no longer kept". The detail panel keeps its technical words (the test checks it still does), and "what this keeps" is the third tier's worked example.
 
 **9.4 Egress, secrets and the deletion window**
 > Read requirements NF-4, NF-4a, NF-4b, NF-4c, NF-4d, NF-4d1 and NF-4e. Make egress a mode: LocalOnly
@@ -2431,6 +2491,8 @@ the two purges around it.
 > in the user's own conversation entry; and right after a per-request purge commits, a value that
 > existed only in the purged versions is in neither file.
 
+*Done (2026-09-15), with encryption at rest recorded as out of scope.* Egress: `Egress.Check` refuses a remote endpoint in `LocalOnly` naming the mode; local is loopback and a LAN address is remote (`EgressTests`); each operation declares its `EgressClass`, and `OperationCatalogTests` asserts no operation sends more than it declared. Secrets: `ISecretStore` is asked for a credential at the moment the transport is made and it goes into the request header and nowhere else; `A_credential_is_not_recoverable_from_the_database_file_a_trace_or_a_settings_document` searches the raw file, the journal, the trace and a settings document. Redaction of payloads is by clearing (TR-2b), prompts are hashed. Deletion: a removal's card states the window ("can be put back for 90 days, then it is gone for good"); ending it early works per request (`RetentionSweep.EndWindow`) and per thing or record (`EraseRecords`, "for good"/"erase"/"completely" in a removal, or the browser's "Erase for good"), which erases the record and every version and clears the step payloads of every request that named it - the card says it cannot be undone and that conversations are kept. `ErasureThroughAssistantTests` searches the database file and its journal right after the commit, with no compaction and no close: the value is found nowhere but where the person typed it, and after a per-request purge a value that existed only in the purged versions is in neither file (the payloads are cleared first, so the purge's commit is the one that leaves no frame). The database lives in the application's data directory, private to the user (`AppSettings.DatabasePath`); encryption at rest is out of scope: the engine has none.
+
 **9.5 Keyboard, focus and the screen reader**
 > Read requirements UI-7 and UI-8 and risk R-8. Give the whole application a defined focus order
 > across both surfaces and the switch between them, keyboard navigation of the table including
@@ -2442,6 +2504,8 @@ the two purges around it.
 > accessibility tree is inspected on Mac Catalyst and on Windows, and a screen reader announces
 > the steps of a finished request in order.
 
+*Done on Mac Catalyst (2026-09-15); Windows not available on this machine.* Every primary control is a button or a field with a name a screen reader can say (`SemanticProperties`): the surface switch, the conversation list, the composer and its actions, "what happened →" on every reply, an open button on every result row, the browser's rail, the overview cards, the column headings (sort, again to turn the order round), an open button on every table row, "Show more" for paging, the filters and their ×, the record's back, ask, change, remove and erase, and every related record. Focus returns to the composer when a confirmation closes. The diagram's parallel representation is the focusable list of steps drawn from the same layout (UI-8), which opens the same detail panel. The accessibility tree is inspected by the self-test's `a11y` line, which walks the visual tree of the window as the platform sees it and logs every interactive element without a name and the focus order: on the conversation surface 39 interactive elements, on the overview 14, on the table 125, all named but one - the composer's drop frame, named since. Text scales with the platform setting because every size is a MAUI font size; contrast: the palette of `docs/design/` (text #CCCCCC and #FFFFFF on #111111 and #202023, dim #888888 on #202023) meets the platform's 4.5:1 guidance for body text, and #666666 is used for hints only. Keyboard-only completion of S-1 to S-8 and the Windows inspection are recorded under 9.7 as not exercised by a person on this machine.
+
 **9.6 The performance report**
 > Read requirements NF-2, NF-3, NF-5, NF-6 and BR-1a. Build the generated fixtures, run each
 > timing cold and warm over a stated number of runs, and report p50 and p95 with the planner path
@@ -2449,12 +2513,16 @@ the two purges around it.
 > report exists, a run whose planner path is a scan where a seek was required fails even when the
 > time is met, and the overview's cost does not grow with the number of records stored.
 
+*Done (2026-09-15).* `dotnet run --project TokkDb.Assistant.TokenBudget -- perf` builds the fixtures once (100,000 records of eight fields of every kind plus 1,000 requests of three steps; 1,000 records for the comparison; 10,000 rows for the ingestion), runs each timing cold - the process's first open, the OS cache not cleared, and said so - and warm over a stated number of runs, and writes `docs/assistant-performance.md` with p50 and p95, the planner path where one is required, and the machine. A time met by a scan where a seek was required fails, and the overview's page reads at 100,000 records are compared with those at 1,000. On the machine named in the report: opening with 100,000 records and 1,000 traces took 89 ms cold and 52 ms warm against NF-3's two seconds; a retrieval of 100 records of one category oldest-first took 55 ms at p50 through the ordered index walk, with the p95 of the first run carrying the index it raised; ingesting 10,000 rows in one transaction through the importer took 2.5 s against NF-5's thirty; and the overview read no pages at either size (BR-1a).
+
 **9.7 The whole thing**
 > Read section 5, including the twelve that are not happy paths. Run S-1 to S-8 and N-1 to N-12
 > against a real local model on Mac Catalyst and Windows, and report what worked, what did not,
 > and what the trace shows for each. For the negative ones, assert what the user is told and not
 > only what the system does. Done when: the report is written and any failure is either fixed or
 > recorded as a known limitation with a reason.
+
+*Done on Mac Catalyst (2026-09-15); Windows not available.* `docs/assistant-scenario-run.md` is the report: S-1 to S-8 and N-1, N-3, N-4, N-5, N-7, N-8, N-9 and N-11 were run through the application's own window against `qwen3.5:4b` by the self-test driver (`TokkDb.Assistant.App/SelfTest/selftest-97.sh`), which types, attaches, answers, kills the process with a card on screen and reopens; every one worked, and the report gives what the person was told and what the trace shows for each. N-2, N-6, N-10 and N-12 are asserted by the scripted tests named there. Two things the run found were fixed: a question left on screen by a crash was held durably but the reopened application did not open its conversation, and "keep these as trips" went into conferences because a name the person gave was still a question for the model (`Intents.NamedThing` now decides it, with no mapping call). One thing it found once and did not find again is recorded: an undo that ended in an index error; the application now keeps an error log with the stack. Known limitations, with reasons, are listed in the report: no Windows machine, the descending sort as a sort, the twelve-month reading of "last year" about one time in eight, the model's own names for the fields it extracts, and keyboard-only completion by a person not exercised.
 
 ---
 

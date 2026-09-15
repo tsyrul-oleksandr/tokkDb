@@ -48,6 +48,15 @@ public sealed record QueryCursor
     public Ulid RecordId { get; }
 
     /// <summary>
+    /// How many records sharing the last sort value the sequence has already handed out, this
+    /// page included. An implementation that walks an index in key order continues after the
+    /// value by skipping exactly this many of its ties, which is what makes a page boundary
+    /// among ten thousand equal values exact without reading them all again (BR-3). Zero for a
+    /// cursor that does not use it; the pair of value and identity is still the boundary.
+    /// </summary>
+    public int TiesSeen { get; init; }
+
+    /// <summary>
     /// The cursor as text, so that it can travel: into a query result handle that survives a
     /// restart (QR-3a), into a trace step, or into a browser page that was closed and reopened.
     /// Round trips through <see cref="Parse"/>.
@@ -60,7 +69,8 @@ public sealed record QueryCursor
     {
         get
         {
-            var parts = new List<string>(SortValues.Count + 1) { RecordId.ToString() };
+            var parts = new List<string>(SortValues.Count + 2) { RecordId.ToString() };
+            if (TiesSeen > 0) parts.Add("#" + TiesSeen.ToString(CultureInfo.InvariantCulture));
             parts.AddRange(SortValues.Select(Encode));
 
             return Convert.ToBase64String(Encoding.UTF8.GetBytes(string.Join(Separator, parts)));
@@ -93,7 +103,15 @@ public sealed record QueryCursor
             throw new InvalidDefinitionException("cursor", "That page marker does not name a record.");
         }
 
-        return new QueryCursor([.. parts.Skip(1).Select(Decode)], id);
+        var ties = 0;
+        var rest = parts.Skip(1).ToList();
+        if (rest.Count > 0 && rest[0].StartsWith('#') && int.TryParse(rest[0][1..], NumberStyles.None, CultureInfo.InvariantCulture, out var seen))
+        {
+            ties = seen;
+            rest.RemoveAt(0);
+        }
+
+        return new QueryCursor([.. rest.Select(Decode)], id) { TiesSeen = ties };
     }
 
     public override string ToString() => $"after {RecordId}";

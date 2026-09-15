@@ -34,6 +34,25 @@ public enum RequestState
 }
 
 /// <summary>
+/// What a request that is waiting for a person is waiting to do (D-15, AG-8).
+///
+/// <b>The validated, resolved intent - never the conversation.</b> A yes then executes exactly
+/// this, without paying for a model again and without the risk of a second answer differing
+/// from the first. The hash is AG-3d's content hash of the proposal: the confirmation card is
+/// rendered from the same object, the executor re-checks the hash before applying, and the
+/// same hash is the idempotency key of the resolved action (AG-8a), so that an action that
+/// already committed is recognised rather than repeated.
+///
+/// The payload is text - JSON, written and read by the orchestration assembly - because this
+/// project depends on nothing and cannot name the proposal type. What is in it is the
+/// orchestrator's business; that it survives a restart whole is this project's.
+/// </summary>
+/// <param name="Kind">What sort of thing is being held: a placement, a destructive change, a partial undo.</param>
+/// <param name="Payload">The intent itself, serialised.</param>
+/// <param name="Hash">AG-3d's content hash of the intent.</param>
+public sealed record RequestIntent(string Kind, string Payload, string Hash);
+
+/// <summary>
 /// One request the assistant handled, from what a person said to what it did (TR-1, D-8).
 ///
 /// The diagram is the product feature and the trace is the diagnostic record and the token-budget
@@ -59,6 +78,22 @@ public sealed record RequestTrace(
     /// be a compare-and-swap rather than a write that quietly wins a race (AG-8a).
     /// </summary>
     public int Transitions { get; init; }
+
+    /// <summary>
+    /// What the request is waiting to do while it is in <see cref="RequestState.WaitingForUser"/>,
+    /// kept through <see cref="RequestState.Resuming"/> so that what runs is what was shown, and
+    /// left in place afterwards so that the detail panel can still say what was asked (AG-8).
+    /// </summary>
+    public RequestIntent? Intent { get; init; }
+
+    /// <summary>
+    /// The hash of the resolved action that has committed, once one has (AG-8a). A resolved
+    /// action whose hash is already here is a no-op: the write happened, whatever asks again.
+    /// </summary>
+    public string? CommittedHash { get; init; }
+
+    /// <summary>Whether the action with that hash has already been applied by this request.</summary>
+    public bool HasCommitted(string hash) => CommittedHash is not null && string.Equals(CommittedHash, hash, StringComparison.Ordinal);
 
     public bool IsFinished => State is RequestState.Completed or RequestState.Cancelled or RequestState.Failed;
 

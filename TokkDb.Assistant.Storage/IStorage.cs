@@ -539,6 +539,31 @@ public interface IStorage
     /// <exception cref="UnknownCollectionException">There is no such collection.</exception>
     bool Erase(string collectionName, Ulid id);
 
+    // ---- The overview (BR-1, BR-1a) -------------------------------------------------------------
+
+    /// <summary>
+    /// Everything stored, each with how many records it holds and when it last changed, most
+    /// recently changed first (BR-1).
+    ///
+    /// <b>Maintained, never computed by reading the records</b> (BR-1a): the count and the time
+    /// are kept beside the definition and moved in the same transaction as the write that moves
+    /// them, so opening the overview costs a read per thing stored and nothing that grows with
+    /// the number of records. A write inside a unit of work moves them when the unit commits, and
+    /// a rolled-back unit leaves them as they were. The count is not on the definition itself,
+    /// because SC-2 forbids a fact there whose truth expires.
+    /// </summary>
+    IReadOnlyList<StoredThing> Overview();
+
+    /// <summary>One thing as the overview shows it, or null if there is none.</summary>
+    StoredThing? Describe(string collectionName);
+
+    /// <summary>
+    /// Brings the maintained counts back into step with the records, for drift (BR-1a):
+    /// idempotent, and returns how many things were out of step. The one operation here whose
+    /// cost does grow with the records, which is why it is a command and not what the overview does.
+    /// </summary>
+    int ReconcileOverview();
+
     // ---- Conversations (SC-10) ----------------------------------------------------------------
 
     /// <summary>
