@@ -52,6 +52,38 @@ public static class Operations
             {"type":"object","properties":{"intent":{"type":"string","enum":["store","find","correct","remove","restructure","undo","other"]}},"required":["intent"],"additionalProperties":false}
             """);
 
+    /// <summary>
+    /// What a person could say next (UI-9): three to seven messages they could send, in their own
+    /// words, about the things listed and only the things the assistant can do. Read-only - it
+    /// produces text for the composer and touches nothing - and budgeted like any other call.
+    /// </summary>
+    public static readonly OperationDeclaration Suggestions = new(
+        Name: "suggestions",
+        StepName: "what to say next",
+        Instructions:
+            """
+            A person keeps their own things in a personal storage by talking to it. It can keep
+            what they give it (typed or attached as a spreadsheet or a document), find what is
+            stored and answer about it, correct a value they were shown, remove what they were
+            shown, take a recent change back, and change what a thing keeps (drop, rename or
+            add a field). Nothing else. Given what is stored, the recent conversation, and what
+            the person has started typing, suggest 3 to 7 short messages they could send next,
+            each a complete message in plain everyday words - no technical words such as
+            collection, column, schema, query, index or record. Every suggestion must be about
+            a thing that is listed, or about keeping something new; never invent things or
+            values. When something has been typed, most suggestions continue or complete it.
+            When results were just shown, include one follow-up about them and one correction or
+            removal of one of them. Answer with the list only.
+            """,
+        Tools: [],
+        ContextBudget: 1_800,
+        OutputBudget: 400,
+        Egress: EgressClass.BoundedSample,
+        OutputSchema:
+            """
+            {"type":"object","properties":{"suggestions":{"type":"array","items":{"type":"string"}}},"required":["suggestions"],"additionalProperties":false}
+            """);
+
     /// <summary>Prose into candidate records (D-4's extraction model).</summary>
     public static readonly OperationDeclaration Extraction = new(
         Name: "extraction",

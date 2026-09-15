@@ -1,4 +1,5 @@
 using TokkDb.Assistant.Agents.Changes;
+using TokkDb.Assistant.Agents.Context;
 using TokkDb.Assistant.Agents.Models;
 using TokkDb.Assistant.Agents.Operations;
 using Catalogue = TokkDb.Assistant.Agents.Operations.Operations;
@@ -204,6 +205,43 @@ public sealed class Orchestrator
         _storage.Conversations.Append(conversation.Id, TurnSpeaker.Assistant, text, payload: handle.Write());
 
         return (conversation, new ResultPage(definition.Name, result.Records, [title], 1, result.Aggregates, result.Execution, handle));
+    }
+
+    /// <summary>
+    /// What the person could say next (UI-9): a request of its own, so that the call is traced
+    /// and budgeted like any other (TR-3, AG-1), but no turn of the conversation - nothing was
+    /// said - and no reply. The model's list is cleaned by C#, and when the model fails the
+    /// options are C#'s own, so the control never comes back empty.
+    /// </summary>
+    public async Task<SuggestionSet> SuggestAsync(Ulid? conversationId, string? draft, CancellationToken cancellation = default)
+    {
+        var turns = conversationId is { } id ? _storage.Conversations.Turns(id) : [];
+        var request = _lifecycle.Begin(conversationId ?? Ulid.Empty, "suggestions");
+        var lastShown = conversationId is { } known ? LastHandle(known) : null;
+        var somethingToTakeBack = turns.Any(turn => turn.RequestId is { } requestId && _recorder.Changes(requestId).Count > 0);
+        var fallback = Suggestions.Starters(_storage, lastShown, somethingToTakeBack, draft);
+
+        try
+        {
+            var prefix = PromptPrefix.Assemble(Catalogue.Suggestions, string.Empty, _tools);
+            var content = Suggestions.Content(_storage, turns, draft);
+            var result = await _runner.RunAsync(Catalogue.Suggestions, new AssembledContext(prefix, content, EgressClass.BoundedSample, "what to say next"),
+                Answers.Suggestions(), request.Id, null, cancellation).ConfigureAwait(false);
+
+            var options = Suggestions.Clean(result.Value, fallback);
+            _lifecycle.Complete(request);
+            return new SuggestionSet(options, FromModel: options.Count > 0 && result.Value.Any(option => options.Contains(option.Trim().Trim('"'), StringComparer.OrdinalIgnoreCase)), request.Id);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            _lifecycle.Cancel(request);
+            throw;
+        }
+        catch (Exception failure) when (failure is ModelFailedException or ContextBudgetExceededException or EgressExceededException or StorageException)
+        {
+            _lifecycle.Fail(request, failure.Message);
+            return new SuggestionSet(Suggestions.Clean([], fallback), FromModel: false, request.Id);
+        }
     }
 
     /// <summary>

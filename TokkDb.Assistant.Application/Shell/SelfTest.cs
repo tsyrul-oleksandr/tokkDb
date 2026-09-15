@@ -100,6 +100,17 @@ public static class SelfTest
                     continue;
                 }
 
+                if (line == "suggest" || line.StartsWith("suggest:", StringComparison.Ordinal))
+                {
+                    model.Draft = line.Length > "suggest".Length ? line["suggest:".Length..].Trim() : "";
+                    await model.SuggestAsync();
+                    Note($"suggest (typed \"{model.Draft}\"): {string.Join(" | ", model.Suggestions)}");
+                    await Task.Delay(400);
+                    await screenshot(Path.Combine(FileSystem.AppDataDirectory, $"selftest-{++shot:00}.png"));
+                    model.DismissSuggestions();
+                    continue;
+                }
+
                 if (line.StartsWith("say-file:", StringComparison.Ordinal))
                 {
                     // The whole of a file typed into the composer at once: a paste, with its line breaks.

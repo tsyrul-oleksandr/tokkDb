@@ -1360,6 +1360,26 @@ it opens is TR-6, which exists too. Retrofitted after the drawing is finished it
 implementation of the same traversal. Platform support also differs between the two desktop
 targets, which is why R-8 records it as a risk rather than an assumption.
 
+**UI-9 (S).** The composer shall offer, **on demand**, three to seven messages the person could send
+next: phrased in the first tier's words, grounded in what is stored and in what the assistant can do
+(keep, find, correct, remove, take back, change what a thing keeps), continuing whatever has already
+been typed. Choosing one puts it in the composer and nothing else happens: no storage is touched, no
+reply is made, no turn is added. It is a model-calling operation of its own (AG-1): declared with its
+budget and egress class, traced and counted like any other call (TR-3), with no diagram of its own
+(it is one call, not a request the person made), and C# decides what may be shown - the words, the
+duplicates, the count - and writes the options itself when the model cannot, so the control never comes
+back empty.
+*AC:* with nothing stored, the options say how to begin; after a result, one continues it and one
+corrects or removes one of its records; with "Show my" typed, the options begin with it; a suggestion
+containing a database word is not shown; when the model fails the options are C#'s own and name only
+things that are stored; the conversation has the same turns before and after; the call's tokens are in
+the trace and within its budget.
+
+*Why on demand rather than always on:* every suggestion is a model call, and a call made on every
+keystroke would spend more of the local model's time than the conversation itself. Asked for, it costs
+one call and answers the question §1.3 leaves open - what can be said here - without the interface
+showing commands or a schema.
+
 ### 4.7 Browsing what is stored (group BR)
 
 The second surface of D-13. Everything here is read-first: it exists so a person can see and
@@ -1606,6 +1626,11 @@ Lviv one, and sees that it now reads 13 000 — the correction from S-5. They th
 keeps, and get a list of fields in words they would use. No model is called at any point, and
 the token harness records zero tokens for the whole sequence.
 
+**S-9. Not knowing what to say.** After S-3, the user clicks Suggest with nothing typed and gets a
+short list: a follow-up about the conferences shown, a correction of one of them, a removal, and a way
+to keep more. Each is in their own words. They pick one, it appears in the composer, they change a word
+and send it. The suggestion call is traced and budgeted; the conversation gained nothing until they sent.
+
 ---
 
 ### The ones that are not happy paths
@@ -1709,6 +1734,7 @@ per-call option. `scratch/ContextSpike/FINDINGS.md`.
 | Query writing | 2 500 | Schema digest of candidates plus one tool |
 | Result digest answering | 1 500 | The digest, not the rows |
 | Reply phrasing | 1 200 | Outcome facts, not payloads |
+| Suggestions (UI-9) | 1 800 | The things stored, the last four turns, what is typed; no rows |
 
 **Whole-scenario budgets**, summed over every model call in the request:
 
@@ -2523,6 +2549,21 @@ the two purges around it.
 > recorded as a known limitation with a reason.
 
 *Done on Mac Catalyst (2026-09-15); Windows not available.* `docs/assistant-scenario-run.md` is the report: S-1 to S-8 and N-1, N-3, N-4, N-5, N-7, N-8, N-9 and N-11 were run through the application's own window against `qwen3.5:4b` by the self-test driver (`TokkDb.Assistant.Application/SelfTest/selftest-97.sh`), which types, attaches, answers, kills the process with a card on screen and reopens; every one worked, and the report gives what the person was told and what the trace shows for each. N-2, N-6, N-10 and N-12 are asserted by the scripted tests named there. Two things the run found were fixed: a question left on screen by a crash was held durably but the reopened application did not open its conversation, and "keep these as trips" went into conferences because a name the person gave was still a question for the model (`Intents.NamedThing` now decides it, with no mapping call). One thing it found once and did not find again is recorded: an undo that ended in an index error; the application now keeps an error log with the stack. Known limitations, with reasons, are listed in the report: no Windows machine, the descending sort as a sort, the twelve-month reading of "last year" about one time in eight, the model's own names for the fields it extracts, and keyboard-only completion by a person not exercised.
+
+### Phase 10
+
+**10.1 Suggestions for the composer**
+> Read requirement UI-9, scenario S-9, and AG-1, AG-1a and UI-2. Add a "Suggest" control to the
+> composer that, on demand, looks at the conversation so far and any text drafted in the input field
+> and returns three to seven concrete messages the user could send, in the first tier's words and
+> grounded in what the assistant can do and what is stored. Declare it as a model-calling operation of
+> its own with its budget and egress class; validate the model's list in C# and fall back to C#'s own
+> options when the model fails; trace and count the call but add nothing to the conversation and draw
+> nothing. Choosing an option puts its text in the input field. Done when: UI-9's acceptance holds in
+> tests over the fake model, the harness measures the call as S-9, and the control works in the window
+> against the real model.
+
+*Done (2026-09-15).* `Operations.Suggestions` ("what to say next"; 1,800 prompt tokens, 400 out, `BoundedSample`, no tools); `Suggestions.Content` gives the model the things stored with their fields, the last four turns through the conversation window, and what was typed; `Answers.Suggestions` parses the list; `Suggestions.Clean` trims, deduplicates, drops anything with a database word, caps at seven and tops up from `Suggestions.Starters` - C#'s own options from the things stored, their date and amount fields, what was last shown and whether there is something to take back, with the typed text's continuations first. `Orchestrator.SuggestAsync` runs it as a request of its own ("suggestions"), completed or failed but never a turn. The app's Suggest button shows the options as buttons above the composer; one click puts the text in the box and puts the rest away; the pane ignores the call's step. `SuggestionsTests` cover UI-9's acceptance; S-9 is in the harness and in the token-budget report; the self-test's `suggest[:draft]` line drives it against the real model.
 
 ---
 

@@ -1,0 +1,8 @@
+# UI-9: what could be said next - with nothing stored, after keeping things, after a result, and with a draft.
+suggest
+attach:$C/conferences-2025.csv
+Keep these
+suggest
+How much did I spend on conferences in 2025?
+suggest
+suggest:Show my

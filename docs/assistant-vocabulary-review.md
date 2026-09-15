@@ -18,6 +18,7 @@ The conversation and the browser's primary surfaces, including the names a scree
 | `ChangeClassifier.cs` | the evidence sentences ("3 of your 6 conferences have a notes, and those values would go") |
 | `WhatItKeeps.cs`, `ThingsOverview.cs`, `RecordDetail.cs`, `TableFilter.cs` | the browser's words: kinds of value, notes, relation headings, filters |
 | `BrowseSurface.cs`, `BrowseViewModel.cs` | the browser's screens and their accessibility names |
+| `Suggestions.cs` | what the person could say next (UI-9): the starters C# writes, and the words a model's suggestion may not contain |
 | `ConversationView.cs`, `ChatViewModel.cs`, `MainPage.cs`, `ConversationList.cs` | the conversation surface, the composer, the surface switch |
 
 Words used instead: *thing* (collection), *field* (column), *kind of value* (type), *what it keeps*

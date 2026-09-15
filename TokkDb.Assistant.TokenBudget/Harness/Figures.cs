@@ -131,7 +131,8 @@ public static class Budgets
         new("S-1", "store prose, new collection", 9_000, 1_500, 2, 3, 1, ContextWindow, TimeSpan.FromSeconds(60), SuccessFloor, MinimumRuns),
         new("S-2", "store a 1 000-row spreadsheet into an existing collection", 7_000, 800, 1, 2, 1, ContextWindow, TimeSpan.FromSeconds(45), SuccessFloor, MinimumRuns),
         new("S-3", "retrieval", 4_500, 800, 2, 3, 1, ContextWindow, TimeSpan.FromSeconds(45), SuccessFloor, MinimumRuns),
-        new("S-4", "follow-up", 2_500, 400, 0, 0, 0, ContextWindow, TimeSpan.FromSeconds(10), SuccessFloor, MinimumRuns)
+        new("S-4", "follow-up", 2_500, 400, 0, 0, 0, ContextWindow, TimeSpan.FromSeconds(10), SuccessFloor, MinimumRuns),
+        new("S-9", "suggestions for the composer", 1_800, 400, 1, 2, 1, ContextWindow, TimeSpan.FromSeconds(20), SuccessFloor, MinimumRuns)
     ];
 
     public static ScenarioLimits For(string scenario) => Default.First(limits => limits.Scenario == scenario);

@@ -20,6 +20,7 @@ public sealed partial class ConversationView : Grid
     private readonly VerticalStackLayout _attachments;
     private readonly Label _busy;
     private readonly Button _send;
+    private readonly VerticalStackLayout _suggestions;
 
     public ConversationView(ChatViewModel model)
     {
@@ -51,12 +52,20 @@ public sealed partial class ConversationView : Grid
         _model.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ChatViewModel.Draft) && _composer.Text != _model.Draft) _composer.Text = _model.Draft;
-            if (e.PropertyName == nameof(ChatViewModel.Busy)) UpdateBusy();
+            if (e.PropertyName is nameof(ChatViewModel.Busy) or nameof(ChatViewModel.Suggesting)) UpdateBusy();
         };
 
         var attach = Theme.Action("Attach");
         SemanticProperties.SetDescription(attach, "Attach a file");
         attach.Clicked += async (_, _) => await PickAsync();
+
+        // UI-9: what could be said next, on demand, from the conversation so far and what is typed.
+        var suggest = Theme.Action("Suggest");
+        SemanticProperties.SetDescription(suggest, "Suggest what you could say next, from what is stored and what you have typed");
+        suggest.Clicked += async (_, _) => await _model.SuggestAsync();
+        _suggestions = new VerticalStackLayout { Spacing = 6, IsVisible = false };
+        SemanticProperties.SetDescription(_suggestions, "Things you could say next; choosing one puts it in the box");
+        _model.Suggestions.CollectionChanged += (_, _) => MainThread.BeginInvokeOnMainThread(RenderSuggestions);
 
         var paste = Theme.Action("Paste table");
         SemanticProperties.SetDescription(paste, "Paste a table from the clipboard");
@@ -80,12 +89,14 @@ public sealed partial class ConversationView : Grid
         var buttons = new HorizontalStackLayout { Spacing = 8, HorizontalOptions = LayoutOptions.End };
         buttons.Add(_busy);
         buttons.Add(cancel);
+        buttons.Add(suggest);
         buttons.Add(attach);
         buttons.Add(paste);
         buttons.Add(_send);
 
         var composerBox = new VerticalStackLayout { Spacing = 10 };
         composerBox.Add(_attachments);
+        composerBox.Add(_suggestions);
         composerBox.Add(_composer);
         composerBox.Add(buttons);
 
@@ -166,9 +177,38 @@ public sealed partial class ConversationView : Grid
 
     private void UpdateBusy()
     {
-        _busy.IsVisible = _model.Busy;
-        _busy.Text = _model.Busy ? (_model.BusyText ?? "working") + "…" : "";
+        _busy.IsVisible = _model.Busy || _model.Suggesting;
+        _busy.Text = _model.Busy ? (_model.BusyText ?? "working") + "…" : _model.Suggesting ? "thinking of what you could say…" : "";
         _send.IsEnabled = !_model.Busy;
+    }
+
+    /// <summary>The options as buttons above the composer (UI-7): choosing one puts it in the box; "close" puts them away.</summary>
+    private void RenderSuggestions()
+    {
+        _suggestions.Clear();
+        _suggestions.IsVisible = _model.Suggestions.Count > 0;
+        if (_model.Suggestions.Count == 0) return;
+
+        var head = new HorizontalStackLayout { Spacing = 12 };
+        head.Add(Theme.Text11("You could say", Theme.Dim));
+        var close = new Button { Text = "close", FontFamily = Theme.Regular, FontSize = Theme.Tiny, TextColor = Theme.Violet, BackgroundColor = Colors.Transparent, Padding = new Thickness(0), CornerRadius = 0, MinimumHeightRequest = 18 };
+        close.Clicked += (_, _) => _model.DismissSuggestions();
+        SemanticProperties.SetDescription(close, "Put the suggestions away");
+        head.Add(close);
+        _suggestions.Add(head);
+
+        foreach (var option in _model.Suggestions)
+        {
+            var chip = new Button
+            {
+                Text = option, FontFamily = Theme.Regular, FontSize = Theme.Small, TextColor = Theme.Bright, BackgroundColor = Theme.Hover,
+                CornerRadius = (int)Theme.Radius, Padding = new Thickness(12, 6), HorizontalOptions = LayoutOptions.Start, LineBreakMode = LineBreakMode.WordWrap
+            };
+            var text = option;
+            chip.Clicked += (_, _) => { _model.UseSuggestion(text); _composer.Focus(); };
+            SemanticProperties.SetDescription(chip, $"Say: {option}");
+            _suggestions.Add(chip);
+        }
     }
 
     private void OnMessagesChanged(object? sender, NotifyCollectionChangedEventArgs e) => MainThread.BeginInvokeOnMainThread(RenderMessages);

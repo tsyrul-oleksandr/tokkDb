@@ -262,6 +262,31 @@ public static class Answers
         }
     };
 
+    /// <summary>The suggestions list: strings under "suggestions", at least one of them usable.</summary>
+    public static OutputParser<IReadOnlyList<string>> Suggestions() => text =>
+    {
+        try
+        {
+            using var json = JsonDocument.Parse(Extract(text));
+            if (!json.RootElement.TryGetProperty("suggestions", out var list) || list.ValueKind is not JsonValueKind.Array)
+            {
+                return Parsed<IReadOnlyList<string>>.Invalid("no suggestions list");
+            }
+
+            var items = list.EnumerateArray()
+                .Where(static item => item.ValueKind is JsonValueKind.String)
+                .Select(static item => item.GetString()!.Trim())
+                .Where(static item => item.Length > 0)
+                .ToList();
+
+            return items.Count == 0 ? Parsed<IReadOnlyList<string>>.Invalid("the list is empty") : Parsed<IReadOnlyList<string>>.Ok(items);
+        }
+        catch (JsonException failure)
+        {
+            return Parsed<IReadOnlyList<string>>.Invalid("not JSON: " + failure.Message);
+        }
+    };
+
     public static OutputParser<string> Text(string property) => text =>
     {
         try

@@ -26,6 +26,7 @@ public sealed partial class VocabularyTests
         "TokkDb.Assistant.Agents/Browsing/ThingsOverview.cs",
         "TokkDb.Assistant.Agents/Browsing/RecordDetail.cs",
         "TokkDb.Assistant.Agents/Browsing/TableFilter.cs",
+        "TokkDb.Assistant.Agents/Orchestration/Suggestions.cs",
         "TokkDb.Assistant.Application/Browse/BrowseSurface.cs",
         "TokkDb.Assistant.Application/Browse/BrowseViewModel.cs",
         "TokkDb.Assistant.Application/Chat/ConversationView.cs",

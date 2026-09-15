@@ -184,6 +184,53 @@ public sealed class ChatViewModel : Bindable
     public event Action? MessagesChanged;
     public event Action<string>? Failed;
 
+    /// <summary>What the person could say next (UI-9), when they asked; empty otherwise.</summary>
+    public ObservableCollection<string> Suggestions { get; } = [];
+
+    public bool Suggesting { get => _suggesting; private set => Set(ref _suggesting, value); }
+    private bool _suggesting;
+    private CancellationTokenSource? _suggestCancel;
+
+    /// <summary>Asks for suggestions about the conversation so far and what is typed; the options replace any shown before.</summary>
+    public async Task SuggestAsync()
+    {
+        if (Suggesting) return;
+        _suggestCancel = new CancellationTokenSource();
+        Suggesting = true;
+        try
+        {
+            var set = await Task.Run(() => _orchestrator.SuggestAsync(_selected?.Id, Draft, _suggestCancel.Token));
+            Suggestions.Clear();
+            foreach (var option in set.Options) Suggestions.Add(option);
+        }
+        catch (OperationCanceledException)
+        {
+            // Asked to stop: nothing to show.
+        }
+        catch (Exception failure)
+        {
+            Failed?.Invoke("No suggestions this time: " + failure.Message);
+        }
+        finally
+        {
+            Suggesting = false;
+            _suggestCancel = null;
+        }
+    }
+
+    /// <summary>The option chosen goes into the composer, in place of what was typed; the rest go away.</summary>
+    public void UseSuggestion(string text)
+    {
+        Draft = text;
+        Suggestions.Clear();
+    }
+
+    public void DismissSuggestions()
+    {
+        _suggestCancel?.Cancel();
+        Suggestions.Clear();
+    }
+
     /// <summary>A request finished, whatever asked for it: the browser reads the catalogue again (BR-3b).</summary>
     public event Action? RequestFinished;
 
@@ -497,6 +544,10 @@ public sealed class ChatViewModel : Bindable
 
     private void OnStepRecorded(ExecutionStep step)
     {
+        // A suggestions call is a request of its own and not a turn (UI-9): its step is traced and
+        // budgeted, but "what happened" is about what was said.
+        if (step.Name == Agents.Operations.Operations.Suggestions.StepName) return;
+
         MainThread.BeginInvokeOnMainThread(() =>
         {
             if (_inProgress is { } message && message.RequestId is null || _inProgress is not null)

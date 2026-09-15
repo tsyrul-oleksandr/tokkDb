@@ -25,7 +25,7 @@ public sealed class ScenarioRunner
         Directory.CreateDirectory(directory);
     }
 
-    public static readonly IReadOnlyList<string> Scenarios = ["S-1", "S-2", "S-3", "S-4"];
+    public static readonly IReadOnlyList<string> Scenarios = ["S-1", "S-2", "S-3", "S-4", "S-9"];
 
     /// <summary>What a scenario says, for the report.</summary>
     public static string Said(string scenario) => scenario switch
@@ -34,6 +34,7 @@ public sealed class ScenarioRunner
         "S-2" => "Here are more of them (with conferences-2025.csv attached)",
         "S-3" => "How much did I spend on conferences last year?",
         "S-4" => "Which was the most expensive?",
+        "S-9" => "(Suggest, after the retrieval, with nothing typed)",
         _ => throw new ArgumentOutOfRangeException(nameof(scenario))
     };
 
@@ -53,6 +54,7 @@ public sealed class ScenarioRunner
                 "S-2" => await S2Async(app, model, rows, script, cancellation).ConfigureAwait(false),
                 "S-3" => await S3Async(app, model, script, cancellation).ConfigureAwait(false),
                 "S-4" => await S4Async(app, model, script, cancellation).ConfigureAwait(false),
+                "S-9" => await S9Async(app, model, script, cancellation).ConfigureAwait(false),
                 _ => throw new ArgumentOutOfRangeException(nameof(scenario))
             };
         }
@@ -120,6 +122,30 @@ public sealed class ScenarioRunner
         var (outcome, latency) = await TimedAsync(app, new TurnInput(before.ConversationId, Said("S-4")), cancellation).ConfigureAwait(false);
         var answered = outcome.Reply.Contains("PyCon Lviv", StringComparison.Ordinal);
         return Figures("S-4", app, outcome, latency, outcome.Succeeded && answered, answered ? null : "expected PyCon Lviv to be named as the most expensive");
+    }
+
+    /// <summary>S-9: suggestions after a retrieval, which is the precondition and not the measurement.</summary>
+    private static async Task<RunFigures> S9Async(Composition app, ScriptedModel? model, Action<ScriptedModel>? script, CancellationToken cancellation)
+    {
+        GivenFourConferences(app.Storage);
+        model?.Answer("intent", Agents.Testing.Scenarios.Intent("find")).Answer("query", Agents.Testing.Scenarios.ConferencesLastYear);
+        var before = await app.Orchestrator.HandleAsync(new TurnInput(null, Said("S-3")), cancellation).ConfigureAwait(false);
+        if (!before.Succeeded || before.Results is not { Total: 4 })
+        {
+            return new RunFigures("S-9", false, 0, 0, 0, 0, 0, 0, 0, TimeSpan.Zero, [FailureMode.Other], [], "the retrieval before it did not succeed: " + before.Reply);
+        }
+
+        if (model is not null) script?.Invoke(model);
+        model?.Answer("suggestions", """{"suggestions":["Which of those was the most expensive?","Show my conferences from this year","The Lviv one was actually 13 000","Remove the Kyiv one"]}""");
+
+        var clock = Stopwatch.StartNew();
+        var set = await app.Orchestrator.SuggestAsync(before.ConversationId, null, cancellation).ConfigureAwait(false);
+        var latency = clock.Elapsed;
+
+        var steps = app.Storage.Traces.Read(set.RequestId)?.Steps ?? [];
+        var ok = set.FromModel && set.Options.Count >= SuggestionSet.Fewest && set.Options.Count <= SuggestionSet.Most;
+        return RunFigures.From("S-9", steps, ok, latency, ok ? null : $"expected 3 to 7 options from the model, got {set.Options.Count}{(set.FromModel ? "" : " from the fallback")}", app.Probe?.Probed, ok ? null : [FailureMode.WrongOutcome])
+            with { Answers = [.. steps.Where(static step => step.Call is not null).Select(step => (step.Name, (step.Output ?? "").ReplaceLineEndings(" ")))] };
     }
 
     private static async Task<(TurnOutcome Outcome, TimeSpan Latency)> TimedAsync(Composition app, TurnInput input, CancellationToken cancellation)
