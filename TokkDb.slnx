@@ -10,20 +10,20 @@
     <Project Path="TokkDb.Assistant.Storage/TokkDb.Assistant.Storage.csproj" />
     <Project Path="TokkDb.Assistant.Storage.Engine/TokkDb.Assistant.Storage.Engine.csproj" />
     <Project Path="TokkDb.Assistant.Ingestion/TokkDb.Assistant.Ingestion.csproj" />
-    <Project Path="TokkDb.Assistant.Trace/TokkDb.Assistant.Trace.csproj" />
     <Project Path="TokkDb.Assistant.Agents/TokkDb.Assistant.Agents.csproj" />
+    <Project Path="TokkDb.Assistant.Application/TokkDb.Assistant.Application.csproj" />
     <Project Path="TokkDb.Assistant.Diagram/TokkDb.Assistant.Diagram.csproj" />
     <Project Path="TokkDb.Assistant.TokenBudget/TokkDb.Assistant.TokenBudget.csproj" />
-    <Project Path="TokkDb.Assistant.App/TokkDb.Assistant.App.csproj" />
     <Project Path="TokkDb.Assistant.Tests/TokkDb.Assistant.Tests.csproj" />
+    <Project Path="TokkDb.Assistant.Traces/TokkDb.Assistant.Traces.csproj" />
   </Folder>
-  <Project Path="TokkDb.Benchmarks\TokkDb.Benchmarks.csproj" Type="C#" />
-  <Project Path="TokkDb.Buffer\TokkDb.Buffer.csproj" Type="C#" />
-  <Project Path="TokkDb.Configuration\TokkDb.Configuration.csproj" Type="C#" />
-  <Project Path="TokkDb.Disk\TokkDb.Disk.csproj" Type="C#" />
-  <Project Path="TokkDb.Documents\TokkDb.Documents.csproj" Type="C#" />
-  <Project Path="TokkDb.Example.Console\TokkDb.Example.Console.csproj" Type="C#" />
-  <Project Path="TokkDb.Pages\TokkDb.Pages.csproj" Type="C#" />
-  <Project Path="TokkDb\TokkDb.csproj" Type="C#" />
-  <Project Path="TokkDb.Tests\TokkDb.Tests.csproj" Type="C#" />
+  <Project Path="TokkDb.Benchmarks/TokkDb.Benchmarks.csproj" />
+  <Project Path="TokkDb.Buffer/TokkDb.Buffer.csproj" />
+  <Project Path="TokkDb.Configuration/TokkDb.Configuration.csproj" />
+  <Project Path="TokkDb.Disk/TokkDb.Disk.csproj" />
+  <Project Path="TokkDb.Documents/TokkDb.Documents.csproj" />
+  <Project Path="TokkDb.Example.Console/TokkDb.Example.Console.csproj" />
+  <Project Path="TokkDb.Pages/TokkDb.Pages.csproj" />
+  <Project Path="TokkDb/TokkDb.csproj" />
+  <Project Path="TokkDb.Tests/TokkDb.Tests.csproj" />
 </Solution>

@@ -4,7 +4,7 @@ using TokkDb.Assistant.Storage;
 using TokkDb.Assistant.Trace;
 using Shown = TokkDb.Assistant.Agents.Orchestration.Values;
 
-namespace TokkDb.Assistant.App.Diagram;
+namespace TokkDb.Assistant.Application.Diagram;
 
 /// <summary>One step with what the panel needs to show it: the changes it made, and the storage to read their versions from.</summary>
 public sealed record StepDetail(ExecutionStep Step, IReadOnlyList<DataChange> Changes, IStorage Storage);

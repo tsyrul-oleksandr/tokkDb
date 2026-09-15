@@ -1,7 +1,7 @@
 using System.Text.Json;
 using TokkDb.Assistant.Agents.Models;
 
-namespace TokkDb.Assistant.App.Settings;
+namespace TokkDb.Assistant.Application.Settings;
 
 /// <summary>
 /// What the application remembers between runs, as one small document in the platform's

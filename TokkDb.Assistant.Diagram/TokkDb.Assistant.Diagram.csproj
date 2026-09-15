@@ -7,6 +7,10 @@
     <LangVersion>latestMajor</LangVersion>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\TokkDb.Assistant.Traces\TokkDb.Assistant.Traces.csproj" />
+  </ItemGroup>
+
   <!--
     Phase 7.1 (TR-5, TR-5a, D-9): the trace as geometry - participants, calls, lanes, labels - in
     device-independent points, computed by ordinary C# that references the trace and nothing else.
@@ -14,9 +18,5 @@
     layout renders as the focusable list of steps (UI-8), so a test can assert where every block
     is and what a click at any point lands on, with no window and no second display present.
   -->
-
-  <ItemGroup>
-    <ProjectReference Include="..\TokkDb.Assistant.Trace\TokkDb.Assistant.Trace.csproj" />
-  </ItemGroup>
 
 </Project>

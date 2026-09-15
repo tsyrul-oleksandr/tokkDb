@@ -1,4 +1,4 @@
-namespace TokkDb.Assistant.App;
+namespace TokkDb.Assistant.Application;
 
 /// <summary>
 /// The look, lifted from the existing application rather than invented (docs/design): Open Sans,

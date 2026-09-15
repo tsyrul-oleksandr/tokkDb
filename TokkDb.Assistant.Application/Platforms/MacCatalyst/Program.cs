@@ -1,7 +1,6 @@
-﻿using ObjCRuntime;
-using UIKit;
+﻿using UIKit;
 
-namespace TokkDb.Assistant.App;
+namespace TokkDb.Assistant.Application;
 
 public class Program
 {

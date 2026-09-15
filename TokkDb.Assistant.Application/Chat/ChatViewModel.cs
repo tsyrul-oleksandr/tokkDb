@@ -4,13 +4,13 @@ using System.Runtime.CompilerServices;
 using TokkDb.Assistant.Agents.Changes;
 using TokkDb.Assistant.Agents.Context;
 using TokkDb.Assistant.Agents.Orchestration;
-using TokkDb.Assistant.App.Live;
-using TokkDb.Assistant.App.Settings;
+using TokkDb.Assistant.Application.Live;
+using TokkDb.Assistant.Application.Settings;
 using TokkDb.Assistant.Ingestion;
 using TokkDb.Assistant.Storage;
 using TokkDb.Assistant.Trace;
 
-namespace TokkDb.Assistant.App.Chat;
+namespace TokkDb.Assistant.Application.Chat;
 
 /// <summary>One conversation in the list (UI-1), most recently active first (SC-10).</summary>
 public sealed class ConversationItem(Conversation conversation) : Bindable

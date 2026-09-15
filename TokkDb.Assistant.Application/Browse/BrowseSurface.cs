@@ -1,7 +1,6 @@
 using TokkDb.Assistant.Agents.Browsing;
-using TokkDb.Assistant.Agents.Orchestration;
 
-namespace TokkDb.Assistant.App.Browse;
+namespace TokkDb.Assistant.Application.Browse;
 
 /// <summary>
 /// The browser (D-13, UI-1, group BR): everything stored on the left, and on the right the

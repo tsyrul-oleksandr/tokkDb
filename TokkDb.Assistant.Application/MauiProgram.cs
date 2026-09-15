@@ -3,15 +3,15 @@ using TokkDb.Assistant.Agents;
 using TokkDb.Assistant.Agents.Models;
 using TokkDb.Assistant.Agents.Operations;
 using TokkDb.Assistant.Agents.Orchestration;
-using TokkDb.Assistant.App.Chat;
-using TokkDb.Assistant.App.Live;
-using TokkDb.Assistant.App.Settings;
-using TokkDb.Assistant.App.Shell;
+using TokkDb.Assistant.Application.Chat;
+using TokkDb.Assistant.Application.Live;
+using TokkDb.Assistant.Application.Settings;
+using TokkDb.Assistant.Application.Shell;
 using TokkDb.Assistant.Storage;
 using TokkDb.Assistant.Storage.Engine;
 using TokkDb.Assistant.Trace;
 
-namespace TokkDb.Assistant.App;
+namespace TokkDb.Assistant.Application;
 
 /// <summary>
 /// The composition root (step 5.1): the one database file in the user's application data

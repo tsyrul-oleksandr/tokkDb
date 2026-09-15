@@ -3,7 +3,7 @@ using TokkDb.Assistant.Agents.Changes;
 using TokkDb.Assistant.Agents.Orchestration;
 using Shown = TokkDb.Assistant.Agents.Orchestration.Values;
 
-namespace TokkDb.Assistant.App.Chat;
+namespace TokkDb.Assistant.Application.Chat;
 
 /// <summary>
 /// The conversation (UI-1, UI-3, UI-4, UI-5): what was said, on the left and the right; the
@@ -323,5 +323,5 @@ public sealed partial class ConversationView : Grid
     }
 
     private Task Show(string text) =>
-        Application.Current?.Windows.FirstOrDefault()?.Page?.DisplayAlertAsync("Storage", text, "OK") ?? Task.CompletedTask;
+        Microsoft.Maui.Controls.Application.Current?.Windows.FirstOrDefault()?.Page?.DisplayAlertAsync("Storage", text, "OK") ?? Task.CompletedTask;
 }

@@ -357,7 +357,7 @@ TokkDb.Assistant.Agents           operations, tool scoping, model configuration,
                                   context assembly, the Microsoft Agent Framework
                                   orchestrator, the trace recorder.
 TokkDb.Assistant.Diagram          trace -> geometry. Pure layout, no MAUI app types.
-TokkDb.Assistant.App              MAUI: chat, diagram host, detail panels, settings.
+TokkDb.Assistant.Application      MAUI: chat, diagram host, detail panels, settings (renamed from TokkDb.Assistant.App).
 TokkDb.Assistant.Tests            everything deterministic, xUnit.
 TokkDb.Assistant.TokenBudget      console harness: scenarios, measured tokens, report.
 ```
@@ -1915,7 +1915,7 @@ adopts what the versioning plan's step 9.3 built (R-9, retired).
 *Exit:* S-1 to S-8 and N-1 to N-12 run end to end against the fake model, producing the right
 storage effects and the right trace, with no model running.
 
-**Phase 5 — The shell.** `TokkDb.Assistant.App`: window, chat, attachments, streaming, the
+**Phase 5 — The shell.** `TokkDb.Assistant.Application` (the plan's `TokkDb.Assistant.App`): window, chat, attachments, streaming, the
 conversation list, settings, and the composition root.
 *Entry:* the transport gate of Phase 0.3 has passed, or an alternative transport has been chosen
 and recorded. No real-model integration is written against a transport that enforces neither
@@ -2328,7 +2328,7 @@ job to survive and the reason the C# side, not the model, decides where things g
 > grows with the number of records stored, moving between the two surfaces keeps both their
 > places, and no string in it names a collection, column or schema.
 
-*Done (2026-09-15).* `ThingsOverview.Of` reads `IStorage.Overview()`, which both backends answer from the catalogue alone (BR-1a: `RecordCount` from the engine's descriptor, `lastChangedAt` in the settings document, touched per write and flushed once per unit of work; `ReconcileOverview()` for drift). The browser is `TokkDb.Assistant.App/Browse/` (`BrowseViewModel`, `BrowseSurface`), reached from the Chat/Browse control; both surfaces stay built, so neither loses its place. `BrowsingTests` and `OverviewCostTests` assert the wording and the cost; the app self-test (`sh TokkDb.Assistant.App/SelfTest/selftest-run.sh TokkDb.Assistant.App/SelfTest/selftest-browse.txt fresh`) drove it on Mac Catalyst.
+*Done (2026-09-15).* `ThingsOverview.Of` reads `IStorage.Overview()`, which both backends answer from the catalogue alone (BR-1a: `RecordCount` from the engine's descriptor, `lastChangedAt` in the settings document, touched per write and flushed once per unit of work; `ReconcileOverview()` for drift). The browser is `TokkDb.Assistant.Application/Browse/` (`BrowseViewModel`, `BrowseSurface`), reached from the Chat/Browse control; both surfaces stay built, so neither loses its place. `BrowsingTests` and `OverviewCostTests` assert the wording and the cost; the app self-test (`sh TokkDb.Assistant.Application/SelfTest/selftest-run.sh TokkDb.Assistant.Application/SelfTest/selftest-browse.txt fresh`) drove it on Mac Catalyst.
 
 **6.2 The table, a page at a time**
 > Read requirements BR-2, BR-3, BR-3a and BR-3b. Add the record table: display value leading,
@@ -2389,7 +2389,7 @@ job to survive and the reason the C# side, not the model, decides where things g
 > test applying scale factors of 1.0, 1.5 and 2.0 to a fixed layout returns the same block for the
 > same logical point with no second display present.
 
-*Done (2026-09-15).* `TokkDb.Assistant.App/Diagram/DiagramView` is a `GraphicsView` over the layout: at draw time it makes one `DiagramTransform` from the view's width (`FitWidth`, never above one to one), draws through it and keeps it, and a click goes through the same transform (`HitTesting.BlockAt`) - so the block under a point is the block drawn there at any scale; a display change or a size change invalidates and makes a new transform, never a new layout. It grows as steps arrive because the pane re-lays the live steps. `The_same_logical_point_lands_on_the_same_block_at_every_scale` asserts scales 1.0, 1.5 and 2.0 with an offset, with no window and no second display. Verified by eye on Mac Catalyst through the self-test screenshots; Windows is not available on this machine (recorded under 9.7).
+*Done (2026-09-15).* `TokkDb.Assistant.Application/Diagram/DiagramView` is a `GraphicsView` over the layout: at draw time it makes one `DiagramTransform` from the view's width (`FitWidth`, never above one to one), draws through it and keeps it, and a click goes through the same transform (`HitTesting.BlockAt`) - so the block under a point is the block drawn there at any scale; a display change or a size change invalidates and makes a new transform, never a new layout. It grows as steps arrive because the pane re-lays the live steps. `The_same_logical_point_lands_on_the_same_block_at_every_scale` asserts scales 1.0, 1.5 and 2.0 with an offset, with no window and no second display. Verified by eye on Mac Catalyst through the self-test screenshots; Windows is not available on this machine (recorded under 9.7).
 
 **7.3 Detail views**
 > Read requirements TR-6, TR-6a, UI-6 and EX-4, and SC-12's note on the diff as built. First make
@@ -2522,7 +2522,7 @@ the two purges around it.
 > only what the system does. Done when: the report is written and any failure is either fixed or
 > recorded as a known limitation with a reason.
 
-*Done on Mac Catalyst (2026-09-15); Windows not available.* `docs/assistant-scenario-run.md` is the report: S-1 to S-8 and N-1, N-3, N-4, N-5, N-7, N-8, N-9 and N-11 were run through the application's own window against `qwen3.5:4b` by the self-test driver (`TokkDb.Assistant.App/SelfTest/selftest-97.sh`), which types, attaches, answers, kills the process with a card on screen and reopens; every one worked, and the report gives what the person was told and what the trace shows for each. N-2, N-6, N-10 and N-12 are asserted by the scripted tests named there. Two things the run found were fixed: a question left on screen by a crash was held durably but the reopened application did not open its conversation, and "keep these as trips" went into conferences because a name the person gave was still a question for the model (`Intents.NamedThing` now decides it, with no mapping call). One thing it found once and did not find again is recorded: an undo that ended in an index error; the application now keeps an error log with the stack. Known limitations, with reasons, are listed in the report: no Windows machine, the descending sort as a sort, the twelve-month reading of "last year" about one time in eight, the model's own names for the fields it extracts, and keyboard-only completion by a person not exercised.
+*Done on Mac Catalyst (2026-09-15); Windows not available.* `docs/assistant-scenario-run.md` is the report: S-1 to S-8 and N-1, N-3, N-4, N-5, N-7, N-8, N-9 and N-11 were run through the application's own window against `qwen3.5:4b` by the self-test driver (`TokkDb.Assistant.Application/SelfTest/selftest-97.sh`), which types, attaches, answers, kills the process with a card on screen and reopens; every one worked, and the report gives what the person was told and what the trace shows for each. N-2, N-6, N-10 and N-12 are asserted by the scripted tests named there. Two things the run found were fixed: a question left on screen by a crash was held durably but the reopened application did not open its conversation, and "keep these as trips" went into conferences because a name the person gave was still a question for the model (`Intents.NamedThing` now decides it, with no mapping call). One thing it found once and did not find again is recorded: an undo that ended in an index error; the application now keeps an error log with the stack. Known limitations, with reasons, are listed in the report: no Windows machine, the descending sort as a sort, the twelve-month reading of "last year" about one time in eight, the model's own names for the fields it extracts, and keyboard-only completion by a person not exercised.
 
 ---
 

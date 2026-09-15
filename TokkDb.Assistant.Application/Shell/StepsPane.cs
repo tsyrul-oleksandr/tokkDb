@@ -1,11 +1,10 @@
-using System.Collections.Specialized;
-using TokkDb.Assistant.App.Chat;
-using TokkDb.Assistant.App.Diagram;
+using TokkDb.Assistant.Application.Chat;
+using TokkDb.Assistant.Application.Diagram;
 using TokkDb.Assistant.Diagram;
 using TokkDb.Assistant.Trace;
 using LayoutOptions = Microsoft.Maui.Controls.LayoutOptions;
 
-namespace TokkDb.Assistant.App.Shell;
+namespace TokkDb.Assistant.Application.Shell;
 
 /// <summary>
 /// "What happened" (TR-5, UI-6, UI-8): the diagram of the request being looked at, drawn from

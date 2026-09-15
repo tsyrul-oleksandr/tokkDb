@@ -1,7 +1,7 @@
-using TokkDb.Assistant.App.Browse;
-using TokkDb.Assistant.App.Chat;
+using TokkDb.Assistant.Application.Browse;
+using TokkDb.Assistant.Application.Chat;
 
-namespace TokkDb.Assistant.App.Shell;
+namespace TokkDb.Assistant.Application.Shell;
 
 /// <summary>
 /// One window, two surfaces (UI-1, D-13): the conversation, with the list of conversations on

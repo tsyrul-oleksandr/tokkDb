@@ -1,11 +1,10 @@
 using TokkDb.Assistant.Agents.Browsing;
 using TokkDb.Assistant.Agents.Changes;
-using TokkDb.Assistant.Agents.Orchestration;
-using Shown = TokkDb.Assistant.Agents.Orchestration.Values;
-using TokkDb.Assistant.App.Chat;
+using TokkDb.Assistant.Application.Chat;
 using TokkDb.Assistant.Storage;
+using Shown = TokkDb.Assistant.Agents.Orchestration.Values;
 
-namespace TokkDb.Assistant.App.Browse;
+namespace TokkDb.Assistant.Application.Browse;
 
 public enum BrowseScreen
 {

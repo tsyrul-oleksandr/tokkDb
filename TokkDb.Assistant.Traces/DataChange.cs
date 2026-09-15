@@ -197,10 +197,14 @@ public static class DataChanges
     /// undo deletes the record by identity, so nothing about its values is needed here, and the
     /// journal of an import does not grow with the width of the rows (AJ-1).
     /// </summary>
+    /// <param name="versionId"></param>
     /// <param name="reversibility">
     /// Computed before the change runs from what the collection declares:
     /// <see cref="Reversibilities.OfRecordChange"/> (AJ-5).
     /// </param>
+    /// <param name="requestId"></param>
+    /// <param name="collectionName"></param>
+    /// <param name="recordId"></param>
     public static DataChange Insert(
         Ulid requestId,
         string collectionName,

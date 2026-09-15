@@ -32,4 +32,8 @@
     <InternalsVisibleTo Include="TokkDb.Assistant.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\TokkDb.Assistant.Traces\TokkDb.Assistant.Traces.csproj" />
+  </ItemGroup>
+
 </Project>

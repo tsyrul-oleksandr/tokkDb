@@ -1,6 +1,6 @@
 ﻿using Foundation;
 
-namespace TokkDb.Assistant.App;
+namespace TokkDb.Assistant.Application;
 
 [Register("AppDelegate")]
 public class AppDelegate : MauiUIApplicationDelegate

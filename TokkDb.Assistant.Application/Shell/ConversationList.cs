@@ -1,7 +1,6 @@
-using System.Collections.Specialized;
-using TokkDb.Assistant.App.Chat;
+using TokkDb.Assistant.Application.Chat;
 
-namespace TokkDb.Assistant.App.Shell;
+namespace TokkDb.Assistant.Application.Shell;
 
 /// <summary>The conversations, most recently active first, and the way to start one (UI-1, SC-10).</summary>
 public sealed class ConversationList : Grid

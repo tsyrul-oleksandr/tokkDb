@@ -1,7 +1,7 @@
 using System.Text;
-using TokkDb.Assistant.App.Chat;
+using TokkDb.Assistant.Application.Chat;
 
-namespace TokkDb.Assistant.App.Shell;
+namespace TokkDb.Assistant.Application.Shell;
 
 /// <summary>
 /// A way to drive the window from outside it, for the steps that say "run it on Mac Catalyst
@@ -127,7 +127,7 @@ public static class SelfTest
 
         Note("self-test finished");
         await Task.Delay(500);
-        Application.Current?.Quit();
+        Microsoft.Maui.Controls.Application.Current?.Quit();
     }
 
     /// <summary>The browser's lines; true when the line was one of them. Each writes what the browser then shows.</summary>
@@ -229,7 +229,7 @@ public static class SelfTest
             {
                 // UI-7: the accessibility tree as the platform will read it - every interactive
                 // element on the visible surface, and whether it has a name a screen reader can say.
-                var page = Application.Current?.Windows.FirstOrDefault()?.Page;
+                var page = Microsoft.Maui.Controls.Application.Current?.Windows.FirstOrDefault()?.Page;
                 if (page is null) { note("a11y: no page"); return true; }
                 var interactive = page.GetVisualTreeDescendants().OfType<View>()
                     .Where(view => view.IsVisible && (view is Button or Entry or Editor or Picker or Switch or CheckBox || view.GestureRecognizers.Count > 0))

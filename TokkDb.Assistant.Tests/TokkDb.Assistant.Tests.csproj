@@ -23,7 +23,6 @@
     <ProjectReference Include="..\TokkDb.Assistant.Storage\TokkDb.Assistant.Storage.csproj" />
     <ProjectReference Include="..\TokkDb.Assistant.Storage.Engine\TokkDb.Assistant.Storage.Engine.csproj" />
     <ProjectReference Include="..\TokkDb.Assistant.Ingestion\TokkDb.Assistant.Ingestion.csproj" />
-    <ProjectReference Include="..\TokkDb.Assistant.Trace\TokkDb.Assistant.Trace.csproj" />
     <ProjectReference Include="..\TokkDb.Assistant.Agents\TokkDb.Assistant.Agents.csproj" />
     <ProjectReference Include="..\TokkDb.Assistant.Diagram\TokkDb.Assistant.Diagram.csproj" />
     <ProjectReference Include="..\TokkDb.Assistant.TokenBudget\TokkDb.Assistant.TokenBudget.csproj" />

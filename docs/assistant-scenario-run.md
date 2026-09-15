@@ -1,7 +1,7 @@
 # The whole thing: S-1 to S-8 and N-1 to N-12 against a real local model (step 9.7)
 
 Run on 2026-09-15 on Mac Catalyst (macOS 26.5, Apple silicon) against `qwen3.5:4b` served by Ollama on
-this machine, through the application's own window: the self-test driver (`TokkDb.Assistant.App/SelfTest/selftest-97.sh`,
+this machine, through the application's own window: the self-test driver (`TokkDb.Assistant.Application/SelfTest/selftest-97.sh`,
 scripts `selftest-97a.txt` and `selftest-97b.txt` beside it) types what the person would type, attaches the
 files, answers the cards, crashes the process where the scenario says so, and writes what came back and the
 steps the trace shows. **Windows was not available on this machine**; the Windows run is a known gap, not
@@ -13,7 +13,7 @@ tests named below, where the fake model does exactly what the scenario needs.
 
 ## What worked, what did not, and what the trace shows
 
-Both parts ran to the end; the logs are `TokkDb.Assistant.App/SelfTest/runs/selftest-97a.log` and `selftest-97b.log`, with nine
+Both parts ran to the end; the logs are `TokkDb.Assistant.Application/SelfTest/runs/selftest-97a.log` and `selftest-97b.log`, with nine
 screenshots each in the application's data directory. Model calls are the steps marked with an asterisk
 in the trace line the self-test writes.
 

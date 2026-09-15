@@ -26,12 +26,12 @@ public sealed partial class VocabularyTests
         "TokkDb.Assistant.Agents/Browsing/ThingsOverview.cs",
         "TokkDb.Assistant.Agents/Browsing/RecordDetail.cs",
         "TokkDb.Assistant.Agents/Browsing/TableFilter.cs",
-        "TokkDb.Assistant.App/Browse/BrowseSurface.cs",
-        "TokkDb.Assistant.App/Browse/BrowseViewModel.cs",
-        "TokkDb.Assistant.App/Chat/ConversationView.cs",
-        "TokkDb.Assistant.App/Chat/ChatViewModel.cs",
-        "TokkDb.Assistant.App/Shell/MainPage.cs",
-        "TokkDb.Assistant.App/Shell/ConversationList.cs"
+        "TokkDb.Assistant.Application/Browse/BrowseSurface.cs",
+        "TokkDb.Assistant.Application/Browse/BrowseViewModel.cs",
+        "TokkDb.Assistant.Application/Chat/ConversationView.cs",
+        "TokkDb.Assistant.Application/Chat/ChatViewModel.cs",
+        "TokkDb.Assistant.Application/Shell/MainPage.cs",
+        "TokkDb.Assistant.Application/Shell/ConversationList.cs"
     ];
 
     [GeneratedRegex("\\$?@?\"((?:[^\"\\\\]|\\\\.)*)\"")]
@@ -82,7 +82,7 @@ public sealed partial class VocabularyTests
     public void The_detail_panel_still_says_what_it_means()
     {
         var root = RepositoryRoot();
-        var detail = File.ReadAllText(Path.Combine(root, "TokkDb.Assistant.App/Diagram/DetailViews.cs"));
+        var detail = File.ReadAllText(Path.Combine(root, "TokkDb.Assistant.Application/Diagram/DetailViews.cs"));
         var execution = File.ReadAllText(Path.Combine(root, "TokkDb.Assistant.Storage.Engine/EngineQuery.cs"));
 
         Assert.Contains("tokens in", detail);

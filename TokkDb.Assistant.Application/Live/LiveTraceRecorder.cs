@@ -1,6 +1,6 @@
 using TokkDb.Assistant.Trace;
 
-namespace TokkDb.Assistant.App.Live;
+namespace TokkDb.Assistant.Application.Live;
 
 /// <summary>
 /// The recorder the application hands the orchestrator: the storage's own, with every step and

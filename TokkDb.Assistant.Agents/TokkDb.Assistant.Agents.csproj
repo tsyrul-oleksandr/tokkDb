@@ -17,7 +17,7 @@
   <ItemGroup>
     <ProjectReference Include="..\TokkDb.Assistant.Storage\TokkDb.Assistant.Storage.csproj" />
     <ProjectReference Include="..\TokkDb.Assistant.Ingestion\TokkDb.Assistant.Ingestion.csproj" />
-    <ProjectReference Include="..\TokkDb.Assistant.Trace\TokkDb.Assistant.Trace.csproj" />
+    <ProjectReference Include="..\TokkDb.Assistant.Traces\TokkDb.Assistant.Traces.csproj" />
   </ItemGroup>
 
   <ItemGroup>

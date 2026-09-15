@@ -1,10 +1,9 @@
-using Microsoft.Maui.Graphics;
 using TokkDb.Assistant.Diagram;
 using TokkDb.Assistant.Trace;
 using Font = Microsoft.Maui.Graphics.Font;
 using Measures = TokkDb.Assistant.Diagram.LayoutOptions;
 
-namespace TokkDb.Assistant.App.Diagram;
+namespace TokkDb.Assistant.Application.Diagram;
 
 /// <summary>
 /// The diagram, drawn (D-9, TR-5, TR-5a): a GraphicsView over the layout the Diagram project

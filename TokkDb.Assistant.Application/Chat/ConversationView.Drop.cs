@@ -1,4 +1,4 @@
-namespace TokkDb.Assistant.App.Chat;
+namespace TokkDb.Assistant.Application.Chat;
 
 public sealed partial class ConversationView
 {
