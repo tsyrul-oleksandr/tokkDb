@@ -783,6 +783,15 @@ sequential, so the rule costs a sort rather than a stall.
 
 ### 4.3 Agents and orchestration (group AG)
 
+**IN-10 (M).** A file whose name cannot be a thing's name (it starts with digits, or is a code)
+shall not fail the import: the model shall name the thing from the fields, their kinds and a few
+examples, and C# shall check the name before use and make the file's name usable when the model
+cannot. A name the person gives that cannot be used shall be refused with the reason, and nothing
+stored. The naming call is an operation of its own (AG-1): declared, budgeted, traced.
+*AC:* `133804_custom_campaigns_2.xlsx` is kept as a thing the model named ("custom campaigns"),
+with the call in the trace; with the model unable, as "custom campaigns 2"; "Keep these as 9lives"
+gets the reason and keeps nothing.
+
 **AG-1 (M).** Every request shall be handled as a named **operation** with a declared model
 configuration, a declared tool subset, and a declared context budget. No model call may be
 made outside an operation.
@@ -1330,6 +1339,10 @@ application shall show what it understood about the file before anything is stor
 *AC:* dropping a spreadsheet shows the detected sheets, header row and column types, and what
 is about to happen, before it happens.
 
+**UI-3a (M).** An attachment whose turn failed or was stopped shall return to the composer with the
+failure, so that the person can say how to keep it and send again without attaching it again.
+*AC:* after "That could not be done", the file is still attached; "Keep these" then keeps it.
+
 **UI-4 (M).** A confirmation for a destructive change shall state the loss in counts and
 examples, not in schema terms.
 *AC:* the card reads as what will be lost and how much of it, and offers to proceed or not.
@@ -1734,7 +1747,8 @@ per-call option. `scratch/ContextSpike/FINDINGS.md`.
 | Query writing | 2 500 | Schema digest of candidates plus one tool |
 | Result digest answering | 1 500 | The digest, not the rows |
 | Reply phrasing | 1 200 | Outcome facts, not payloads |
-| Suggestions (UI-9) | 1 800 | The things stored, the last four turns, what is typed; no rows |
+| Suggestions (UI-9) | 1 800 | The things stored, a few titles (last shown, or lately kept), the last four turns, what is typed; no rows |
+| Naming a thing (IN-10) | 1 500 | The fields, their kinds and two examples each; the file's name |
 
 **Whole-scenario budgets**, summed over every model call in the request:
 
@@ -2563,7 +2577,18 @@ the two purges around it.
 > tests over the fake model, the harness measures the call as S-9, and the control works in the window
 > against the real model.
 
-*Done (2026-09-15).* `Operations.Suggestions` ("what to say next"; 1,800 prompt tokens, 400 out, `BoundedSample`, no tools); `Suggestions.Content` gives the model the things stored with their fields, the last four turns through the conversation window, and what was typed; `Answers.Suggestions` parses the list; `Suggestions.Clean` trims, deduplicates, drops anything with a database word, caps at seven and tops up from `Suggestions.Starters` - C#'s own options from the things stored, their date and amount fields, what was last shown and whether there is something to take back, with the typed text's continuations first. `Orchestrator.SuggestAsync` runs it as a request of its own ("suggestions"), completed or failed but never a turn. The app's Suggest button shows the options as buttons above the composer; one click puts the text in the box and puts the rest away; the pane ignores the call's step. `SuggestionsTests` cover UI-9's acceptance; S-9 is in the harness and in the token-budget report; the self-test's `suggest[:draft]` line drives it against the real model.
+*Done (2026-09-15).* `Operations.Suggestions` ("what to say next"; 1,800 prompt tokens, 400 out, `BoundedSample`, no tools); `Suggestions.Content` gives the model the things stored with their fields, the last four turns through the conversation window, and what was typed; `Answers.Suggestions` parses the list; `Suggestions.Clean` trims, deduplicates, drops anything with a database word and caps at seven; when fewer than three of the model's survive, `Suggestions.Starters` fills in - C#'s own options, one for each thing the assistant does first (following up on, correcting and removing what was last shown, finding and adding up a thing stored, keeping more, taking back), from the things stored with their date and amount fields, with the typed text's continuations first. `Orchestrator.SuggestAsync` runs it as a request of its own ("suggestions"), completed or failed but never a turn. The app's Suggest button shows the options as buttons above the composer; one click puts the text in the box and puts the rest away; the pane ignores the call's step. `SuggestionsTests` cover UI-9's acceptance; S-9 is in the harness and in the token-budget report; the self-test's `suggest[:draft]` line drives it against the real model. Two things the real model showed: it wrote the assistant's own lines ("What do you want to store?") and invented places when it had no names, so the instructions ask for the person's voice with examples, the content lists a few titles - those last shown, or of the thing lately kept - so that options name real things, and with nothing stored, nothing said and nothing typed - nothing for the model to read - the starters are shown without a call.
+
+**10.2 A thing named when the file's name will not do; the attachment stays**
+> Read IN-10 and UI-3a. Storing `133804_custom_campaigns_2.xlsx` failed at the write with the storage's
+> rule about names, and the attachment was gone with the failed message, so a bare "store" that followed
+> had nothing to keep. Name the thing by the model when the file's name cannot be a thing's name, checked
+> by C# before use with the file's name made usable as the fallback; refuse a name the person gives that
+> cannot be used, with the reason; return an attachment to the composer when its turn fails or is stopped.
+> Done when: `NamingTests` cover IN-10, the self-test keeps the file through the refusal and the naming
+> against the real model, and the picker's copy keeps the file's own name.
+
+*Done (2026-09-15).* `Operations.Naming` ("what to call it"; 1,500 prompt tokens, 40 out, `BoundedSample`, no tools) reads the shape's description - fields, kinds, two examples each, the file's name - and answers a name; `IncomingShape.IsUsableThingName` is the storage's rule and `IncomingShape.UsableFrom` the fallback ("133804_custom_campaigns_2" is "custom_campaigns_2", nothing usable is "things"); `Placer.ProposeNew` checks every proposed name the same way, whoever proposed it; `StoreFlow` asks the model only when no placement call was made and the file's name will not do, notes in the trace when the model's name will not do either or the model fails, and refuses a person's unusable name before anything is proposed (`Replies.NotAName`). `ChatViewModel.SendAsync` puts the attachments back when the outcome is neither completed nor a question (UI-3a). The picker's copy keeps the file's name in a per-pick folder: it named the thing the rows became, and a time-stamped copy would have named it "183012_conferences_2025". `Tracer` now starts each step strictly after the one before, so two notes in one tick read back in order - the S-1 scenario test's first step flipped one run in ten before. `NamingTests` cover IN-10; `selftest-naming.txt` drives the refusal, the naming and the attachment's return against the real model.
 
 ---
 

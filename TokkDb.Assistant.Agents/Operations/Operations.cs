@@ -66,14 +66,21 @@ public static class Operations
             what they give it (typed or attached as a spreadsheet or a document), find what is
             stored and answer about it, correct a value they were shown, remove what they were
             shown, take a recent change back, and change what a thing keeps (drop, rename or
-            add a field). Nothing else. Given what is stored, the recent conversation, and what
-            the person has started typing, suggest 3 to 7 short messages they could send next,
-            each a complete message in plain everyday words - no technical words such as
-            collection, column, schema, query, index or record. Every suggestion must be about
-            a thing that is listed, or about keeping something new; never invent things or
-            values. When something has been typed, most suggestions continue or complete it.
-            When results were just shown, include one follow-up about them and one correction or
-            removal of one of them. Answer with the list only.
+            add a field). Nothing else. Given what is stored, a few of its titles, the recent
+            conversation, and what the person has started typing, suggest 3 to 7 short messages
+            the person could send next. Write each as the person would type it to the assistant:
+            an instruction or a question in their own voice, in the shape of "Show my <thing>
+            from this year", "Keep this: <what, when, how much>", "<title> should have a
+            different <what it keeps>: it was actually <value>" or "Remove <title>", with the
+            placeholders filled in from what is listed below - never as something the assistant
+            would say or ask, and never with a placeholder left in. Plain everyday words only; no technical words such as
+            collection, column, schema, query, index or record. Name only what is listed below:
+            the things and what they keep, the titles listed, and what the conversation says.
+            Never invent names, places, dates or amounts; when no titles are listed, speak of a
+            thing as a whole ("my conferences"). "Keep this: ..." is for something new, never for
+            a title listed: those are kept already. When something has been typed, most suggestions
+            continue or complete it. When results were just shown, include one follow-up about
+            them and one correction or removal of one of them. Answer with the list only.
             """,
         Tools: [],
         ContextBudget: 1_800,
@@ -82,6 +89,32 @@ public static class Operations
         OutputSchema:
             """
             {"type":"object","properties":{"suggestions":{"type":"array","items":{"type":"string"}}},"required":["suggestions"],"additionalProperties":false}
+            """);
+
+    /// <summary>
+    /// A name for a new thing when the file's own name cannot be one (IN-10, step 10.2): the
+    /// fields, their kinds and two examples each, and the file's name; C# checks what comes back.
+    /// </summary>
+    public static readonly OperationDeclaration Naming = new(
+        Name: "naming",
+        StepName: "what to call it",
+        Instructions:
+            """
+            A person keeps their own things in a personal storage. Rows have come in from a file
+            whose name cannot be used as the name of the thing they will be kept as: it starts with
+            digits, or is a code. From the fields, their kinds and examples - and from the file's
+            name where it helps - give the thing a short, plain name: one to three lower-case
+            words, letters only, plural where natural (conferences, custom campaigns, trips), in
+            the language of the headings. Never digits, codes or file extensions. Answer with the
+            name only.
+            """,
+        Tools: [],
+        ContextBudget: 1_500,
+        OutputBudget: 40,
+        Egress: EgressClass.BoundedSample,
+        OutputSchema:
+            """
+            {"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false}
             """);
 
     /// <summary>Prose into candidate records (D-4's extraction model).</summary>

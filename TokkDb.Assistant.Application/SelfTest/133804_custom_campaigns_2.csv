@@ -1,0 +1,4 @@
+Customer,Email,Date,Subscription,Country,Type,Email Status
+John Doe,john@example.com,2026-08-28,Windows course,Ukraine,Dunning,Sent
+Jane Roe,jane@example.com,2026-08-29,Excel course,Poland,Welcome,Opened
+Olena Kovalenko,olena@example.com,2026-09-01,Word course,Ukraine,Reminder,Sent

@@ -151,21 +151,26 @@ public sealed partial class ConversationView : Grid
                 })
             });
 
+            // Dismissing the picker gives nothing back on Mac Catalyst (null, not an empty list).
+            if (results is null) return;
+
             // What was chosen is read through the picker's own grant and kept as a copy in the
             // application's cache: the path the sandbox handed over is scoped to that grant, and
             // the copy is what the turn reads and the conversation names.
+            // The copy keeps the file's own name - it names the thing the rows become - in a folder of its own per pick.
             var copies = new List<string>();
-            var directory = Path.Combine(FileSystem.CacheDirectory, "chosen");
+            var directory = Path.Combine(FileSystem.CacheDirectory, "chosen", DateTime.Now.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture));
             Directory.CreateDirectory(directory);
             foreach (var result in results)
             {
-                var copy = Path.Combine(directory, $"{DateTime.Now:HHmmss}-{result.FileName}");
+                var copy = Path.Combine(directory, result.FileName);
                 await using var source = await result.OpenReadAsync();
                 await using var target = File.Create(copy);
                 await source.CopyToAsync(target);
                 copies.Add(copy);
             }
 
+            if (copies.Count == 0) return;
             await _model.AttachAsync(copies);
         }
         catch (Exception failure)

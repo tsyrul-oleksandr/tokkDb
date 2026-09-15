@@ -76,6 +76,22 @@ public sealed record IncomingShape(
         return $"incoming: {Name}, {Rows.Count.ToString(CultureInfo.InvariantCulture)} rows\nfields:\n" + string.Join("\n", lines);
     }
 
+    /// <summary>Whether a name can be a thing's: a letter, then letters, digits or underscores, at most 64 (the storage's rule).</summary>
+    public static bool IsUsableThingName(string? name) =>
+        name is not null && name.Length is > 0 and <= 64 && char.IsAsciiLetter(name[0]) && name.All(static c => char.IsAsciiLetterOrDigit(c) || c == '_');
+
+    /// <summary>
+    /// A usable name from one that is not: what remains after the leading digits and underscores
+    /// go ("133804_custom_campaigns_2" is "custom_campaigns_2"), or "things" when nothing does.
+    /// </summary>
+    public static string UsableFrom(string name)
+    {
+        var trimmed = new string(name.SkipWhile(static c => !char.IsAsciiLetter(c)).ToArray());
+        var cleaned = new string(trimmed.Where(static c => char.IsAsciiLetterOrDigit(c) || c == '_').ToArray()).TrimEnd('_');
+        if (cleaned.Length > 60) cleaned = cleaned[..60].TrimEnd('_');
+        return IsUsableThingName(cleaned) ? cleaned : "things";
+    }
+
     /// <summary>The name as a thing stored would be called: lower case, words joined by underscores.</summary>
     public static string AsThingName(string name)
     {

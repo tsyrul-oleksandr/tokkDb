@@ -23,10 +23,29 @@ public sealed class Tracer
     /// <summary>The step the next one follows.</summary>
     public Ulid? Last { get; private set; }
 
+    private readonly Lock _clock = new();
+    private DateTimeOffset _lastStarted = DateTimeOffset.MinValue;
+
+    /// <summary>
+    /// The moment a step starts, strictly later than the step before it: two notes made in the
+    /// same tick would otherwise read back in either order, since the stores order steps by
+    /// when they started and the ids issued within a millisecond do not order.
+    /// </summary>
+    private DateTimeOffset Now()
+    {
+        lock (_clock)
+        {
+            var now = DateTimeOffset.UtcNow;
+            if (now <= _lastStarted) now = _lastStarted.AddTicks(1);
+            _lastStarted = now;
+            return now;
+        }
+    }
+
     /// <summary>Begins a step: it is on disk as running before the work starts (TR-4a, TR-4b).</summary>
     public StepScope Step(string name, string? input = null)
     {
-        var step = new ExecutionStep(Ulid.NewUlid(), Request.Id, name, StepStatus.Running, DateTimeOffset.UtcNow)
+        var step = new ExecutionStep(Ulid.NewUlid(), Request.Id, name, StepStatus.Running, Now())
         {
             After = Last,
             Input = input
@@ -41,7 +60,7 @@ public sealed class Tracer
     /// <summary>A step that started and ended at once: what the person said, what was decided without a call.</summary>
     public ExecutionStep Note(string name, string? input = null, string? output = null)
     {
-        var now = DateTimeOffset.UtcNow;
+        var now = Now();
         var step = new ExecutionStep(Ulid.NewUlid(), Request.Id, name, StepStatus.Completed, now, now)
         {
             After = Last,

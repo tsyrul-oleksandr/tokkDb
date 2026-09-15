@@ -1,0 +1,37 @@
+11:01:11.161 self-test started: 19 lines; database /Users/ts/Library/Containers/com.tokkdb.assistant/Data/Library/storage.db
+11:01:14.268 said: yes
+11:01:14.269 reply: Dropped the notes from conferences. 3 values went with it.
+11:01:14.269 steps: the person -> the assistant -> what was meant* -> what would change* -> what it would do -> the question -> the answer -> the change -> the answer
+11:01:15.962 surface: browse
+11:01:15.964 a11y: 72 interactive elements on screen, 72 named; unnamed: none
+11:01:15.965 a11y: focus order: Show the conversation > Browse everything stored > Start a new conversation > Show what happened for this reply > Show what happened for this reply > Open Lviv in the browser > Open Kyiv in the browser > Open Prague in the browser > Open Vilnius in the browser > Open Lviv in the browser > Open Kyiv in the browser > Show what happened for this reply > Open Lviv in the browser > Open Kyiv in the browser > Open Prague in the browser > Open Vilnius in the browser > Open Lviv in the browser > Open Kyiv in the browser > Show what happened for this reply > Open Lviv in the browser > Open Kyiv in the browser > Open Prague in the browser > Open Vilnius in the browser > Open Lviv in the browser
+11:01:16.641 overview: Conferences (6 of them, changed just now): conferences you keep
+11:01:17.330 table: conferences 6 of 6 shown, in the order they were kept; filters: none; Scan, 6 examined, 9 pages; changed underneath: False; first: Kyiv
+11:01:17.999 table: conferences 6 of 6 shown, amount smallest first; filters: none; Scan, 6 examined, 9 pages; changed underneath: False; first: Vilnius
+11:01:18.648 table: conferences 6 of 6 shown, amount largest first; filters: none; Scan, 6 examined, 9 pages; changed underneath: False; first: Lviv
+11:01:19.326 record: Lviv: location=Lviv; date=2025-03-14; amount=13000; name=PyCon Lviv
+11:01:19.997 a11y: 76 interactive elements on screen, 76 named; unnamed: none
+11:01:19.998 a11y: focus order: Show the conversation > Browse everything stored > Start a new conversation > Show what happened for this reply > Show what happened for this reply > Open Lviv in the browser > Open Kyiv in the browser > Open Prague in the browser > Open Vilnius in the browser > Open Lviv in the browser > Open Kyiv in the browser > Show what happened for this reply > Open Lviv in the browser > Open Kyiv in the browser > Open Prague in the browser > Open Vilnius in the browser > Open Lviv in the browser > Open Kyiv in the browser > Show what happened for this reply > Open Lviv in the browser > Open Kyiv in the browser > Open Prague in the browser > Open Vilnius in the browser > Open Lviv in the browser
+11:01:20.652 keeps: location keeps some words. | date keeps a day. | amount keeps an amount. | name keeps some words.
+11:01:26.259 ask: draft "About Lviv: "; last shown: You opened Lviv in the browser.
+11:01:27.776 surface: chat
+11:01:29.891 said: Which was the most expensive?
+11:01:29.892 reply: Of the 1 conferences you were shown, the highest amount is Lviv at 13000.
+11:01:29.892 steps: the person -> the assistant -> what was meant -> answering from what was shown -> the answer
+11:01:30.720 attached: trips-2025.csv - 2 rows, 5 headings, headings on line 1 | name: text, city: text, date: date, cost: whole number, notes: text - Looks like it belongs with conferences (name, city, date, cost in common). Nothing is stored until you send.
+11:01:34.613 said: Keep these as trips
+11:01:34.614 reply: Started keeping trips and kept 2 of them.
+11:01:34.614 steps: the person -> the assistant -> what was meant -> what is in the file -> where it belongs -> the placement -> the new thing -> the write -> the answer
+11:01:35.420 attached: conferences-2025.csv - 4 rows, 5 headings, headings on line 1 | name: text, city: text, date: date, cost: whole number, notes: text - Looks like it belongs with trips (name, city, date, cost, notes in common). Nothing is stored until you send.
+11:01:41.348 said: And these
+11:01:41.349 reply: Add these to conferences?
+It looks most like conferences: name as name, city as location, date as date, cost as amount.
+It could also be trips, which has name, city, date, cost, notes in common.
+1 fields would be new: notes.
+4 rows would be kept.
+This can be undone. [question: Add these to conferences?]
+11:01:41.349 steps: the person -> the assistant -> what was meant -> what is in the file -> where it belongs* -> the placement -> the question
+11:01:43.558 said: no
+11:01:43.559 reply: Left as it is. Nothing was changed.
+11:01:43.559 steps: the person -> the assistant -> what was meant -> what is in the file -> where it belongs* -> the placement -> the question -> the answer
+11:01:44.360 self-test finished

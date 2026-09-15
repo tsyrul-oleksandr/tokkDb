@@ -11,8 +11,12 @@ launch the built `.app`, wait for the log, and print it.
   screen, part B reopens on the same database.
 
 Scripts: `selftest-s1-s6.txt` (steps 5.1 and 5.2), `selftest-browse.txt` (Phase 6), `selftest-diagram.txt`
-(Phase 7), `selftest-97a.txt` and `selftest-97b.txt` (step 9.7). Fixtures: `conferences-2025.csv`,
-`conferences-bad.csv` (100 rows, 3 unreadable), `empty.csv` (a heading line), `trips-2025.csv`. The logs of
-the 9.7 run on 2026-09-15 are in `runs/`; the screenshots stay in the container.
+(Phase 7), `selftest-97a.txt` and `selftest-97b.txt` (step 9.7), `selftest-paste.txt` (a pasted table with
+wrapped rows), `selftest-suggest.txt` (step 10.1: the `suggest[:draft]` line clicks Suggest with that draft
+typed and logs the options), `selftest-naming.txt` (step 10.2: a file whose name cannot be a thing's name, a
+name that cannot be used, and the attachment staying for the next message). Fixtures: `conferences-2025.csv`,
+`conferences-bad.csv` (100 rows, 3 unreadable), `empty.csv` (a heading line), `trips-2025.csv`,
+`campaigns-wrapped.txt`, `133804_custom_campaigns_2.csv`. The logs of the 9.7 run on
+2026-09-15 are in `runs/`; the screenshots stay in the container.
 
 Build first: `dotnet build TokkDb.Assistant.Application/TokkDb.Assistant.Application.csproj -f net10.0-maccatalyst`.

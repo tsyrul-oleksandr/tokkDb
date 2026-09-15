@@ -134,6 +134,7 @@ public sealed class Placer
     private PlacementProposal ProposeNew(IncomingShape shape, IReadOnlyList<PlacementCandidate> shortlist, MappingAnswer? answer, string schema)
     {
         var name = answer?.NewName is { Length: > 0 } proposed ? IncomingShape.AsThingName(proposed) : shape.Name;
+        if (!IncomingShape.IsUsableThingName(name)) name = IncomingShape.UsableFrom(name);
         if (_storage.GetCollectionDefinition(name) is not null) name = Unused(name);
 
         var purpose = answer?.Purpose is { Length: > 0 } sentence ? sentence.Trim() : shape.Purpose ?? $"{name.Replace('_', ' ')} you keep";

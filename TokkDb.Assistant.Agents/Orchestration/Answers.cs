@@ -263,6 +263,25 @@ public static class Answers
     };
 
     /// <summary>The suggestions list: strings under "suggestions", at least one of them usable.</summary>
+    /// <summary>The naming model's answer: a name, not blank.</summary>
+    public static OutputParser<string> Naming() => text =>
+    {
+        try
+        {
+            using var json = JsonDocument.Parse(Extract(text));
+            if (!json.RootElement.TryGetProperty("name", out var name) || name.ValueKind is not JsonValueKind.String || name.GetString()!.Trim().Length == 0)
+            {
+                return Parsed<string>.Invalid("no name");
+            }
+
+            return Parsed<string>.Ok(name.GetString()!.Trim());
+        }
+        catch (JsonException failure)
+        {
+            return Parsed<string>.Invalid("not JSON: " + failure.Message);
+        }
+    };
+
     public static OutputParser<IReadOnlyList<string>> Suggestions() => text =>
     {
         try

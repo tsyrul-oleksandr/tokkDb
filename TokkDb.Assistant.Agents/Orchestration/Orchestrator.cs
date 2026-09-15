@@ -216,19 +216,27 @@ public sealed class Orchestrator
     public async Task<SuggestionSet> SuggestAsync(Ulid? conversationId, string? draft, CancellationToken cancellation = default)
     {
         var turns = conversationId is { } id ? _storage.Conversations.Turns(id) : [];
-        var request = _lifecycle.Begin(conversationId ?? Ulid.Empty, "suggestions");
         var lastShown = conversationId is { } known ? LastHandle(known) : null;
         var somethingToTakeBack = turns.Any(turn => turn.RequestId is { } requestId && _recorder.Changes(requestId).Count > 0);
         var fallback = Suggestions.Starters(_storage, lastShown, somethingToTakeBack, draft);
 
+        // Nothing stored, nothing said and nothing typed: there is nothing for the model to read,
+        // so how to begin is said from C#'s own starters, without a call and without a request.
+        if (_storage.GetCollectionDefinitions().Count == 0 && turns.Count == 0 && string.IsNullOrWhiteSpace(draft))
+        {
+            return new SuggestionSet(Suggestions.Clean([], fallback), FromModel: false, Ulid.Empty);
+        }
+
+        var request = _lifecycle.Begin(conversationId ?? Ulid.Empty, "suggestions");
         try
         {
             var prefix = PromptPrefix.Assemble(Catalogue.Suggestions, string.Empty, _tools);
-            var content = Suggestions.Content(_storage, turns, draft);
+            var titles = Suggestions.TitlesFor(_storage, _recorder, turns, lastShown);
+            var content = Suggestions.Content(_storage, turns, titles, draft);
             var result = await _runner.RunAsync(Catalogue.Suggestions, new AssembledContext(prefix, content, EgressClass.BoundedSample, "what to say next"),
                 Answers.Suggestions(), request.Id, null, cancellation).ConfigureAwait(false);
 
-            var options = Suggestions.Clean(result.Value, fallback);
+            var options = Suggestions.Clean(result.Value, fallback, titles);
             _lifecycle.Complete(request);
             return new SuggestionSet(options, FromModel: options.Count > 0 && result.Value.Any(option => options.Contains(option.Trim().Trim('"'), StringComparer.OrdinalIgnoreCase)), request.Id);
         }

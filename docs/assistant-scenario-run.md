@@ -1,4 +1,4 @@
-# The whole thing: S-1 to S-8 and N-1 to N-12 against a real local model (step 9.7)
+# The whole thing: S-1 to S-9 and N-1 to N-12 against a real local model (steps 9.7 and 10.1)
 
 Run on 2026-09-15 on Mac Catalyst (macOS 26.5, Apple silicon) against `qwen3.5:4b` served by Ollama on
 this machine, through the application's own window: the self-test driver (`TokkDb.Assistant.Application/SelfTest/selftest-97.sh`,
@@ -29,6 +29,8 @@ in the trace line the self-test writes.
 | N-9 | asked again, then the process was killed with the card on screen; the application was reopened | the same question came back, "yes" gave "Dropped the notes from conferences. 3 values went with it." | the request had been held as waiting; startup reconciliation reopened its conversation and the answer executed what was shown, with no model call | worked |
 | S-7 | after the crash and reopening | the browser shows "Conferences (6 of them)", and Lviv reads 13000 | nothing was asked; the file is the same | worked |
 | S-8 | Browse → the overview → conferences → sorted by amount twice → the Lviv one → "what it keeps" | the table sorted, the record with every field, "location keeps some words. date keeps a day. amount keeps an amount. name keeps some words." | no request, no model call; then "Ask about this" put "About Lviv: " in the composer and "Which was the most expensive?" was answered from that record alone | worked |
+| S-9 | clicked Suggest four times: with nothing stored, after keeping `conferences-2025.csv`, after the year's total was shown, and with "Show my" typed | with nothing stored: "Keep this: the conference in Lviv on 14 March 2025, 12 000 hryvnia", "Keep these as trips: …", "What can you keep for me?"; after the file: "Show my conferences from this year", "EuroPython should have a different cost: it was actually $600", "Remove EuroPython"; after the total: the same three about the conferences shown; with "Show my" typed: four continuations ("Show my conferences from 2025", "… in Europe", "… with cost over 5000") | what to say next\* as a request of its own (one model call; no turn added, the conversation unchanged); with nothing stored, no call at all | worked, see the note |
+| IN-10, UI-3a | attached `133804_custom_campaigns_2.csv`, said "Keep these as 9lives", then "Keep these" with nothing attached again | "That could not be done: '9lives' cannot be a name for a thing: a name starts with a letter, then letters, digits or spaces. Say it again with a name like that, or leave the name to me."; then "Started keeping custom campaigns and kept 3 of them." - the attachment had stayed, and the model named the thing | where it belongs (refused, nothing stored); then what is in the file → what to call it\* → the placement → the new thing → the write | worked |
 | N-1 | with conferences and trips both kept (see below), attached a third file of the same shape | the card: "Add these to conferences? It looks most like conferences: name as name, city as location… It could also be trips, which has name, city, date, cost, notes in common." | where it belongs\* → the placement → the question | worked |
 | N-3 | attached `conferences-2025.csv` a second time | "Kept 0 more of conferences; skipped 4 already there, matched on everything in the row." | the write, with every row's disposition | worked |
 | N-4 | attached `conferences-bad.csv` (100 rows, 3 unreadable) | "Kept 97 more of conferences. 3 could not be kept: line 12: "the 14th of never" in date is not date; line 42: "twelve thousand" in cost is not number; line 79: "n/a" in cost is not number." | one write, 97 dispositions kept and 3 rejected with their lines | worked |
@@ -36,6 +38,25 @@ in the trace line the self-test writes.
 | N-7 | asked the year's total and cancelled while the model was answering | "Stopped. Nothing was changed."; the request's state is Cancelled; the six conferences are as they were | the model step ends as cancelled and the request reaches Cancelled | worked |
 | N-11 | "undo" after the 97-row import | "Put 97 of conferences back as they were." | what would be taken back → putting things back → the answer; the six original records stayed | worked, see the note |
 | "Keep these as trips" | attached `trips-2025.csv`, which has conferences' shape | "Started keeping trips and kept 2 of them." | where it belongs (decided from the person's words, no model call) → the new thing | worked |
+
+**S-9, a note (step 10.1, run later the same day with `selftest-run.sh selftest-suggest.txt fresh`; the log is
+`runs/selftest-suggest.log`).** Three things the real model did before the operation took its final shape, each
+now handled in C# as well as in the instructions: with nothing stored it wrote the assistant's own lines
+("What do you want to store?") - so with nothing stored, nothing said and nothing typed the starters are shown
+without a call; with no names to use it invented places and records ("Keep the conference in Tokyo on March
+15th", "Remove the entry for the New York conference"), and copied the names from the instructions' examples
+when those had any - so the content lists a few real titles (those last shown, or of the thing lately kept),
+the examples are name-free shapes, and an option with a placeholder left in is dropped; and given the titles
+it proposed keeping them again with made-up amounts ("Keep this: EuroPython, 2025, $150") - so a "Keep" option
+that names a listed title is dropped. Each click took one to three seconds and about 460 prompt tokens against
+the 1,800 allowed (`docs/assistant-token-budget.md`, S-9: 4 of 4 real runs, one call each).
+
+**IN-10 and UI-3a, a note (step 10.2, `selftest-run.sh selftest-naming.txt fresh`; the log is `runs/selftest-naming.log`).**
+The file's name starts with digits, which the storage's rule for names refuses; before this step the import
+failed at the write with that rule's message, and the attachment went with the failed message, so a bare
+"store" that followed had nothing to keep and was read as a search. Now the model names the thing from the
+fields and examples ("custom campaigns" here), C# checks the name before use, and an attachment comes back
+to the composer when its turn fails.
 
 **N-11, a note.** In the first run of the day, before the application's error log existed, the same
 "undo" ended with "Something went wrong: Index was outside the bounds of the array" after the step

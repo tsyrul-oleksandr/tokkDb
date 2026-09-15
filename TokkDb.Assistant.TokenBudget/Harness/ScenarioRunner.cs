@@ -129,10 +129,12 @@ public sealed class ScenarioRunner
     {
         GivenFourConferences(app.Storage);
         model?.Answer("intent", Agents.Testing.Scenarios.Intent("find")).Answer("query", Agents.Testing.Scenarios.ConferencesLastYear);
+        // After S-3, whatever it found: the suggestions call is what is measured here, and a
+        // query the real model got wrong is S-3's failure, counted there and not again as S-9's.
         var before = await app.Orchestrator.HandleAsync(new TurnInput(null, Said("S-3")), cancellation).ConfigureAwait(false);
-        if (!before.Succeeded || before.Results is not { Total: 4 })
+        if (!before.Succeeded)
         {
-            return new RunFigures("S-9", false, 0, 0, 0, 0, 0, 0, 0, TimeSpan.Zero, [FailureMode.Other], [], "the retrieval before it did not succeed: " + before.Reply);
+            return new RunFigures("S-9", false, 0, 0, 0, 0, 0, 0, 0, TimeSpan.Zero, [FailureMode.Other], [], "the retrieval before it did not complete: " + before.Reply);
         }
 
         if (model is not null) script?.Invoke(model);

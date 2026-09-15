@@ -49,6 +49,13 @@ internal static class StoreFlow
             return ctx.Complete(Replies.NothingToStore(files.Count > 0));
         }
 
+        // IN-10: a name the person gave that cannot be a thing's name is refused with the reason, and nothing is stored.
+        if (Intents.NamedThing(ctx.Text) is { } given && !IncomingShape.IsUsableThingName(IncomingShape.AsThingName(given)))
+        {
+            ctx.Tracer.Note("where it belongs", input: $"you said: {given}", output: "not usable as a name; nothing stored");
+            return ctx.Fail(Replies.NotAName(given));
+        }
+
         var replies = new List<string>();
         string? committed = null;
 
@@ -185,6 +192,14 @@ internal static class StoreFlow
             answer = result.Value;
         }
 
+        // IN-10: the file's name cannot be the thing's (it starts with digits, say) and no one has
+        // named it: the model names it from the fields and examples, and C# checks the name; when
+        // that fails, the placer makes the file's name usable instead.
+        if (answer is null && !IncomingShape.IsUsableThingName(shape.Name))
+        {
+            answer = new MappingAnswer("none", await NameAsync(ctx, shape).ConfigureAwait(false), null, []);
+        }
+
         LastAnswer = answer;
 
         var proposal = ctx.Placer.Propose(shape, shortlist, answer);
@@ -206,6 +221,30 @@ internal static class StoreFlow
                     + (decision is PlacementDecision.Ask ? "; asked: " + PlacementDecisions.WhyAsked(proposal, ctx.Options.Thresholds) : "; applied without asking"));
 
         return (validated, decision);
+    }
+
+    /// <summary>
+    /// The model's name for a thing whose file name will not do (IN-10), as a thing name, or
+    /// null when the model could not name it or its name will not do either: the file's name,
+    /// made usable, is used then, and the trace says so.
+    /// </summary>
+    private static async Task<string?> NameAsync(TurnContext ctx, IncomingShape shape)
+    {
+        var instead = Replies.Plain(IncomingShape.UsableFrom(shape.Name));
+        try
+        {
+            var result = await ctx.RunAsync(Catalogue.Naming, shape.Describe(), EgressClass.BoundedSample, Answers.Naming(), summary: $"a name for {shape.Source}", withDigest: false).ConfigureAwait(false);
+            var proposed = IncomingShape.AsThingName(result.Value);
+            if (IncomingShape.IsUsableThingName(proposed)) return proposed;
+
+            ctx.Tracer.Note("what to call it", input: result.Value, output: $"not usable as a name; called {instead} instead");
+            return null;
+        }
+        catch (ModelFailedException failure)
+        {
+            ctx.Tracer.Note("what to call it", input: shape.Name, output: $"the model could not name it ({failure.Message}); called {instead} instead");
+            return null;
+        }
     }
 
     /// <summary>The write, in one unit of work with its change records (SC-5, TR-4, IN-8a).</summary>

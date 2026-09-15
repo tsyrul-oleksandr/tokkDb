@@ -11,6 +11,10 @@ namespace TokkDb.Assistant.Agents.Orchestration;
 /// </summary>
 public static class Replies
 {
+    /// <summary>A name the person gave that cannot be a thing's name (IN-10): the reason, and what would do.</summary>
+    public static string NotAName(string said) =>
+        $"'{said}' cannot be a name for a thing: a name starts with a letter, then letters, digits or spaces. Say it again with a name like that, or leave the name to me.";
+
     public static string NothingToStore(bool hadFile) => hadFile
         ? "There was nothing in it to keep: headings but no rows. Nothing was stored."
         : "There was nothing in that to keep, so nothing was stored.";

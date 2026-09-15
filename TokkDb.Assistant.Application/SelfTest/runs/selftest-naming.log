@@ -1,0 +1,10 @@
+19:40:49.938 self-test started: 6 lines; database /Users/ts/Library/Containers/com.tokkdb.assistant/Data/Library/storage.db
+19:40:51.530 attached: 133804_custom_campaigns_2.csv - 3 rows, 7 headings, headings on line 1 | Customer: text, Email: text, Date: date, Subscription: text, Country: text, Type: text, Email Status: text - Nothing you have stored looks like this, so it would become a new thing. Nothing is stored until you send.
+19:40:53.083 said: Keep these as 9lives
+19:40:53.084 reply: That could not be done: '9lives' cannot be a name for a thing: a name starts with a letter, then letters, digits or spaces. Say it again with a name like that, or leave the name to me.
+19:40:53.084 steps: the person -> the assistant -> what was meant -> what is in the file -> where it belongs -> the answer
+19:41:02.600 said: Keep these
+19:41:02.601 reply: Started keeping custom campaigns and kept 3 of them.
+19:41:02.601 steps: the person -> the assistant -> what was meant -> what is in the file -> what to call it* -> the placement -> the new thing -> the write -> the answer
+19:41:08.313 suggest (typed ""): Show my custom campaigns from 2024 | John Doe should have a different name: it was actually John Smith | Remove Jane Roe
+19:41:09.019 self-test finished

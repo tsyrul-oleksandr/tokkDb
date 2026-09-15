@@ -402,3 +402,6 @@ FodyWeavers.xsd
 # deliberately outside TokkDb.slnx.
 /scratch
 
+
+# The self-test runs the documents cite (docs/assistant-scenario-run.md) are kept with them.
+!TokkDb.Assistant.Application/SelfTest/runs/*.log

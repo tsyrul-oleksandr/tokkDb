@@ -1,0 +1,49 @@
+10:59:55.478 self-test started: 20 lines; database /Users/ts/Library/Containers/com.tokkdb.assistant/Data/Library/storage.db
+11:00:05.482 said: I want to save these — the conference in Lviv on 14 March 2025, 12 000 hryvnia, and the one in Kyiv on 20 May 2025, 8 500.
+11:00:05.482 reply: Started keeping conferences and kept 2 of them.
+11:00:05.483 steps: the person -> the assistant -> what was meant* -> what is in the text* -> the placement -> the new thing -> the write -> the answer
+11:00:06.437 attached: conferences-2025.csv - 4 rows, 5 headings, headings on line 1 | name: text, city: text, date: date, cost: whole number, notes: text - It might belong with conferences; that is decided when you send, and you are asked if it is not clear. Nothing is stored until then.
+11:00:12.493 said: Here are more of them
+11:00:12.494 reply: Kept 4 more of conferences, and added 2 fields to it (name, notes).
+11:00:12.494 steps: the person -> the assistant -> what was meant -> what is in the file -> where it belongs* -> the placement -> the new field -> the new field -> the write -> the answer
+11:00:20.353 said: How much did I spend on conferences in 2025?
+11:00:20.354 reply: 42440 in all, over 6 conferences. [6 of 6 shown]
+11:00:20.355 steps: the person -> the assistant -> what was meant* -> what to look for* -> looking -> the answer
+11:00:22.181 said: Which was the most expensive?
+11:00:22.182 reply: Of the 6 conferences you were shown, the highest amount is Lviv at 12000.
+11:00:22.182 steps: the person -> the assistant -> what was meant -> answering from what was shown -> the answer
+11:00:26.194 said: The Lviv one was actually 13 000.
+11:00:26.195 reply: Changed amount of Lviv from 12000 to 13000.
+11:00:26.195 steps: the person -> the assistant -> what was meant* -> what to correct* -> the change -> the answer
+11:00:26.989 attached: conferences-2025.csv - 4 rows, 5 headings, headings on line 1 | name: text, city: text, date: date, cost: whole number, notes: text - Looks like it belongs with conferences (name, city, date, cost, notes in common). Nothing is stored until you send.
+11:00:33.700 said: The same file again
+11:00:33.704 reply: Kept 0 more of conferences; skipped 4 already there, matched on everything in the row.
+11:00:33.704 steps: the person -> the assistant -> what was meant -> what is in the file -> where it belongs* -> the placement -> the write -> the answer
+11:00:34.590 attached: conferences-bad.csv - 100 rows, 5 headings, headings on line 1 | name: text, city: text, date: text (mostly date), cost: text (mostly whole number), notes: text - Looks like it belongs with conferences (name, city, date, cost, notes in common). Nothing is stored until you send.
+11:00:39.994 said: And these
+11:00:39.995 reply: Kept 97 more of conferences. 3 could not be kept: line 12: "the 14th of never" in date is not date; line 42: "twelve thousand" in cost is not number; line 79: "n/a" in cost is not number.
+11:00:39.995 steps: the person -> the assistant -> what was meant -> what is in the file -> where it belongs* -> the placement -> the write -> the answer
+11:00:40.819 attached: empty.csv - 1 rows, 5 headings, no heading row found | column 1: text, column 2: text, column 3: text, column 4: text, column 5: text - Nothing you have stored looks like this, so it would become a new thing. Nothing is stored until you send.
+11:00:42.814 said: This one too
+11:00:42.815 reply: There was nothing in it to keep: headings but no rows. Nothing was stored.
+11:00:42.815 steps: the person -> the assistant -> what was meant -> what is in the file -> what is in it -> the answer
+11:00:45.794 said: undo
+11:00:45.795 reply: Put 97 of conferences back as they were.
+11:00:45.795 steps: the person -> the assistant -> what was meant -> what would be taken back -> putting things back -> the answer
+11:00:48.095 cancelled: reply "Stopped. Nothing was changed."; state Cancelled; things: conferences=6
+11:00:48.675 a11y: 39 interactive elements on screen, 39 named; unnamed: none
+11:00:48.676 a11y: focus order: Show the conversation > Browse everything stored > Start a new conversation > Show what happened for this reply > Show what happened for this reply > Open Lviv in the browser > Open Kyiv in the browser > Open Prague in the browser > Open Vilnius in the browser > Open Lviv in the browser > Open Kyiv in the browser > Show what happened for this reply > Show what happened for this reply > Show what happened for this reply > Show what happened for this reply > Show what happened for this reply > Show what happened for this reply > Show what happened for this reply > Show what happened for this reply > What you want to say > Attach a file > Paste a table from the clipboard > Send > Everything stored: the overview
+11:00:52.669 said: Drop the notes I was keeping on these.
+11:00:52.670 reply: Drop the notes from conferences?
+Drop the notes from conferences: 3 of your 6 conferences have a notes, and those values would go.
+This can be undone for 90 days, as long as nothing else has changed these since. [question: Drop the notes from conferences?]
+11:00:52.670 steps: the person -> the assistant -> what was meant* -> what would change* -> what it would do -> the question
+11:00:54.392 said: no
+11:00:54.393 reply: Left as it is. Nothing was changed.
+11:00:54.393 steps: the person -> the assistant -> what was meant* -> what would change* -> what it would do -> the question -> the answer
+11:00:58.305 said: Drop the notes I was keeping on these.
+11:00:58.305 reply: Drop the notes from conferences?
+Drop the notes from conferences: 3 of your 6 conferences have a notes, and those values would go.
+This can be undone for 90 days, as long as nothing else has changed these since. [question: Drop the notes from conferences?]
+11:00:58.305 steps: the person -> the assistant -> what was meant* -> what would change* -> what it would do -> the question
+11:00:59.130 crash: the process is ending now, with the question on screen

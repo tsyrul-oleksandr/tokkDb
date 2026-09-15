@@ -326,6 +326,7 @@ public sealed class ChatViewModel : Bindable
         var paths = Attachments.Select(static attachment => attachment.Path).ToList();
         if (text.Length == 0 && files.Count == 0) return;
 
+        var attached = Attachments.ToList();
         Draft = "";
         Attachments.Clear();
 
@@ -334,7 +335,14 @@ public sealed class ChatViewModel : Bindable
         Messages.Add(_inProgress);
         MessagesChanged?.Invoke();
 
-        await RunAsync(cancellation => _orchestrator.HandleAsync(new TurnInput(_selected?.Id, text, paths.Count > 0 ? paths : null, files.Count > 0 ? files : null), cancellation), "thinking");
+        var outcome = await RunAsync(cancellation => _orchestrator.HandleAsync(new TurnInput(_selected?.Id, text, paths.Count > 0 ? paths : null, files.Count > 0 ? files : null), cancellation), "thinking");
+
+        // UI-3a: a turn that failed or was stopped kept nothing, so what was attached comes back
+        // to the composer, for the person to say how to keep it and send again.
+        if (outcome is null || (!outcome.Succeeded && !outcome.IsWaiting))
+        {
+            foreach (var item in attached.Where(item => Attachments.All(present => present.Path != item.Path))) Attachments.Add(item);
+        }
     }
 
     public async Task AnswerAsync(MessageItem message, bool yes)

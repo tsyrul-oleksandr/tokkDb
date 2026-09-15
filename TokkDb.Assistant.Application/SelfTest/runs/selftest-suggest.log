@@ -1,0 +1,13 @@
+18:51:48.014 self-test started: 8 lines; database /Users/ts/Library/Containers/com.tokkdb.assistant/Data/Library/storage.db
+18:51:49.619 suggest (typed ""): Keep this: the conference in Lviv on 14 March 2025, 12 000 hryvnia | Keep these as trips: Kyiv to Lviv on 3 May 2025, 1 200 hryvnia; Lviv to Odesa on 9 June 2025, 1 850 | What can you keep for me?
+18:51:50.447 attached: conferences-2025.csv - 4 rows, 5 headings, headings on line 1 | name: text, city: text, date: date, cost: whole number, notes: text - Nothing you have stored looks like this, so it would become a new thing. Nothing is stored until you send.
+18:51:52.373 said: Keep these
+18:51:52.374 reply: Started keeping conferences 2025 and kept 4 of them.
+18:51:52.374 steps: the person -> the assistant -> what was meant -> what is in the file -> the placement -> the new thing -> the write -> the answer
+18:51:58.673 suggest (typed ""): Show my conferences from this year | EuroPython should have a different cost: it was actually $600 | Remove EuroPython
+18:52:05.282 said: How much did I spend on conferences in 2025?
+18:52:05.283 reply: 21940 in all, over 4 conferences 2025. [4 of 4 shown]
+18:52:05.283 steps: the person -> the assistant -> what was meant* -> what to look for* -> looking -> the answer
+18:52:11.719 suggest (typed ""): EuroPython should have a different cost: it was actually 6000 | Remove EuroPython | Show my conferences from this year
+18:52:15.554 suggest (typed "Show my"): Show my conferences from this year | Show my conferences from 2025 | Show my conferences in Europe | Show my conferences with cost over 5000
+18:52:16.229 self-test finished
